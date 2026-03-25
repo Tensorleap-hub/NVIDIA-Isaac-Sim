@@ -45,9 +45,26 @@ parser.add_argument("--data_dir", type=str, default=None, help="Override: output
 
 args, unknown_args = parser.parse_known_args()
 
-# ── Load YAML config ──────────────────────────────────────────────────────────
+# ── Load YAML config (with optional `extends` inheritance) ────────────────────
+def _deep_merge(base, override):
+    result = base.copy()
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
 with open(args.config, "r") as f:
-    CFG = yaml.safe_load(f)
+    raw_cfg = yaml.safe_load(f)
+
+if "extends" in raw_cfg:
+    base_path = os.path.join(os.path.dirname(os.path.abspath(args.config)), raw_cfg.pop("extends"))
+    with open(base_path, "r") as f:
+        base_cfg = yaml.safe_load(f)
+    CFG = _deep_merge(base_cfg, raw_cfg)
+else:
+    CFG = raw_cfg
 
 # ── Merge CLI overrides (CLI wins over YAML) ──────────────────────────────────
 if args.headless   is not None: CFG["run"]["headless"]    = args.headless
