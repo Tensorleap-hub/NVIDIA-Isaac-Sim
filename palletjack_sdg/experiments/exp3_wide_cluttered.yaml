@@ -1,0 +1,47 @@
+extends: "../sdg_config.yaml"
+
+# Experiment 3 — Wide angle, maximally cluttered (out-of-domain distractors)
+# Medium height, wide FOV pushes palletjacks to frame edges and distorts proportions.
+# Additional (hospital/office) distractors are deliberately out-of-domain to stress
+# the model's ability to ignore irrelevant objects.
+
+run:
+  num_frames: 2000
+  distractors: "additional"
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp3_wide_cluttered"
+
+camera:
+  camera_height_min: 1.0
+  camera_height_max: 2.5
+  camera_tilt_min: null    # look_at mode — palletjacks always in view
+  camera_tilt_max: null
+  fov_min: 85
+  fov_max: 100
+  noise_std_min: 3.0
+  noise_std_max: 6.0
+  motion_blur_strength_min: 0.0
+  motion_blur_strength_max: 0.0
+
+lighting:
+  intensity_mean: 80000.0
+  intensity_std: 500000.0   # high variance — more dark/bright frames
+
+materials:
+  roughness_min: 0.0
+  roughness_max: 1.0
+  metallic_choices: [0, 1]
+  emissive_intensity_min: 0.0
+  emissive_intensity_max: 1000.0
+  textures:
+    - "/Isaac/Materials/Textures/Patterns/nv_animalfur_pattern_greys.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_bamboo_desktop.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_fabric_square_grid.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg"

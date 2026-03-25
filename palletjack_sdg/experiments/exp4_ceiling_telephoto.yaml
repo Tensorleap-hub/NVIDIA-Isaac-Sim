@@ -1,0 +1,42 @@
+extends: "../sdg_config.yaml"
+
+# Experiment 4 — Ceiling-mounted telephoto
+# High camera, steep downward tilt, narrow FOV — simulates a fixed overhead
+# security/surveillance camera looking down at the floor at an angle.
+# No distractors keeps focus on palletjack appearance under this projection.
+
+run:
+  num_frames: 1500
+  distractors: "None"
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp4_ceiling_telephoto"
+
+camera:
+  camera_height_min: 3.0
+  camera_height_max: 5.0
+  camera_tilt_min: -45.0   # steep downward
+  camera_tilt_max: -25.0
+  fov_min: 40
+  fov_max: 60
+  noise_std_min: 1.0
+  noise_std_max: 2.0
+  motion_blur_strength_min: 0.0
+  motion_blur_strength_max: 0.0
+
+lighting:
+  intensity_mean: 120000.0
+  intensity_std: 300000.0
+
+materials:
+  roughness_min: 0.0
+  roughness_max: 0.2
+  metallic_choices: [0, 1]
+  emissive_intensity_min: 0.0
+  emissive_intensity_max: 200.0
+  textures:
+    - "/Isaac/Materials/Textures/Patterns/nv_marble.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg"

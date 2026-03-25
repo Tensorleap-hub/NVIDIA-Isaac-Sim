@@ -1,0 +1,43 @@
+extends: "../sdg_config.yaml"
+
+# Experiment 2 — Low forklift-mounted camera POV
+# Camera close to ground, slightly tilted downward — mimics a sensor mounted on
+# equipment at wheel/axle height looking slightly ahead and down.
+# Warehouse distractors add realistic scene clutter.
+
+run:
+  num_frames: 2000
+  distractors: "warehouse"
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp2_low_forklift_pov"
+
+camera:
+  camera_height_min: 0.3
+  camera_height_max: 1.0
+  camera_tilt_min: -15.0   # slight nose-down
+  camera_tilt_max: -5.0
+  fov_min: 65
+  fov_max: 80
+  noise_std_min: 1.0
+  noise_std_max: 3.0
+  motion_blur_strength_min: 0.5
+  motion_blur_strength_max: 1.5
+
+lighting:
+  intensity_mean: 100000.0
+  intensity_std: 400000.0
+
+materials:
+  roughness_min: 0.5
+  roughness_max: 1.0
+  metallic_choices: [0]
+  emissive_intensity_min: 0.0
+  emissive_intensity_max: 50.0
+  textures:
+    - "/Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_wood_shingles_brown.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg"
