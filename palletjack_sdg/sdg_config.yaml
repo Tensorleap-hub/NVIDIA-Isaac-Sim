@@ -38,31 +38,31 @@ camera:
   look_at: [0.0, 0.0, 0.0]
   #   tilt mode: explicit pitch range (degrees). Positive = nose up, negative = nose down.
   #   When set, look_at is ignored and a random yaw (0-360°) is also applied.
-  camera_tilt_min: null    # e.g. -80.0
-  camera_tilt_max: null    # e.g. -30.0
+  camera_tilt_min: -80    # e.g. -80.0
+  camera_tilt_max: -30    # e.g. -30.0
 
   # Focal length (mm), randomised per frame.
   # If set, takes precedence over fov_min/max.
-  focal_length_min: null   # e.g. 18.0
-  focal_length_max: null   # e.g. 50.0
+  focal_length_min: 18   # e.g. 18.0
+  focal_length_max: 50   # e.g. 50.0
 
   # Horizontal field-of-view (degrees), randomised per frame.
   # Used only when focal_length_min/max are null.
-  fov_min: null            # e.g. 60.0
-  fov_max: null            # e.g. 90.0
+  fov_min: 60            # e.g. 60.0
+  fov_max: 90            # e.g. 90.0
 
   # Sensor width used for FOV ↔ focal-length conversion (mm)
   horizontal_aperture: 20.955
 
   # Fixed optics — null = Isaac Sim default
-  focus_distance: null     # cm
-  f_stop: null             # e.g. 1.8
+  focus_distance: 200     # cm
+  f_stop: 1.8             # e.g. 1.8
 
   # Post-processing — sampled once per run from [min, max]
-  noise_std_min: 0.0       # sensor noise std-dev; 0 = disabled
-  noise_std_max: 0.0
-  motion_blur_strength_min: 0.0   # RTX motion-blur diameter fraction; 0 = disabled
-  motion_blur_strength_max: 0.0
+  noise_std_min: 2.0       # sensor noise std-dev; 0 = disabled
+  noise_std_max: 10.0
+  motion_blur_strength_min: 1.0   # RTX motion-blur diameter fraction; 0 = disabled
+  motion_blur_strength_max: 4.0
   jpeg_quality_min: 95     # JPEG output quality (0–100)
   jpeg_quality_max: 100
 

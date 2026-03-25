@@ -345,8 +345,7 @@ def main():
     print("Outputting data to", output_directory)
 
     writer = rep.WriterRegistry.get("KittiWriter")
-    writer.initialize(output_dir=output_directory, omit_semantic_type=True,
-                      jpeg_quality=jpeg_quality)
+    writer.initialize(output_dir=output_directory, omit_semantic_type=True)
 
     RESOLUTION = (CFG["render"]["width"], CFG["render"]["height"])
     render_product = rep.create.render_product(cam, RESOLUTION)
