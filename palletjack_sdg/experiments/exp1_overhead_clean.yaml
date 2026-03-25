@@ -5,7 +5,7 @@ extends: "../sdg_config.yaml"
 # Intended as the cleanest baseline: best-case lighting and geometry.
 
 run:
-  num_frames: 2000
+  num_frames: 20
   distractors: "None"
   data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp1_overhead_clean"
 

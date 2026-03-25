@@ -6,7 +6,7 @@ extends: "../sdg_config.yaml"
 # No distractors keeps focus on palletjack appearance under this projection.
 
 run:
-  num_frames: 1500
+  num_frames: 15
   distractors: "None"
   data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp4_ceiling_telephoto"
 

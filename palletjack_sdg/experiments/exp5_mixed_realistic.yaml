@@ -6,7 +6,7 @@ extends: "../sdg_config.yaml"
 # scenario that sits between the four extremes above.
 
 run:
-  num_frames: 2500
+  num_frames: 25
   distractors: "warehouse"
   data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp5_mixed_realistic"
 

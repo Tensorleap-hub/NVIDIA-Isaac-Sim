@@ -6,7 +6,7 @@ extends: "../sdg_config.yaml"
 # the model's ability to ignore irrelevant objects.
 
 run:
-  num_frames: 2000
+  num_frames: 20
   distractors: "additional"
   data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp3_wide_cluttered"
 

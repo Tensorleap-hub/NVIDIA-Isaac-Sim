@@ -6,7 +6,7 @@ extends: "../sdg_config.yaml"
 # Warehouse distractors add realistic scene clutter.
 
 run:
-  num_frames: 2000
+  num_frames: 20
   distractors: "warehouse"
   data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp2_low_forklift_pov"
 
