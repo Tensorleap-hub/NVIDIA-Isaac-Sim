@@ -55,8 +55,8 @@ camera:
   horizontal_aperture: 20.955
 
   # Fixed optics — null = Isaac Sim default
-  focus_distance: 200     # cm
-  f_stop: 1.8             # e.g. 1.8
+  focus_distance: null     # cm
+  f_stop: null            # e.g. 1.8
 
   # Post-processing — sampled once per run from [min, max]
   noise_std_min: 2.0       # sensor noise std-dev; 0 = disabled
