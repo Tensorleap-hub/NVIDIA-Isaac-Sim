@@ -21,32 +21,56 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-from omni.isaac.kit import SimulationApp
 import os
+import math
+import random
 import argparse
+import yaml
+import datetime
 
+# ── Argument parsing ──────────────────────────────────────────────────────────
+# All run-level args default to None so we can detect explicit overrides.
 parser = argparse.ArgumentParser("Dataset generator")
-parser.add_argument("--headless", type=bool, default=False, help="Launch script headless, default is False")
-parser.add_argument("--height", type=int, default=544, help="Height of image")
-parser.add_argument("--width", type=int, default=960, help="Width of image")
-parser.add_argument("--num_frames", type=int, default=1000, help="Number of frames to record")
-parser.add_argument("--distractors", type=str, default="warehouse", 
-                    help="Options are 'warehouse' (default), 'additional' or None")
-parser.add_argument("--data_dir", type=str, default=os.getcwd() + "/_palletjack_data", 
-                    help="Location where data will be output")
+parser.add_argument("--config", type=str,
+                    default=os.path.join(os.path.dirname(__file__), "sdg_config.yaml"),
+                    help="Path to YAML config file (default: sdg_config.yaml next to this script)")
+parser.add_argument("--headless", type=lambda x: x.lower() == "true", default=None,
+                    help="Override: launch headless")
+parser.add_argument("--height", type=int, default=None, help="Override: image height")
+parser.add_argument("--width", type=int, default=None, help="Override: image width")
+parser.add_argument("--num_frames", type=int, default=None, help="Override: number of frames")
+parser.add_argument("--distractors", type=str, default=None,
+                    help="Override: 'warehouse', 'additional', or 'None'")
+parser.add_argument("--data_dir", type=str, default=None, help="Override: output directory")
 
 args, unknown_args = parser.parse_known_args()
 
-# This is the config used to launch simulation. 
-CONFIG = {"renderer": "RayTracedLighting", "headless": args.headless, 
-          "width": args.width, "height": args.height, "num_frames": args.num_frames}
+# ── Load YAML config ──────────────────────────────────────────────────────────
+with open(args.config, "r") as f:
+    CFG = yaml.safe_load(f)
 
-simulation_app = SimulationApp(launch_config=CONFIG)
+# ── Merge CLI overrides (CLI wins over YAML) ──────────────────────────────────
+if args.headless   is not None: CFG["run"]["headless"]    = args.headless
+if args.height     is not None: CFG["render"]["height"]   = args.height
+if args.width      is not None: CFG["render"]["width"]    = args.width
+if args.num_frames is not None: CFG["run"]["num_frames"]  = args.num_frames
+if args.distractors is not None: CFG["run"]["distractors"] = args.distractors
+if args.data_dir   is not None: CFG["run"]["data_dir"]    = args.data_dir
 
+# ── Launch simulation ─────────────────────────────────────────────────────────
+from omni.isaac.kit import SimulationApp
 
-## This is the path which has the background scene in which objects will be added.
-ENV_URL = "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+LAUNCH_CONFIG = {
+    "renderer": "RayTracedLighting",
+    "headless": CFG["run"]["headless"],
+    "width":    CFG["render"]["width"],
+    "height":   CFG["render"]["height"],
+    "num_frames": CFG["run"]["num_frames"],
+}
 
+simulation_app = SimulationApp(launch_config=LAUNCH_CONFIG)
+
+# ── Post-launch imports (must come after SimulationApp) ───────────────────────
 import carb
 import omni
 import omni.usd
@@ -54,127 +78,21 @@ from omni.isaac.core.utils.nucleus import get_assets_root_path
 from omni.isaac.core.utils.stage import get_current_stage, open_stage
 from pxr import Semantics
 import omni.replicator.core as rep
-
 from omni.isaac.core.utils.semantics import get_semantics
 
-# Increase subframes if shadows/ghosting appears of moving objects
-# See known issues: https://docs.omniverse.nvidia.com/prod_extensions/prod_extensions/ext_replicator.html#known-issues
 rep.settings.carb_settings("/omni/replicator/RTSubframes", 4)
 
 
-# This is the location of the palletjacks in the simready asset library
-PALLETJACKS = ["http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Scale_A/PalletTruckScale_A01_PR_NVD_01.usd",
-            "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Heavy_Duty_A/HeavyDutyPalletTruck_A01_PR_NVD_01.usd",
-            "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Low_Profile_A/LowProfilePalletTruck_A01_PR_NVD_01.usd"]
-
-
-# The warehouse distractors which will be added to the scene and randomized
-DISTRACTORS_WAREHOUSE = 2 * ["/Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_03.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_03.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_C_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticB_01.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticD_01.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticE_01.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_BucketPlastic_B.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1268.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1482.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1683.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_291.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1454.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1513.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_03.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_05.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_C_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd",
-                            "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd"]
-
-
-## Additional distractors which can be added to the scene
-DISTRACTORS_ADDITIONAL = ["/Isaac/Environments/Hospital/Props/Pharmacy_Low.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_BedSideTable_01b.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_BooksSet_26.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_BottleB.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_BottleA.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_BottleC.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Cart_01a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Chair_02a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Chair_01a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Computer_02b.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Desk_04a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_DisposalStand_02.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_FirstAidKit_01a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_GasCart_01c.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Gurney_01b.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_HospitalBed_01b.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_MedicalBag_01a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Mirror.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_MopSet_01b.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_SideTable_02a.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_SupplyCabinet_01c.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_SupplyCart_01e.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_TrashCan.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_Washbasin.usd",
-                        "/Isaac/Environments/Hospital/Props/SM_WheelChair_01a.usd",
-                        "/Isaac/Environments/Office/Props/SM_WaterCooler.usd",
-                        "/Isaac/Environments/Office/Props/SM_TV.usd",
-                        "/Isaac/Environments/Office/Props/SM_TableC.usd",
-                        "/Isaac/Environments/Office/Props/SM_Recliner.usd",
-                        "/Isaac/Environments/Office/Props/SM_Personenleitsystem_Red1m.usd",
-                        "/Isaac/Environments/Office/Props/SM_Lamp02_162.usd",
-                        "/Isaac/Environments/Office/Props/SM_Lamp02.usd",
-                        "/Isaac/Environments/Office/Props/SM_HandDryer.usd",
-                        "/Isaac/Environments/Office/Props/SM_Extinguisher.usd"]
-
-
-# The textures which will be randomized for the wall and floor
-TEXTURES = ["/Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_marble.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_wood_shingles_brown.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_animalfur_pattern_greys.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_bamboo_desktop.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_fabric_square_grid.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_marble.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_wood_shingles_brown.jpg",
-            "/Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg"]
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def prefix_with_isaac_asset_server(relative_path):
+    assets_root_path = get_assets_root_path()
+    if assets_root_path is None:
+        raise Exception("Nucleus server not found, could not access Isaac Sim assets folder")
+    return assets_root_path + relative_path
 
 
 def update_semantics(stage, keep_semantics=[]):
-    """ Remove semantics from the stage except for keep_semantic classes"""
+    """Remove semantics from the stage except for keep_semantics classes."""
     for prim in stage.Traverse():
         if prim.HasAPI(Semantics.SemanticsAPI):
             processed_instances = set()
@@ -183,187 +101,262 @@ def update_semantics(stage, keep_semantics=[]):
                 if is_semantic:
                     instance_name = property.SplitName()[1]
                     if instance_name in processed_instances:
-                        # Skip repeated instance, instances are iterated twice due to their two semantic properties (class, data)
                         continue
-                    
                     processed_instances.add(instance_name)
                     sem = Semantics.SemanticsAPI.Get(prim, instance_name)
                     type_attr = sem.GetSemanticTypeAttr()
                     data_attr = sem.GetSemanticDataAttr()
-
-
                     for semantic_class in keep_semantics:
-                    # Check for our data classes needed for the model
                         if data_attr.Get() == semantic_class:
                             continue
                         else:
-                            # remove semantics of all other prims
                             prim.RemoveProperty(type_attr.GetName())
                             prim.RemoveProperty(data_attr.GetName())
                             prim.RemoveAPI(Semantics.SemanticsAPI, instance_name)
-    
-
-# needed for loading textures correctly
-def prefix_with_isaac_asset_server(relative_path):
-    assets_root_path = get_assets_root_path()
-    if assets_root_path is None:
-        raise Exception("Nucleus server not found, could not access Isaac Sim assets folder")
-    return assets_root_path + relative_path
 
 
-def full_distractors_list(distractor_type="warehouse"):
-    """Distractor type allowed are warehouse, additional or None. They load corresponding objects and add
-    them to the scene for DR"""
-    full_dist_list = []
-
+def full_distractors_list(distractor_type):
     if distractor_type == "warehouse":
-        for distractor in DISTRACTORS_WAREHOUSE:
-            full_dist_list.append(prefix_with_isaac_asset_server(distractor))
+        return [prefix_with_isaac_asset_server(p) for p in CFG["distractors_warehouse"]["assets"]]
     elif distractor_type == "additional":
-        for distractor in DISTRACTORS_ADDITIONAL:
-            full_dist_list.append(prefix_with_isaac_asset_server(distractor))
+        return [prefix_with_isaac_asset_server(p) for p in CFG["distractors_additional"]["assets"]]
     else:
-        print("No Distractors being added to the current scene for SDG")
-
-    return full_dist_list
+        print("No distractors being added to the current scene for SDG")
+        return []
 
 
 def full_textures_list():
-    full_tex_list = []
-    for texture in TEXTURES:
-        full_tex_list.append(prefix_with_isaac_asset_server(texture))
-
-    return full_tex_list
+    return [prefix_with_isaac_asset_server(p) for p in CFG["materials"]["textures"]]
 
 
 def add_palletjacks():
-    rep_obj_list = [rep.create.from_usd(palletjack_path, semantics=[("class", "palletjack")], count=2) for palletjack_path in PALLETJACKS]
-    rep_palletjack_group = rep.create.group(rep_obj_list)
-    return rep_palletjack_group
+    pj_cfg = CFG["palletjacks"]
+    rep_obj_list = [
+        rep.create.from_usd(asset, semantics=[("class", "palletjack")], count=pj_cfg["count_per_model"])
+        for asset in pj_cfg["assets"]
+    ]
+    return rep.create.group(rep_obj_list)
 
 
-def add_distractors(distractor_type="warehouse"):
+def add_distractors(distractor_type):
     full_distractors = full_distractors_list(distractor_type)
-    distractors = [rep.create.from_usd(distractor_path, count=1) for distractor_path in full_distractors]
-    distractor_group = rep.create.group(distractors)
-    return distractor_group
+    distractors = [rep.create.from_usd(p, count=1) for p in full_distractors]
+    return rep.create.group(distractors)
 
 
-# This will handle replicator
 def run_orchestrator():
-
     rep.orchestrator.run()
-
-    # Wait until started
     while not rep.orchestrator.get_is_started():
         simulation_app.update()
-
-    # Wait until stopped
     while rep.orchestrator.get_is_started():
         simulation_app.update()
-
     rep.BackendDispatch.wait_until_done()
     rep.orchestrator.stop()
 
 
+def write_run_config(output_dir):
+    """Dump the resolved config + run metadata to output_dir/run_config.yaml."""
+    import subprocess
+    meta = {
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "config_file": os.path.abspath(args.config),
+    }
+    try:
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        meta["git_commit"] = git_hash
+    except Exception:
+        meta["git_commit"] = "unavailable"
+
+    run_record = {"meta": meta, **CFG}
+    os.makedirs(output_dir, exist_ok=True)
+    out_path = os.path.join(output_dir, "run_config.yaml")
+    with open(out_path, "w") as f:
+        yaml.dump(run_record, f, default_flow_style=False, sort_keys=False)
+    print(f"Run config written to {out_path}")
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    # Open the environment in a new stage
-    print(f"Loading Stage {ENV_URL}")
-    open_stage(prefix_with_isaac_asset_server(ENV_URL))
+    env_url = prefix_with_isaac_asset_server(CFG["environment"]["env_url"])
+    print(f"Loading Stage {env_url}")
+    open_stage(env_url)
     stage = get_current_stage()
 
-    # Run some app updates to make sure things are properly loaded
     for i in range(100):
         if i % 10 == 0:
-            print(f"App uppdate {i}..")
+            print(f"App update {i}..")
         simulation_app.update()
-
 
     textures = full_textures_list()
     rep_palletjack_group = add_palletjacks()
-    rep_distractor_group = add_distractors(distractor_type=args.distractors)
 
-    # We only need labels for the palletjack objects
+    distractor_type = CFG["run"]["distractors"]
+    if distractor_type != "None":
+        rep_distractor_group = add_distractors(distractor_type)
+
     update_semantics(stage=stage, keep_semantics=["palletjack"])
 
-    # Create camera with Replicator API for gathering data
-    cam = rep.create.camera(clipping_range=(0.1, 1000000))
+    # ── Camera ────────────────────────────────────────────────────────────────
+    cam_cfg = CFG["camera"]
 
-    # trigger replicator pipeline
-    with rep.trigger.on_frame(num_frames=CONFIG["num_frames"]):
+    # --- Per-run post-processing values (sampled once) ---
+    noise_std = random.uniform(cam_cfg["noise_std_min"], cam_cfg["noise_std_max"])
+    motion_blur = random.uniform(
+        cam_cfg["motion_blur_strength_min"], cam_cfg["motion_blur_strength_max"]
+    )
+    jpeg_quality = random.randint(cam_cfg["jpeg_quality_min"], cam_cfg["jpeg_quality_max"])
 
-        # Move the camera around in the scene, focus on the center of warehouse
+    settings = carb.settings.get_settings()
+    if motion_blur > 0:
+        settings.set("/rtx/post/motionblur/enabled", True)
+        settings.set("/rtx/post/motionblur/maxBlurDiameterFraction", float(motion_blur))
+    if noise_std > 0:
+        settings.set("/rtx/post/tonemap/noiseStrength", float(noise_std))
+
+    # --- Focal length range (derived from focal_length_min/max or fov_min/max) ---
+    aperture = cam_cfg.get("horizontal_aperture") or 20.955
+    fl_min = cam_cfg.get("focal_length_min")
+    fl_max = cam_cfg.get("focal_length_max")
+    if fl_min is None and cam_cfg.get("fov_min") is not None:
+        # FOV (degrees) → focal length: fl = aperture / (2 * tan(fov/2))
+        fl_min = aperture / (2 * math.tan(math.radians(cam_cfg["fov_max"]) / 2))
+        fl_max = aperture / (2 * math.tan(math.radians(cam_cfg["fov_min"]) / 2))
+
+    # --- Camera creation ---
+    cam_kwargs = {
+        "clipping_range": tuple(cam_cfg["clipping_range"]),
+        "projection_type": cam_cfg.get("camera_type", "pinhole"),
+    }
+    if cam_cfg.get("focus_distance") is not None:
+        cam_kwargs["focus_distance"] = cam_cfg["focus_distance"]
+    if cam_cfg.get("f_stop") is not None:
+        cam_kwargs["f_stop"] = cam_cfg["f_stop"]
+    cam_kwargs["horizontal_aperture"] = aperture
+    cam = rep.create.camera(**cam_kwargs)
+
+    # ── Replicator pipeline ───────────────────────────────────────────────────
+    pj_cfg  = CFG["palletjacks"]
+    dr_cfg  = CFG["distractor_randomization"]
+    lt_cfg  = CFG["lighting"]
+    mat_cfg = CFG["materials"]
+
+    with rep.trigger.on_frame(num_frames=CFG["run"]["num_frames"]):
+
         with cam:
-            rep.modify.pose(position=rep.distribution.uniform((-9.2, -11.8, 0.4), (7.2, 15.8, 4)),
-                            look_at=(0, 0, 0))
+            pos_min = tuple(cam_cfg["position_min"]) + (cam_cfg["camera_height_min"],)
+            pos_max = tuple(cam_cfg["position_max"]) + (cam_cfg["camera_height_max"],)
+            pose_kwargs = {"position": rep.distribution.uniform(pos_min, pos_max)}
+            if cam_cfg.get("camera_tilt_min") is not None:
+                pose_kwargs["rotation"] = rep.distribution.uniform(
+                    (cam_cfg["camera_tilt_min"], 0.0,   0.0),
+                    (cam_cfg["camera_tilt_max"], 0.0, 360.0),
+                )
+            else:
+                pose_kwargs["look_at"] = tuple(cam_cfg["look_at"])
+            rep.modify.pose(**pose_kwargs)
 
-        # Get the Palletjack body mesh and modify its color
+            if fl_min is not None:
+                rep.modify.attribute("focalLength", rep.distribution.uniform(fl_min, fl_max))
+
         with rep.get.prims(path_pattern="SteerAxles"):
-            rep.randomizer.color(colors=rep.distribution.uniform((0, 0, 0), (1, 1, 1)))
+            rep.randomizer.color(
+                colors=rep.distribution.uniform(
+                    tuple(pj_cfg["color_min"]),
+                    tuple(pj_cfg["color_max"]),
+                )
+            )
 
-        # Randomize the pose of all the added palletjacks
         with rep_palletjack_group:
-            rep.modify.pose(position=rep.distribution.uniform((-6, -6, 0), (6, 12, 0)),
-                            rotation=rep.distribution.uniform((0, 0, 0), (0, 0, 360)),
-                            scale=rep.distribution.uniform((0.01, 0.01, 0.01), (0.01, 0.01, 0.01)))
+            rep.modify.pose(
+                position=rep.distribution.uniform(
+                    tuple(pj_cfg["position_min"]),
+                    tuple(pj_cfg["position_max"]),
+                ),
+                rotation=rep.distribution.uniform(
+                    tuple(pj_cfg["rotation_min"]),
+                    tuple(pj_cfg["rotation_max"]),
+                ),
+                scale=rep.distribution.uniform(
+                    tuple(pj_cfg["scale_min"]),
+                    tuple(pj_cfg["scale_max"]),
+                ),
+            )
 
-        # Modify the pose of all the distractors in the scene
-        if args.distractors != "None":
+        if distractor_type != "None":
             with rep_distractor_group:
-                rep.modify.pose(position=rep.distribution.uniform((-6, -6, 0), (6, 12, 0)),
-                                    rotation=rep.distribution.uniform((0, 0, 0), (0, 0, 360)),
-                                    scale=rep.distribution.uniform(1, 1.5))
+                rep.modify.pose(
+                    position=rep.distribution.uniform(
+                        tuple(dr_cfg["position_min"]),
+                        tuple(dr_cfg["position_max"]),
+                    ),
+                    rotation=rep.distribution.uniform(
+                        tuple(dr_cfg["rotation_min"]),
+                        tuple(dr_cfg["rotation_max"]),
+                    ),
+                    scale=rep.distribution.uniform(
+                        dr_cfg["scale_min"],
+                        dr_cfg["scale_max"],
+                    ),
+                )
 
-        # Randomize the lighting of the scene
         with rep.get.prims(path_pattern="RectLight"):
-            rep.modify.attribute("color", rep.distribution.uniform((0, 0, 0), (1, 1, 1)))
-            rep.modify.attribute("intensity", rep.distribution.normal(100000.0, 600000.0))
-            rep.modify.visibility(rep.distribution.choice([True, False, False, False, False, False, False]))
+            rep.modify.attribute(
+                "color",
+                rep.distribution.uniform(tuple(lt_cfg["color_min"]), tuple(lt_cfg["color_max"])),
+            )
+            rep.modify.attribute(
+                "intensity",
+                rep.distribution.normal(lt_cfg["intensity_mean"], lt_cfg["intensity_std"]),
+            )
+            rep.modify.visibility(
+                rep.distribution.choice(lt_cfg["visibility_choices"])
+            )
 
-        # select floor material
-        random_mat_floor = rep.create.material_omnipbr(diffuse_texture=rep.distribution.choice(textures),
-                                                    roughness=rep.distribution.uniform(0, 1),
-                                                    metallic=rep.distribution.choice([0, 1]),
-                                                    emissive_texture=rep.distribution.choice(textures),
-                                                    emissive_intensity=rep.distribution.uniform(0, 1000),)
-        
-        
+        random_mat_floor = rep.create.material_omnipbr(
+            diffuse_texture=rep.distribution.choice(textures),
+            roughness=rep.distribution.uniform(mat_cfg["roughness_min"], mat_cfg["roughness_max"]),
+            metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
+            emissive_texture=rep.distribution.choice(textures),
+            emissive_intensity=rep.distribution.uniform(
+                mat_cfg["emissive_intensity_min"], mat_cfg["emissive_intensity_max"]
+            ),
+        )
         with rep.get.prims(path_pattern="SM_Floor"):
             rep.randomizer.materials(random_mat_floor)
 
-        # select random wall material
-        random_mat_wall = rep.create.material_omnipbr(diffuse_texture=rep.distribution.choice(textures),
-                                                    roughness=rep.distribution.uniform(0, 1),
-                                                    metallic=rep.distribution.choice([0, 1]),
-                                                    emissive_texture=rep.distribution.choice(textures),
-                                                    emissive_intensity=rep.distribution.uniform(0, 1000),)
-
-        
+        random_mat_wall = rep.create.material_omnipbr(
+            diffuse_texture=rep.distribution.choice(textures),
+            roughness=rep.distribution.uniform(mat_cfg["roughness_min"], mat_cfg["roughness_max"]),
+            metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
+            emissive_texture=rep.distribution.choice(textures),
+            emissive_intensity=rep.distribution.uniform(
+                mat_cfg["emissive_intensity_min"], mat_cfg["emissive_intensity_max"]
+            ),
+        )
         with rep.get.prims(path_pattern="SM_Wall"):
             rep.randomizer.materials(random_mat_wall)
 
+    # ── Writer ────────────────────────────────────────────────────────────────
+    output_directory = CFG["run"]["data_dir"]
+    print("Outputting data to", output_directory)
 
-    # Set up the writer
     writer = rep.WriterRegistry.get("KittiWriter")
+    writer.initialize(output_dir=output_directory, omit_semantic_type=True,
+                      jpeg_quality=jpeg_quality)
 
-    # output directory of writer
-    output_directory = args.data_dir
-    print("Outputting data to ", output_directory)
-
-    # use writer for bounding boxes, rgb and segmentation
-    writer.initialize(output_dir=output_directory,
-                    omit_semantic_type=True,)
-
-
-    # attach camera render products to wrieter so that data is outputted
-    RESOLUTION = (CONFIG["width"], CONFIG["height"])
-    render_product  = rep.create.render_product(cam, RESOLUTION)
+    RESOLUTION = (CFG["render"]["width"], CFG["render"]["height"])
+    render_product = rep.create.render_product(cam, RESOLUTION)
     writer.attach(render_product)
 
-    # run rep pipeline
     run_orchestrator()
     simulation_app.update()
 
+    # ── Dump resolved config alongside the data ───────────────────────────────
+    write_run_config(output_directory)
 
 
 if __name__ == "__main__":
@@ -372,7 +365,6 @@ if __name__ == "__main__":
     except Exception as e:
         carb.log_error(f"Exception: {e}")
         import traceback
-
         traceback.print_exc()
     finally:
         simulation_app.close()

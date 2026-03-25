@@ -1,0 +1,209 @@
+# Base SDG configuration for palletjack dataset generation.
+# CLI args (--headless, --height, --width, --num_frames, --distractors, --data_dir)
+# override these values when passed explicitly.
+
+# ── Run settings ──────────────────────────────────────────────────────────────
+run:
+  headless: true
+  num_frames: 2000
+  distractors: "warehouse"   # "warehouse" | "additional" | "None"
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/default"
+
+# ── Render resolution ─────────────────────────────────────────────────────────
+render:
+  width: 960
+  height: 544
+
+# ── Environment ───────────────────────────────────────────────────────────────
+environment:
+  env_url: "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+
+# ── Camera ────────────────────────────────────────────────────────────────────
+camera:
+  # Projection type: pinhole | fisheyeEquidistant | fisheyePolynomial | fisheyeOrthographic
+  camera_type: "pinhole"
+
+  clipping_range: [0.1, 1000000.0]
+
+  # Horizontal position (XY plane), sampled uniformly
+  position_min: [-9.2, -11.8]
+  position_max: [7.2,   15.8]
+
+  # Height (Z) above floor, sampled independently
+  camera_height_min: 0.4
+  camera_height_max: 4.0
+
+  # Orientation — two modes (mutually exclusive):
+  #   look_at mode (default): camera always points at a fixed world point
+  look_at: [0.0, 0.0, 0.0]
+  #   tilt mode: explicit pitch range (degrees). Positive = nose up, negative = nose down.
+  #   When set, look_at is ignored and a random yaw (0-360°) is also applied.
+  camera_tilt_min: null    # e.g. -80.0
+  camera_tilt_max: null    # e.g. -30.0
+
+  # Focal length (mm), randomised per frame.
+  # If set, takes precedence over fov_min/max.
+  focal_length_min: null   # e.g. 18.0
+  focal_length_max: null   # e.g. 50.0
+
+  # Horizontal field-of-view (degrees), randomised per frame.
+  # Used only when focal_length_min/max are null.
+  fov_min: null            # e.g. 60.0
+  fov_max: null            # e.g. 90.0
+
+  # Sensor width used for FOV ↔ focal-length conversion (mm)
+  horizontal_aperture: 20.955
+
+  # Fixed optics — null = Isaac Sim default
+  focus_distance: null     # cm
+  f_stop: null             # e.g. 1.8
+
+  # Post-processing — sampled once per run from [min, max]
+  noise_std_min: 0.0       # sensor noise std-dev; 0 = disabled
+  noise_std_max: 0.0
+  motion_blur_strength_min: 0.0   # RTX motion-blur diameter fraction; 0 = disabled
+  motion_blur_strength_max: 0.0
+  jpeg_quality_min: 95     # JPEG output quality (0–100)
+  jpeg_quality_max: 100
+
+# ── Palletjacks ───────────────────────────────────────────────────────────────
+palletjacks:
+  count_per_model: 2
+  assets:
+    - "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Scale_A/PalletTruckScale_A01_PR_NVD_01.usd"
+    - "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Heavy_Duty_A/HeavyDutyPalletTruck_A01_PR_NVD_01.usd"
+    - "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Low_Profile_A/LowProfilePalletTruck_A01_PR_NVD_01.usd"
+  position_min: [-6.0, -6.0, 0.0]
+  position_max: [6.0,  12.0, 0.0]
+  rotation_min: [0.0, 0.0,   0.0]
+  rotation_max: [0.0, 0.0, 360.0]
+  scale_min: [0.01, 0.01, 0.01]
+  scale_max: [0.01, 0.01, 0.01]
+  # Color randomization applied to SteerAxles mesh
+  color_min: [0.0, 0.0, 0.0]
+  color_max: [1.0, 1.0, 1.0]
+
+# ── Distractor randomization (shared for both pools) ─────────────────────────
+distractor_randomization:
+  position_min: [-6.0, -6.0, 0.0]
+  position_max: [6.0,  12.0, 0.0]
+  rotation_min: [0.0, 0.0,   0.0]
+  rotation_max: [0.0, 0.0, 360.0]
+  scale_min: 1.0
+  scale_max: 1.5
+
+# ── Warehouse distractor asset pool ──────────────────────────────────────────
+distractors_warehouse:
+  assets:
+    - "/Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_03.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_03.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_C_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticB_01.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticD_01.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticE_01.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BucketPlastic_B.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1268.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1482.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1683.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_291.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1454.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1513.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_03.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_05.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_C_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd"
+    - "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd"
+
+# ── Additional distractor asset pool ─────────────────────────────────────────
+distractors_additional:
+  assets:
+    - "/Isaac/Environments/Hospital/Props/Pharmacy_Low.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_BedSideTable_01b.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_BooksSet_26.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_BottleB.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_BottleA.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_BottleC.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Cart_01a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Chair_02a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Chair_01a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Computer_02b.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Desk_04a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_DisposalStand_02.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_FirstAidKit_01a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_GasCart_01c.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Gurney_01b.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_HospitalBed_01b.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_MedicalBag_01a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Mirror.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_MopSet_01b.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_SideTable_02a.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_SupplyCabinet_01c.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_SupplyCart_01e.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_TrashCan.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_Washbasin.usd"
+    - "/Isaac/Environments/Hospital/Props/SM_WheelChair_01a.usd"
+    - "/Isaac/Environments/Office/Props/SM_WaterCooler.usd"
+    - "/Isaac/Environments/Office/Props/SM_TV.usd"
+    - "/Isaac/Environments/Office/Props/SM_TableC.usd"
+    - "/Isaac/Environments/Office/Props/SM_Recliner.usd"
+    - "/Isaac/Environments/Office/Props/SM_Personenleitsystem_Red1m.usd"
+    - "/Isaac/Environments/Office/Props/SM_Lamp02_162.usd"
+    - "/Isaac/Environments/Office/Props/SM_Lamp02.usd"
+    - "/Isaac/Environments/Office/Props/SM_HandDryer.usd"
+    - "/Isaac/Environments/Office/Props/SM_Extinguisher.usd"
+
+# ── Lighting ──────────────────────────────────────────────────────────────────
+lighting:
+  color_min: [0.0, 0.0, 0.0]
+  color_max: [1.0, 1.0, 1.0]
+  intensity_mean: 100000.0
+  intensity_std: 600000.0
+  # List passed to rep.distribution.choice — duplicate False to lower on-probability
+  visibility_choices: [true, false, false, false, false, false, false]
+
+# ── Materials (floor + wall share same texture pool) ─────────────────────────
+materials:
+  roughness_min: 0.0
+  roughness_max: 1.0
+  metallic_choices: [0, 1]
+  emissive_intensity_min: 0.0
+  emissive_intensity_max: 1000.0
+  textures:
+    - "/Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_marble.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_wood_shingles_brown.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_animalfur_pattern_greys.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_bamboo_desktop.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_fabric_square_grid.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg"
