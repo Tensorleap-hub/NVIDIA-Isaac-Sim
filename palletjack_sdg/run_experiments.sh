@@ -1,15 +1,20 @@
 #!/bin/bash
 
-ISAAC_SIM_PATH='/isaac-sim'
-SCRIPT="$ISAAC_SIM_PATH/palletjack_sdg/standalone_palletjack_sdg.py"
-EXPERIMENTS_DIR="$ISAAC_SIM_PATH/palletjack_sdg/experiments"
+# Path to Isaac Sim installation (contains python.sh)
+ISAAC_SIM_PATH="${ISAAC_SIM_PATH:-/opt/IsaacSim}"
+
+# All project paths derived from this script's location
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT="$SCRIPT_DIR/standalone_palletjack_sdg.py"
+EXPERIMENTS_DIR="$SCRIPT_DIR/experiments"
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BASE_OUTPUT="$ISAAC_SIM_PATH/palletjack_sdg/palletjack_data/test_${TIMESTAMP}"
+BASE_OUTPUT="$SCRIPT_DIR/palletjack_data/test_${TIMESTAMP}"
 
 echo "Starting experiments — output root: $BASE_OUTPUT"
+echo "Isaac Sim: $ISAAC_SIM_PATH"
 
-cd $ISAAC_SIM_PATH
+cd "$ISAAC_SIM_PATH"
 
 for EXP_CONFIG in \
     "$EXPERIMENTS_DIR/exp1_overhead_clean.yaml" \
