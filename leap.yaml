@@ -1,0 +1,12 @@
+projectId: 69c4f18fb0a86cde379a8690
+secretId: ""
+branch: master
+entryFile: leap_integration.py
+include:
+    - leap_integration.py
+    - tensorleap_requirements.txt
+    - rtdetr_warehouse/*.py
+    - rtdetr_warehouse/project_config.yaml
+    - rtdetr_native/*.py
+    - rtdetrv2_r18vd_120e_raw_outputs.onnx
+pythonVersion: py310
