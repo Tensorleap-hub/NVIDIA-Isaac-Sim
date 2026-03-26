@@ -17,6 +17,8 @@ camera:
   camera_tilt_max: -25.0
   fov_min: 40
   fov_max: 60
+  color_min: [0.85, 0.90, 1.00]   # cool/bluish tint — overhead fluorescent lighting
+  color_max: [1.00, 1.00, 1.15]
   noise_std_min: 1.0
   noise_std_max: 2.0
   motion_blur_strength_min: 0.0
@@ -25,6 +27,14 @@ camera:
 lighting:
   intensity_mean: 120000.0
   intensity_std: 300000.0
+
+palletjacks:
+  color_min: [0.3, 0.3, 0.3]
+  color_max: [1.0, 1.0, 1.0]   # brighter tones — high contrast needed from steep angle
+  scale_min: [0.009, 0.009, 0.009]
+  scale_max: [0.011, 0.011, 0.011]
+
+# distractor_randomization inherited from base (unused — no distractors)
 
 materials:
   roughness_min: 0.0

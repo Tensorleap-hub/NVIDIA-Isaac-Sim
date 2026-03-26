@@ -279,6 +279,12 @@ def main():
             if fl_min is not None:
                 rep.modify.attribute("focalLength", rep.distribution.uniform(fl_min, fl_max))
 
+            if cam_cfg.get("color_min") is not None:
+                rep.modify.attribute("colorGain", rep.distribution.uniform(
+                    tuple(cam_cfg["color_min"]),
+                    tuple(cam_cfg["color_max"]),
+                ))
+
         with rep.get.prims(path_pattern="SteerAxles"):
             rep.randomizer.color(
                 colors=rep.distribution.uniform(

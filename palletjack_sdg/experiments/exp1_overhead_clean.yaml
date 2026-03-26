@@ -16,6 +16,8 @@ camera:
   camera_tilt_max: null
   fov_min: 60
   fov_max: 90
+  color_min: [0.95, 0.95, 0.95]   # near-neutral — minimal tint, clean baseline
+  color_max: [1.05, 1.05, 1.05]
   noise_std_min: 0.0
   noise_std_max: 0.0
   motion_blur_strength_min: 0.0
@@ -24,6 +26,14 @@ camera:
 lighting:
   intensity_mean: 150000.0
   intensity_std: 200000.0   # more consistent lighting than base
+
+palletjacks:
+  color_min: [0.0, 0.0, 0.0]
+  color_max: [1.0, 1.0, 1.0]   # full color range — cleanest baseline
+  scale_min: [0.009, 0.009, 0.009]
+  scale_max: [0.011, 0.011, 0.011]
+
+# distractor_randomization inherited from base (unused — no distractors)
 
 materials:
   roughness_min: 0.0

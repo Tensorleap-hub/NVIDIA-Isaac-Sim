@@ -17,6 +17,8 @@ camera:
   camera_tilt_max: -5.0
   fov_min: 65
   fov_max: 80
+  color_min: [0.85, 0.80, 0.70]   # warm/yellow industrial tint (sodium lighting)
+  color_max: [1.10, 1.00, 0.85]
   noise_std_min: 1.0
   noise_std_max: 3.0
   motion_blur_strength_min: 0.5
@@ -25,6 +27,20 @@ camera:
 lighting:
   intensity_mean: 100000.0
   intensity_std: 400000.0
+
+palletjacks:
+  color_min: [0.0, 0.0, 0.0]
+  color_max: [0.5, 0.5, 0.5]   # darker industrial tones — low-angle reveals more shadow
+  scale_min: [0.008, 0.008, 0.008]
+  scale_max: [0.012, 0.012, 0.012]
+
+distractor_randomization:
+  position_min: [-8.0, -8.0, 0.0]
+  position_max: [8.0,  14.0, 0.0]   # wider spread — more likely to be in low-angle FOV
+  rotation_min: [0.0, 0.0,   0.0]
+  rotation_max: [0.0, 0.0, 360.0]
+  scale_min: 1.0
+  scale_max: 2.0                     # larger distractors dominate low-angle view
 
 materials:
   roughness_min: 0.5

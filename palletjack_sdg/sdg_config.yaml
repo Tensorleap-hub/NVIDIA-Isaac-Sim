@@ -58,6 +58,12 @@ camera:
   focus_distance: null     # cm
   f_stop: null            # e.g. 1.8
 
+  # Per-frame RGB color gain applied to the camera output.
+  # Each channel sampled independently from uniform(min[c], max[c]).
+  # [1,1,1] = neutral. null = disabled.
+  color_min: null   # e.g. [0.8, 0.8, 0.8]
+  color_max: null   # e.g. [1.2, 1.2, 1.2]
+
   # Post-processing — sampled once per run from [min, max]
   noise_std_min: 2.0       # sensor noise std-dev; 0 = disabled
   noise_std_max: 10.0
