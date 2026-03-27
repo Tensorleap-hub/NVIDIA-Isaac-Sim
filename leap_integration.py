@@ -17,6 +17,7 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 from rtdetr_warehouse import (
     bb_decoder,
     confusion_matrix_metric,
+    data_type_metadata,
     get_per_sample_metrics,
     gt_boxes_encoder,
     gt_encoder,
@@ -30,6 +31,7 @@ from rtdetr_warehouse import (
     rtdetr_loss_components_native,
     rtdetr_total_loss_native,
     sample_metadata,
+    synth_metadata,
 )
 from rtdetr_warehouse.config import CLASS_NAMES, CONFIG, abs_path_from_root
 
@@ -67,22 +69,10 @@ def check_integration(idx, subset):
     gt_valid   = gt_valid_mask_encoder(idx, subset)
     orig_sizes = input_size_encoder(idx, subset)
 
-    # Prepare batched inputs for ONNX
-    if idx is None:
-        # TL internal validation call: encoders return TempMapping, pass as-is
-        predictions = model.run(None, {
-            "images": image,
-            "orig_target_sizes": orig_sizes,
-        })
-    else:
-        image_for_model = np.expand_dims(image, axis=0) if image.ndim == 3 else image
-        orig_sizes_model = orig_sizes.astype(np.int64)
-        if orig_sizes_model.ndim == 1:
-            orig_sizes_model = np.expand_dims(orig_sizes_model, axis=0)
-        predictions = model.run(None, {
-            "images": image_for_model,
-            "orig_target_sizes": orig_sizes_model,
-        })
+    predictions = model.run(None, {
+        "images": image,
+        "orig_target_sizes": orig_sizes,
+    })
 
     labels    = predictions[OUTPUT_INDICES["labels"]]
     boxes_xyxy = predictions[OUTPUT_INDICES["boxes"]]
@@ -95,9 +85,6 @@ def check_integration(idx, subset):
     vis_gt    = bb_decoder(image, gt, labels, boxes_xyxy, scores)
     vis_pred  = pred_bb_decoder(image, labels, boxes_xyxy, scores)
 
-    _ = vis_image
-    _ = vis_gt
-    _ = vis_pred
     if bool(CONFIG.get("plot_visualizers", False)):
         visualize(vis_image, title="Input image")
         visualize(vis_gt,    title="GT + predictions")
@@ -112,7 +99,10 @@ def check_integration(idx, subset):
     _ = rtdetr_loss_components_native(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid)
 
     # Metadata
+    _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
+
+    _ = synth_metadata(idx, subset)
 
 
 if __name__ == "__main__":

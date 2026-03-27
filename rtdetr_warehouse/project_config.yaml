@@ -47,8 +47,13 @@ loss:
     alpha: 0.25
     gamma: 2.0
 
+max_samples:   # null = no limit; set to e.g. 100 to cap each subset
+
 score_threshold: 0.3
 max_detections: 300
 plot_visualizers: true
 check_subset_index: 0
 check_sample_index: 0
+
+synth_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse"

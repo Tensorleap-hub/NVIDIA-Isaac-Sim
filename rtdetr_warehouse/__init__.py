@@ -12,7 +12,8 @@ from .losses import (
     rtdetr_total_loss_native,
     rtdetr_loss_components_native,
 )
-from .metadata import sample_metadata
+from .metadata import data_type_metadata, sample_metadata
+from .synth_metadata import synth_metadata
 from .metrics import confusion_matrix_metric, get_per_sample_metrics
 from .visualizers import bb_decoder, image_visualizer, pred_bb_decoder
 
@@ -27,7 +28,9 @@ __all__ = [
     "compute_rtdetr_native_losses",
     "rtdetr_total_loss_native",
     "rtdetr_loss_components_native",
+    "data_type_metadata",
     "sample_metadata",
+    "synth_metadata",
     "confusion_matrix_metric",
     "get_per_sample_metrics",
     "bb_decoder",

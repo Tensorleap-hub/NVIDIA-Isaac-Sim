@@ -4,6 +4,7 @@ from typing import List
 
 import cv2
 import numpy as np
+import yaml
 
 from code_loader.contract.datasetclasses import PreprocessResponse
 from code_loader.contract.enums import DataStateType
@@ -70,10 +71,127 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         elif subset in val_subsets:
             val_records.append(record)
 
+    synth_records = _load_synth_records()
+
+    max_samples = CONFIG.get("max_samples")
+    if max_samples is not None:
+        train_records = train_records[:max_samples]
+        val_records   = val_records[:max_samples]
+        synth_records = synth_records[:max_samples]
+
     return [
         PreprocessResponse(data=train_records, length=len(train_records), state=DataStateType.training),
-        PreprocessResponse(data=val_records, length=len(val_records), state=DataStateType.validation),
+        PreprocessResponse(data=val_records,   length=len(val_records),   state=DataStateType.validation),
+        PreprocessResponse(data=synth_records, length=len(synth_records), state=DataStateType.additional),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Synthetic data loading (KITTI annotations, Isaac Sim)
+# ---------------------------------------------------------------------------
+
+# KITTI class name → LOCO category index
+_SYNTH_CLASS_TO_IDX = {"palletjack": 4}  # pallet_truck
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base, returning a new dict."""
+    result = base.copy()
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _load_sdg_base_config() -> dict:
+    sdg_path = os.path.join(os.path.dirname(__file__), "..", "palletjack_sdg", "sdg_config.yaml")
+    sdg_path = os.path.normpath(sdg_path)
+    if not os.path.isfile(sdg_path):
+        return {}
+    with open(sdg_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+_SDG_BASE_CONFIG = _load_sdg_base_config()
+
+
+def _load_synth_records() -> list:
+    """
+    Load synthetic frames from all palletjack_run_*/exp* directories.
+
+    Each experiment's run_config.yaml is deep-merged on top of the base
+    sdg_config.yaml so missing fields always have the sim default.
+    Each record includes 'run_number' and 'experiment' for metadata.
+    """
+    base = CONFIG.get("synth_data", {}).get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    records = []
+    run_dirs = sorted(
+        d for d in os.listdir(base)
+        if d.startswith("palletjack_run_") and os.path.isdir(os.path.join(base, d))
+    )
+
+    for run_dir in run_dirs:
+        run_number = int(run_dir.split("_")[-1])
+        run_path = os.path.join(base, run_dir)
+
+        exp_dirs = sorted(
+            d for d in os.listdir(run_path)
+            if os.path.isdir(os.path.join(run_path, d))
+        )
+
+        for exp_dir in exp_dirs:
+            exp_path = os.path.join(run_path, exp_dir)
+            run_config_path = os.path.join(exp_path, "run_config.yaml")
+            if not os.path.isfile(run_config_path):
+                continue
+
+            with open(run_config_path, "r") as f:
+                exp_config = yaml.safe_load(f)
+            run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+            rgb_dir = os.path.join(exp_path, "Camera", "rgb")
+            ann_dir = os.path.join(exp_path, "Camera", "object_detection")
+            num_frames = int(run_config.get("run", {}).get("num_frames", 0))
+            orig_w = int(run_config.get("render", {}).get("width", 960))
+            orig_h = int(run_config.get("render", {}).get("height", 544))
+
+            for i in range(num_frames):
+                img_path = os.path.join(rgb_dir, f"{i}.png")
+                ann_path = os.path.join(ann_dir, f"{i}.txt")
+
+                anns = []
+                if os.path.isfile(ann_path):
+                    with open(ann_path, "r") as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) < 8:
+                                continue
+                            if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
+                                continue
+                            x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
+                            anns.append({
+                                "category_id": 11,
+                                "bbox": [x1, y1, x2 - x1, y2 - y1],
+                            })
+
+                records.append({
+                    "image_id": i,
+                    "path": img_path,
+                    "width": orig_w,
+                    "height": orig_h,
+                    "subset": "synth",
+                    "anns": anns,
+                    "run_config": run_config,
+                    "run_number": run_number,
+                    "experiment": exp_dir,
+                })
+
+    return records
 
 
 # ---------------------------------------------------------------------------

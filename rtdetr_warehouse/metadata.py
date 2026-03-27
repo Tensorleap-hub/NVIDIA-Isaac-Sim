@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 
 from code_loader.contract.datasetclasses import PreprocessResponse
+from code_loader.contract.enums import DatasetMetadataType
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_metadata
 
 from rtdetr_warehouse.config import CONFIG, CLASS_NAMES, COCO_ID_TO_IDX
@@ -9,6 +10,12 @@ from rtdetr_warehouse.config import CONFIG, CLASS_NAMES, COCO_ID_TO_IDX
 
 def _safe_stat(values: np.ndarray, reducer) -> float:
     return float(np.nan) if len(values) == 0 else float(reducer(values))
+
+
+@tensorleap_metadata("data_type", DatasetMetadataType.string)
+def data_type_metadata(idx: int, preprocessing: PreprocessResponse) -> str:
+    record = preprocessing.data[idx]
+    return "synth" if isinstance(record, dict) and "run_config" in record else "real"
 
 
 @tensorleap_metadata("metadata")
