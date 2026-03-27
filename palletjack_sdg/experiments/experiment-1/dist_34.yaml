@@ -1,0 +1,59 @@
+extends: ../../sdg_config.yaml
+run:
+  num_frames: 128
+  distractors: None
+  data_dir: /placeholder
+camera:
+  camera_height_min: 1.4042
+  camera_height_max: 4.6145
+  fov_min: 47
+  fov_max: 60
+  noise_std_min: 2
+  noise_std_max: 6
+  motion_blur_strength_min: 0.4742
+  motion_blur_strength_max: 0.5209
+  color_min:
+  - 0.6
+  - 0.6
+  - 0.6
+  color_max:
+  - 1.4
+  - 1.4
+  - 1.4
+lighting:
+  intensity_mean: 90950.0
+  intensity_std: 300097.0
+materials:
+  roughness_min: 0.2746
+  roughness_max: 0.5937
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_bamboo_desktop.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+  metallic_choices:
+  - 0
+  - 1
+palletjacks:
+  count_per_model: 2
+  color_min:
+  - 0.3
+  - 0.3
+  - 0.3
+  color_max:
+  - 1.0
+  - 1.0
+  - 1.0
+  scale_min:
+  - 0.009
+  - 0.009
+  - 0.009
+  scale_max:
+  - 0.011
+  - 0.011
+  - 0.011

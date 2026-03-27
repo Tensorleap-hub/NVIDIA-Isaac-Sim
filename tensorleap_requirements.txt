@@ -3,6 +3,5 @@ pyyaml
 scipy
 torch>=2.2.0
 torchvision>=0.17.0
-onnxruntime-gpu>=1.17.0; sys_platform == "linux"
-onnxruntime>=1.17.0; sys_platform != "linux"
+onnxruntime>=1.15.0,<1.16.0
 opencv-python-headless

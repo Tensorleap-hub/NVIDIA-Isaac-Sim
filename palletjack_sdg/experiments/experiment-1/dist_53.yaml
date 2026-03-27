@@ -1,0 +1,36 @@
+extends: ../../sdg_config.yaml
+run:
+  num_frames: 128
+  distractors: None
+  data_dir: /placeholder
+camera:
+  camera_height_min: 0.3492
+  camera_height_max: 3.1065
+  fov_min: 49
+  fov_max: 60
+  noise_std_min: 0
+  noise_std_max: 6
+  motion_blur_strength_min: 0.1219
+  motion_blur_strength_max: 0.5555
+lighting:
+  intensity_mean: 80529.0
+  intensity_std: 458990.0
+materials:
+  roughness_min: 0.449
+  roughness_max: 1.0
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg
+  metallic_choices:
+  - 1
+palletjacks:
+  count_per_model: 2
