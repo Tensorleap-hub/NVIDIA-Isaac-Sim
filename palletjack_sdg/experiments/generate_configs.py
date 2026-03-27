@@ -88,14 +88,13 @@ def main():
 
     out_dir = args.out_dir
     if out_dir is None:
-        csv_stem = os.path.splitext(os.path.basename(csv_path))[0]
-        out_dir = os.path.join(os.path.dirname(csv_path), csv_stem)
+        out_dir = os.path.dirname(csv_path)
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
     # Compute relative path from out_dir back to sdg_config.yaml
-    sdg_config = os.path.join(script_dir, "..", "sdg_config.yaml")
-    extends_path = os.path.relpath(os.path.abspath(sdg_config), out_dir)
+    sdg_config_abs = os.path.abspath(os.path.join(script_dir, "..", "sdg_config.yaml"))
+    extends_path = os.path.relpath(sdg_config_abs, out_dir)
 
     with open(csv_path, newline="") as f:
         rows = list(csv.DictReader(f))

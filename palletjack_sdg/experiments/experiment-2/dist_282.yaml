@@ -1,4 +1,4 @@
-extends: ../../../sdg_config.yaml
+extends: ../../sdg_config.yaml
 run:
   num_frames: 128
   distractors: additional
