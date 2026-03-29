@@ -1,7 +1,8 @@
 #!/bin/bash
 # Usage:
-#   ./run_experiments.sh                        — runs the 5 hand-crafted experiment configs
-#   ./run_experiments.sh experiments/experiment-1  — runs all *.yaml in the given directory
+#   ./run_experiments.sh                               — runs the 5 hand-crafted experiment configs
+#   ./run_experiments.sh experiments/experiment-1      — runs all *.yaml in the given directory
+#   ./run_experiments.sh experiments/experiment-1 64   — same, but overrides num_frames to 64
 
 # Path to Isaac Sim installation (contains python.sh)
 ISAAC_SIM_PATH="${ISAAC_SIM_PATH:-/opt/IsaacSim}"
@@ -11,6 +12,12 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SCRIPT="$SCRIPT_DIR/standalone_palletjack_sdg.py"
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+
+# ── Parse arguments ────────────────────────────────────────────────────────────
+N_SAMPLES_OVERRIDE=""
+if [ -n "$2" ]; then
+    N_SAMPLES_OVERRIDE="$2"
+fi
 
 # ── Resolve config directory ───────────────────────────────────────────────────
 if [ -n "$1" ]; then
@@ -44,6 +51,7 @@ echo "  Config dir : $CONFIG_DIR"
 echo "  Output root: $BASE_OUTPUT"
 echo "  Isaac Sim  : $ISAAC_SIM_PATH"
 echo "  Configs    : ${#CONFIGS[@]}"
+[ -n "$N_SAMPLES_OVERRIDE" ] && echo "  n_samples  : $N_SAMPLES_OVERRIDE (override)"
 echo ""
 
 cd "$ISAAC_SIM_PATH"
@@ -52,7 +60,9 @@ for EXP_CONFIG in "${CONFIGS[@]}"; do
     EXP_NAME="$(basename "$EXP_CONFIG" .yaml)"
     OUTPUT_DIR="$BASE_OUTPUT/$EXP_NAME"
     echo "--- Running $EXP_NAME ---"
-    ./python.sh "$SCRIPT" --config "$EXP_CONFIG" --headless True --data_dir "$OUTPUT_DIR"
+    EXTRA_ARGS=""
+    [ -n "$N_SAMPLES_OVERRIDE" ] && EXTRA_ARGS="--num_frames $N_SAMPLES_OVERRIDE"
+    ./python.sh "$SCRIPT" --config "$EXP_CONFIG" --headless True --data_dir "$OUTPUT_DIR" $EXTRA_ARGS
 done
 
 echo ""

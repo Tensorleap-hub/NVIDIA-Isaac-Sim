@@ -1,0 +1,29 @@
+extends: ../../sdg_config.yaml
+run:
+  num_frames: 128
+  distractors: additional
+  data_dir: /placeholder
+camera:
+  camera_height_min: 1.1174
+  camera_height_max: 2.1153
+  fov_min: 67
+  fov_max: 100
+  noise_std_min: 3
+  noise_std_max: 6
+  motion_blur_strength_min: 0.6751
+  motion_blur_strength_max: 1.3472
+lighting:
+  intensity_mean: 135881.0
+  intensity_std: 471419.0
+materials:
+  roughness_min: 0.4844
+  roughness_max: 0.4955
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wood_shingles_brown.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+palletjacks:
+  count_per_model: 2

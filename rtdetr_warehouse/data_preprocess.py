@@ -79,10 +79,19 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         val_records   = val_records[:max_samples]
         synth_records = synth_records[:max_samples]
 
+    synth_records.sort(key=lambda r: r["run_number"])
+
+    train_ids = [str(r["image_id"]) for r in train_records]
+    val_ids   = [str(r["image_id"]) for r in val_records]
+    synth_ids = [
+        f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+        for r in synth_records
+    ]
+
     return [
-        PreprocessResponse(data=train_records, length=len(train_records), state=DataStateType.training),
-        PreprocessResponse(data=val_records,   length=len(val_records),   state=DataStateType.validation),
-        PreprocessResponse(data=synth_records, length=len(synth_records), state=DataStateType.additional),
+        PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
+        PreprocessResponse(data={sid: r for sid, r in zip(val_ids,   val_records)},   sample_ids=val_ids,   state=DataStateType.validation),
+        PreprocessResponse(data={sid: r for sid, r in zip(synth_ids, synth_records)}, sample_ids=synth_ids, state=DataStateType.additional),
     ]
 
 
@@ -125,15 +134,32 @@ def _load_synth_records() -> list:
     sdg_config.yaml so missing fields always have the sim default.
     Each record includes 'run_number' and 'experiment' for metadata.
     """
-    base = CONFIG.get("synth_data", {}).get("base_path", "")
+    synth_cfg = CONFIG.get("synth_data", {})
+    if not synth_cfg.get("additional", True):
+        return []
+
+    base = synth_cfg.get("base_path", "")
     if not base or not os.path.isdir(base):
         return []
+
+    allowed_runs = synth_cfg.get("run_numbers")  # None or list of ints
 
     records = []
     run_dirs = sorted(
         d for d in os.listdir(base)
         if d.startswith("palletjack_run_") and os.path.isdir(os.path.join(base, d))
     )
+    if allowed_runs is not None:
+        allowed_runs = set(allowed_runs)
+        available_runs = {int(d.split("_")[-1]) for d in run_dirs}
+        missing = allowed_runs - available_runs
+        if missing:
+            raise ValueError(
+                f"synth_data.run_numbers: desired {sorted(allowed_runs)}, "
+                f"data has {sorted(available_runs)}, "
+                f"missing {sorted(missing)}"
+            )
+        run_dirs = [d for d in run_dirs if int(d.split("_")[-1]) in allowed_runs]
 
     for run_dir in run_dirs:
         run_number = int(run_dir.split("_")[-1])
@@ -190,6 +216,10 @@ def _load_synth_records() -> list:
                     "run_number": run_number,
                     "experiment": exp_dir,
                 })
+
+    num_samples = synth_cfg.get("num_samples")
+    if num_samples is not None:
+        records = records[:num_samples]
 
     return records
 

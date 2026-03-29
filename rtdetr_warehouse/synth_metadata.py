@@ -9,11 +9,11 @@ _NUM_TEXTURES = 25
 _NAN = float("nan")
 
 _SENTINEL = {
-    "synth_run_number":                  0,
+    "synth_run_number":                  _NAN,
     "synth_experiment":                  "",
     "synth_distractors":                 "",
-    "synth_render_width":                0,
-    "synth_render_height":               0,
+    "synth_render_width":                _NAN,
+    "synth_render_height":               _NAN,
     "synth_env_url":                     "",
     "synth_camera_height_min":           _NAN,
     "synth_camera_height_max":           _NAN,
@@ -23,19 +23,19 @@ _SENTINEL = {
     "synth_noise_std_max":               _NAN,
     "synth_motion_blur_min":             _NAN,
     "synth_motion_blur_max":             _NAN,
-    "synth_jpeg_quality_min":            0,
-    "synth_jpeg_quality_max":            0,
-    "synth_palletjack_count_per_model":  0,
+    "synth_jpeg_quality_min":            _NAN,
+    "synth_jpeg_quality_max":            _NAN,
+    "synth_palletjack_count_per_model":  _NAN,
     "synth_palletjack_rotation_max_z":   _NAN,
-    "synth_palletjack_color_randomized": False,
+    "synth_palletjack_color_randomized": _NAN,
     "synth_lighting_intensity_mean":     _NAN,
     "synth_lighting_intensity_std":      _NAN,
     "synth_materials_roughness_min":     _NAN,
     "synth_materials_roughness_max":     _NAN,
     **{f"synth_texture_{i + 1}": "" for i in range(_NUM_TEXTURES)},
-    "synth_num_warehouse_distractors":   0,
-    "synth_num_additional_distractors":  0,
-    "synth_num_objects":                 0,
+    "synth_num_warehouse_distractors":   _NAN,
+    "synth_num_additional_distractors":  _NAN,
+    "synth_num_objects":                 _NAN,
 }
 
 
