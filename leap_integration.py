@@ -24,10 +24,13 @@ from rtdetr_warehouse import (
 )
 from rtdetr_warehouse.config import CONFIG, abs_path_from_root
 
-prediction_type = PredictionTypeHandler(name="raw_output", labels=[str(i) for i in range(84)], channel_dim=1)
+prediction_type0 = PredictionTypeHandler(name="output0",  labels=[str(i) for i in range(84)],  channel_dim=1)
+prediction_type1 = PredictionTypeHandler(name="output1",  labels=[str(i) for i in range(144)], channel_dim=1)
+prediction_type2 = PredictionTypeHandler(name="output2",  labels=[str(i) for i in range(144)], channel_dim=1)
+prediction_type3 = PredictionTypeHandler(name="output3",  labels=[str(i) for i in range(144)], channel_dim=1)
 
 
-@tensorleap_load_model([prediction_type])
+@tensorleap_load_model([prediction_type0, prediction_type1, prediction_type2, prediction_type3])
 def load_model():
     model_path = abs_path_from_root(CONFIG["model_path"])
     sess_options = ort.SessionOptions()
@@ -45,7 +48,7 @@ def check_integration(idx, subset):
     model = load_model()
     image = input_encoder(idx, subset)
 
-    raw = model.run(["output0"], {"images": image})
+    raw = model.run(None, {"images": image})
 
     _ = image_visualizer(image)
     _ = dummy_loss(raw[0])
