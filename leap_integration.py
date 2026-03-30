@@ -28,21 +28,16 @@ from rtdetr_warehouse import (
     input_size_encoder,
     pred_bb_decoder,
     preprocess_func_leap,
-    rtdetr_loss_components_native,
     rtdetr_total_loss_native,
     sample_metadata,
     synth_metadata,
 )
 from rtdetr_warehouse.config import CLASS_NAMES, CONFIG, abs_path_from_root
 
-prediction_type  = PredictionTypeHandler(name="labels",      labels=CLASS_NAMES,               channel_dim=-1)
-prediction_type1 = PredictionTypeHandler(name="boxes",       labels=["x1","y1","x2","y2"],     channel_dim=-1)
-prediction_type2 = PredictionTypeHandler(name="confidence",  labels=["score"],                 channel_dim=-1)
-prediction_type3 = PredictionTypeHandler(name="pred_logits", labels=CLASS_NAMES,               channel_dim=-1)
-prediction_type4 = PredictionTypeHandler(name="pred_boxes",  labels=["cx","cy","w","h"],       channel_dim=-1)
+prediction_type = PredictionTypeHandler(name="raw_output", labels=[str(i) for i in range(84)], channel_dim=1)
 
 
-@tensorleap_load_model([prediction_type, prediction_type1, prediction_type2, prediction_type3, prediction_type4])
+@tensorleap_load_model([prediction_type])
 def load_model():
     model_path = abs_path_from_root(CONFIG["model_path"])
     sess_options = ort.SessionOptions()
@@ -108,7 +103,6 @@ def check_integration(idx, subset):
 
     # ── Loss (dummy inputs) ───────────────────────────────────────────────────
     _ = rtdetr_total_loss_native(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid)
-    _ = rtdetr_loss_components_native(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid)
 
     # ── Metadata ──────────────────────────────────────────────────────────────
     _ = data_type_metadata(idx, subset)
