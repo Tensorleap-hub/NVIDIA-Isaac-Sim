@@ -1,6 +1,8 @@
 """
-Tensorleap integration — RT-DETR v2 on LOCO Warehouse dataset.
-Model : rtdetrv2_r18vd_120e_raw_outputs.onnx  (standard ONNX, no TRT ops)
+Tensorleap integration — LOCO Warehouse dataset.
+Supports:
+  RTDETR  — rtdetrv2_r18vd_120e_raw_outputs.onnx
+  YOLO11  — yolo11s.onnx (runtime inference test; losses use zero dummies)
 Data  : LOCO warehouse (COCO format) — 5 classes
         small_load_carrier | forklift | pallet | stillage | pallet_truck
 """
@@ -50,17 +52,80 @@ prediction_type3 = PredictionTypeHandler(name="pred_logits", labels=CLASS_NAMES,
 prediction_type4 = PredictionTypeHandler(name="pred_boxes",  labels=["cx","cy","w","h"],       channel_dim=-1)
 
 
+def _create_onnx_session(model_path: str) -> ort.InferenceSession:
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    return ort.InferenceSession(
+        model_path,
+        sess_options=sess_options,
+        providers=["CPUExecutionProvider"],
+    )
+
+
 @tensorleap_load_model([prediction_type, prediction_type1, prediction_type2, prediction_type3, prediction_type4])
 def load_model():
     model_path = abs_path_from_root(CONFIG["model_path"])
     if not model_path.endswith(".onnx"):
         raise ValueError("Only ONNX is supported.")
-    return ort.InferenceSession(model_path)
+    return _create_onnx_session(model_path)
+
+
+def _run_rtdetr(model, image, orig_sizes):
+    predictions = model.run(None, {
+        "images": image,
+        "orig_target_sizes": orig_sizes,
+    })
+    labels     = predictions[OUTPUT_INDICES["labels"]]
+    boxes_xyxy = predictions[OUTPUT_INDICES["boxes"]]
+    scores     = predictions[OUTPUT_INDICES["scores"]]
+    pred_logits = predictions[OUTPUT_INDICES["pred_logits"]]
+    pred_boxes  = predictions[OUTPUT_INDICES["pred_boxes"]]
+    return labels, boxes_xyxy, scores, pred_logits, pred_boxes
+
+
+def _run_yolo11(model, image):
+    """Run yolo11s inference. Output0 shape: (1, 84, anchors) — 4 bbox + 80 classes, pixel coords."""
+    img_batch = image[np.newaxis] if image.ndim == 3 else image  # → (1, 3, H, W)
+    raw = model.run(["output0"], {"images": img_batch})[0]        # (1, 84, anchors)
+
+    pred = raw[0]                        # (84, anchors)
+    boxes_xywh = pred[:4].T             # (anchors, 4)  cx,cy,w,h in pixels
+    class_scores = pred[4:].T           # (anchors, 80)
+
+    scores = class_scores.max(axis=1)
+    labels = class_scores.argmax(axis=1).astype(np.float32)
+
+    score_threshold = float(CONFIG.get("score_threshold", 0.3))
+    keep = scores >= score_threshold
+    boxes_xywh = boxes_xywh[keep]
+    scores     = scores[keep]
+    labels     = labels[keep]
+
+    # cx,cy,w,h pixels → x1,y1,x2,y2 normalized [0,1]
+    img_size = float(CONFIG.get("image_size", 640))
+    boxes_xyxy = np.empty_like(boxes_xywh)
+    boxes_xyxy[:, 0] = (boxes_xywh[:, 0] - boxes_xywh[:, 2] / 2) / img_size
+    boxes_xyxy[:, 1] = (boxes_xywh[:, 1] - boxes_xywh[:, 3] / 2) / img_size
+    boxes_xyxy[:, 2] = (boxes_xywh[:, 0] + boxes_xywh[:, 2] / 2) / img_size
+    boxes_xyxy[:, 3] = (boxes_xywh[:, 1] + boxes_xywh[:, 3] / 2) / img_size
+
+    max_dets = int(CONFIG.get("max_detections", 300))
+    order = np.argsort(-scores)[:max_dets]
+    labels     = labels[order][np.newaxis]      # (1, N)
+    boxes_xyxy = boxes_xyxy[order][np.newaxis]  # (1, N, 4)
+    scores     = scores[order][np.newaxis]      # (1, N)
+
+    n_classes = len(CONFIG["categories"])
+    n_queries = 300
+    pred_logits = np.zeros((1, n_queries, n_classes), dtype=np.float32)  # dummy
+    pred_boxes  = np.zeros((1, n_queries, 4),         dtype=np.float32)  # dummy
+    return labels, boxes_xyxy, scores, pred_logits, pred_boxes
 
 
 @tensorleap_integration_test()
 def check_integration(idx, subset):
-    model = load_model()
+    model      = load_model()
+    model_type = CONFIG.get("model_type", "RTDETR").upper()
 
     image      = input_encoder(idx, subset)
     gt         = gt_encoder(idx, subset)
@@ -69,16 +134,10 @@ def check_integration(idx, subset):
     gt_valid   = gt_valid_mask_encoder(idx, subset)
     orig_sizes = input_size_encoder(idx, subset)
 
-    predictions = model.run(None, {
-        "images": image,
-        "orig_target_sizes": orig_sizes,
-    })
-
-    labels    = predictions[OUTPUT_INDICES["labels"]]
-    boxes_xyxy = predictions[OUTPUT_INDICES["boxes"]]
-    scores    = predictions[OUTPUT_INDICES["scores"]]
-    pred_logits = predictions[OUTPUT_INDICES["pred_logits"]]
-    pred_boxes  = predictions[OUTPUT_INDICES["pred_boxes"]]
+    if model_type == "YOLO11":
+        labels, boxes_xyxy, scores, pred_logits, pred_boxes = _run_yolo11(model, image)
+    else:
+        labels, boxes_xyxy, scores, pred_logits, pred_boxes = _run_rtdetr(model, image, orig_sizes)
 
     # Visualizers
     vis_image = image_visualizer(image)
@@ -94,7 +153,7 @@ def check_integration(idx, subset):
     _ = get_per_sample_metrics(labels, boxes_xyxy, scores, gt)
     _ = confusion_matrix_metric(labels, boxes_xyxy, scores, gt)
 
-    # Loss
+    # Loss (uses dummy pred_logits/pred_boxes for YOLO11)
     _ = rtdetr_total_loss_native(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid)
     _ = rtdetr_loss_components_native(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid)
 
@@ -110,5 +169,6 @@ if __name__ == "__main__":
     subset_idx  = int(CONFIG.get("check_subset_index", 0))
     sample_idx  = int(CONFIG.get("check_sample_index", 0))
     print(f"Subsets: {[len(s.data) for s in subsets]}")
+    sample_idx = subsets[subset_idx].sample_ids[0]
     check_integration(sample_idx, subsets[subset_idx])
     print("Integration test passed.")

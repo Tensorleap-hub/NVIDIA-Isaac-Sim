@@ -1,0 +1,47 @@
+extends: "../../../sdg_config.yaml"
+
+# Exp 10 — Significant camera roll variation (-20 to +20°)
+# Simulates a poorly-leveled or hand-held sensor, or a camera on vibrating
+# equipment. Tests detector robustness to rotated scene horizons.
+
+run:
+  num_frames: 128
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp10"
+
+environment:
+  name: "full_warehouse"
+
+distractors:
+  clutter_level: 0.8
+
+camera:
+  camera_height_min: 1.0
+  camera_height_max: 3.0
+  camera_tilt_min: -30.0
+  camera_tilt_max: -10.0
+  camera_yaw_min: 0.0
+  camera_yaw_max: 360.0
+  camera_roll_min: -20.0
+  camera_roll_max: 20.0   # strong roll — tilted horizon
+  fov_min: 55
+  fov_max: 80
+  color_min: [0.85, 0.85, 0.85]
+  color_max: [1.15, 1.15, 1.15]
+  noise_std_min: 1.0
+  noise_std_max: 3.0
+  motion_blur_strength_min: 0.5
+  motion_blur_strength_max: 2.0
+
+lighting:
+  intensity_mean: 110000.0
+  intensity_std: 350000.0
+
+materials:
+  roughness_min: 0.2
+  roughness_max: 0.8
+  emissive_intensity_min: 0.0
+  emissive_intensity_max: 400.0
+  textures:
+    - "/Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg"

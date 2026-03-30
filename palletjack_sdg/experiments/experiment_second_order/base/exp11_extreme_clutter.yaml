@@ -1,0 +1,66 @@
+extends: "../../../sdg_config.yaml"
+
+# Exp 11 — Maximum clutter (clutter_level 3×), warehouse_multiple_shelves
+# Dense distractor field tests occlusion robustness.
+# Palletjacks may be significantly occluded.
+
+run:
+  num_frames: 128
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/exp11"
+
+environment:
+  name: "warehouse_multiple_shelves"
+
+distractors:
+  clutter_level: 3.0
+  groups:
+    CardBox:
+      diversity: 5
+      occurrence: 4
+    BarelPlastic:
+      diversity: 4
+      occurrence: 3
+    CratePlastic:
+      diversity: 4
+      occurrence: 3
+    BottlePlastic:
+      diversity: 3
+      occurrence: 4
+    PushCart:
+      diversity: 1
+      occurrence: 3
+    RackPile:
+      diversity: 2
+      occurrence: 2
+
+camera:
+  camera_height_min: 1.0
+  camera_height_max: 2.5
+  camera_tilt_min: -25.0
+  camera_tilt_max: -8.0
+  camera_yaw_min: 0.0
+  camera_yaw_max: 360.0
+  camera_roll_min: -5.0
+  camera_roll_max: 5.0
+  fov_min: 65
+  fov_max: 90
+  color_min: [0.80, 0.78, 0.72]
+  color_max: [1.15, 1.10, 1.00]
+  noise_std_min: 2.0
+  noise_std_max: 5.0
+  motion_blur_strength_min: 0.5
+  motion_blur_strength_max: 2.0
+
+lighting:
+  intensity_mean: 95000.0
+  intensity_std: 550000.0
+
+materials:
+  roughness_min: 0.2
+  roughness_max: 1.0
+  emissive_intensity_min: 0.0
+  emissive_intensity_max: 500.0
+  textures:
+    - "/Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg"
+    - "/Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg"
