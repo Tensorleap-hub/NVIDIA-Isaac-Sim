@@ -4,8 +4,8 @@ data:
   data_path: "/Users/orram/Tensorleap/data/warehouse"
   annotations_file: "dataset/labels/loco-all-v1.json"
 
-model_path: "rtdetrv2_r18vd_120e_raw_outputs.onnx"
-model_type: "RTDETR"
+model_path: "yolo11s.onnx"
+model_type: "YOLO11"
 
 output_indices:
   labels: 0
