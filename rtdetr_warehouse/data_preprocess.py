@@ -1,5 +1,6 @@
 import json
 import os
+import random
 from typing import List
 
 import cv2
@@ -77,7 +78,6 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     if max_samples is not None:
         train_records = train_records[:max_samples]
         val_records   = val_records[:max_samples]
-        synth_records = synth_records[:max_samples]
 
     synth_records.sort(key=lambda r: r["run_number"])
 
@@ -142,7 +142,9 @@ def _load_synth_records() -> list:
     if not base or not os.path.isdir(base):
         return []
 
-    allowed_runs = synth_cfg.get("run_numbers")  # None or list of ints
+    allowed_runs = synth_cfg.get("run_numbers")  # None, int, or list of ints
+    if isinstance(allowed_runs, int):
+        allowed_runs = [allowed_runs]
 
     records = []
     run_dirs = sorted(
@@ -188,6 +190,8 @@ def _load_synth_records() -> list:
 
             for i in range(num_frames):
                 img_path = os.path.join(rgb_dir, f"{i}.png")
+                if not os.path.isfile(img_path):
+                    continue
                 ann_path = os.path.join(ann_dir, f"{i}.txt")
 
                 anns = []
@@ -219,7 +223,18 @@ def _load_synth_records() -> list:
 
     num_samples = synth_cfg.get("num_samples")
     if num_samples is not None:
-        records = records[:num_samples]
+        by_run = {}
+        for r in records:
+            by_run.setdefault(r["run_number"], []).append(r)
+        sampled = []
+        rng = random.Random(42)
+        for run_records in by_run.values():
+            if len(run_records) > num_samples:
+                rng.shuffle(run_records)
+                sampled.extend(run_records[:num_samples])
+            else:
+                sampled.extend(run_records)
+        records = sampled
 
     return records
 
