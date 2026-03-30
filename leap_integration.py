@@ -9,6 +9,7 @@ import onnxruntime as ort
 
 from code_loader.contract.datasetclasses import PredictionTypeHandler
 from code_loader.inner_leap_binder.leapbinder_decorators import (
+    tensorleap_custom_loss,
     tensorleap_integration_test,
     tensorleap_load_model,
 )
@@ -34,14 +35,20 @@ def load_model():
     return ort.InferenceSession(model_path, sess_options=sess_options, providers=["CPUExecutionProvider"])
 
 
+@tensorleap_custom_loss("dummy_loss")
+def dummy_loss(raw_output: np.ndarray) -> np.ndarray:
+    return np.array([0.0], dtype=np.float32)
+
+
 @tensorleap_integration_test()
 def check_integration(idx, subset):
     model = load_model()
     image = input_encoder(idx, subset)
 
-    model.run(["output0"], {"images": image})
+    raw = model.run(["output0"], {"images": image})
 
     _ = image_visualizer(image)
+    _ = dummy_loss(raw[0])
     _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
     _ = synth_metadata(idx, subset)
