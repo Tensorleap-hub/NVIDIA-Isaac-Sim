@@ -1,0 +1,37 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 0.7759
+  camera_height_max: 1.4057
+  fov_min: 60
+  fov_max: 93
+  noise_std_min: 3.3654
+  noise_std_max: 3.4951
+  motion_blur_strength_min: 1.289
+  motion_blur_strength_max: 2.857
+  camera_type: pinhole
+  camera_tilt_min: -11.0
+  camera_tilt_max: 5.0
+distractors:
+  clutter_level: 0.0
+lighting:
+  intensity_mean: 123979.0
+  intensity_std: 413726.0
+materials:
+  roughness_min: 0.2919
+  roughness_max: 0.7213
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wood_shingles_brown.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg
+palletjacks:
+  count_per_model: 2
+environment:
+  name: full_warehouse

@@ -1,0 +1,37 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 1.229
+  camera_height_max: 5.5
+  fov_min: 86
+  fov_max: 97
+  noise_std_min: 1.3496
+  noise_std_max: 2.5535
+  motion_blur_strength_min: 0.7586
+  motion_blur_strength_max: 1.4186
+  camera_type: pinhole
+  camera_tilt_min: -9.0
+  camera_tilt_max: -2.0
+distractors:
+  clutter_level: 0.0
+lighting:
+  intensity_mean: 70520.0
+  intensity_std: 307840.0
+materials:
+  roughness_min: 0.1037
+  roughness_max: 0.4797
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+palletjacks:
+  count_per_model: 2

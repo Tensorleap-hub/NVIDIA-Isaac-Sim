@@ -1,0 +1,40 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 0.5405
+  camera_height_max: 3.5795
+  fov_min: 69
+  fov_max: 105
+  noise_std_min: 2.8157
+  noise_std_max: 3.5749
+  motion_blur_strength_min: 0.2248
+  motion_blur_strength_max: 1.1822
+  camera_type: pinhole
+  camera_tilt_min: -31.0
+  camera_tilt_max: -23.0
+distractors:
+  clutter_level: 0.0
+lighting:
+  intensity_mean: 108713.0
+  intensity_std: 326911.0
+materials:
+  roughness_min: 0.0936
+  roughness_max: 0.2487
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+palletjacks:
+  count_per_model: 2
+environment:
+  name: warehouse_with_forklifts
