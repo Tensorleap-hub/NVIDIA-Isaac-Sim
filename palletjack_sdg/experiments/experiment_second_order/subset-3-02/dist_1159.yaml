@@ -1,0 +1,34 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 3.288
+  camera_height_max: 4.1509
+  fov_min: 72
+  fov_max: 80
+  noise_std_min: 0.3527
+  noise_std_max: 2.6371
+  motion_blur_strength_min: 0.1085
+  motion_blur_strength_max: 0.2316
+  camera_type: pinhole
+  camera_tilt_min: -4.0
+  camera_tilt_max: 5.0
+distractors:
+  clutter_level: 0.0
+lighting:
+  intensity_mean: 82621.0
+  intensity_std: 449971.0
+materials:
+  roughness_min: 0.1564
+  roughness_max: 0.469
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg
+palletjacks:
+  count_per_model: 2
+environment:
+  name: full_warehouse

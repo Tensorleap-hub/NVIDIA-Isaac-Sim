@@ -1,0 +1,34 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 2.6627
+  camera_height_max: 5.5
+  fov_min: 76
+  fov_max: 120
+  noise_std_min: 0.4703
+  noise_std_max: 3.78
+  motion_blur_strength_min: 0.1153
+  motion_blur_strength_max: 1.2026
+  camera_type: pinhole
+  camera_tilt_min: -9.0
+  camera_tilt_max: 5.0
+distractors:
+  clutter_level: 1.0333
+lighting:
+  intensity_mean: 132740.0
+  intensity_std: 328970.0
+materials:
+  roughness_min: 0.0518
+  roughness_max: 0.393
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+palletjacks:
+  count_per_model: 2
+environment:
+  name: warehouse_multiple_shelves
