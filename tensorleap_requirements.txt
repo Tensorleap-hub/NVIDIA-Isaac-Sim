@@ -3,5 +3,5 @@ pyyaml
 scipy
 torch>=2.2.0
 torchvision>=0.17.0
-onnxruntime>=1.15.0,<1.16.0
+onnxruntime==1.19.2
 opencv-python-headless

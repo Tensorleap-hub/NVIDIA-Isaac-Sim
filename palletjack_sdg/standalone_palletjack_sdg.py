@@ -39,8 +39,10 @@ parser.add_argument("--headless", type=lambda x: x.lower() == "true", default=No
 parser.add_argument("--height", type=int, default=None, help="Override: image height")
 parser.add_argument("--width", type=int, default=None, help="Override: image width")
 parser.add_argument("--num_frames", type=int, default=None, help="Override: number of frames")
-parser.add_argument("--distractors", type=str, default=None,
-                    help="Override: 'warehouse', 'additional', or 'None'")
+parser.add_argument("--environment", type=str, default=None,
+                    help="Override: environment name (warehouse | full_warehouse | warehouse_multiple_shelves | warehouse_with_forklifts)")
+parser.add_argument("--clutter_level", type=float, default=None,
+                    help="Override: distractor clutter level multiplier (0 = no distractors)")
 parser.add_argument("--data_dir", type=str, default=None, help="Override: output directory")
 
 args, unknown_args = parser.parse_known_args()
@@ -67,12 +69,19 @@ else:
     CFG = raw_cfg
 
 # ── Merge CLI overrides (CLI wins over YAML) ──────────────────────────────────
-if args.headless   is not None: CFG["run"]["headless"]    = args.headless
-if args.height     is not None: CFG["render"]["height"]   = args.height
-if args.width      is not None: CFG["render"]["width"]    = args.width
-if args.num_frames is not None: CFG["run"]["num_frames"]  = args.num_frames
-if args.distractors is not None: CFG["run"]["distractors"] = args.distractors
-if args.data_dir   is not None: CFG["run"]["data_dir"]    = args.data_dir
+if args.headless      is not None: CFG["run"]["headless"]                    = args.headless
+if args.height        is not None: CFG["render"]["height"]                   = args.height
+if args.width         is not None: CFG["render"]["width"]                    = args.width
+if args.num_frames    is not None: CFG["run"]["num_frames"]                  = args.num_frames
+if args.environment   is not None: CFG["environment"]["name"]                = args.environment
+if args.clutter_level is not None: CFG["distractors"]["clutter_level"]       = args.clutter_level
+if args.data_dir      is not None: CFG["run"]["data_dir"]                    = args.data_dir
+
+# Backward compat: old experiment YAMLs set run.distractors = "None" / None / "additional"
+# "None" / null  → no distractors; "warehouse" / "additional" → use default groups
+_distractor_setting = CFG.get("run", {}).get("distractors")
+if _distractor_setting in (None, "None", "none"):
+    CFG["distractors"]["clutter_level"] = 0
 
 # ── Launch simulation ─────────────────────────────────────────────────────────
 from omni.isaac.kit import SimulationApp
@@ -132,16 +141,6 @@ def update_semantics(stage, keep_semantics=[]):
                             prim.RemoveAPI(Semantics.SemanticsAPI, instance_name)
 
 
-def full_distractors_list(distractor_type):
-    if distractor_type == "warehouse":
-        return [prefix_with_isaac_asset_server(p) for p in CFG["distractors_warehouse"]["assets"]]
-    elif distractor_type == "additional":
-        return [prefix_with_isaac_asset_server(p) for p in CFG["distractors_additional"]["assets"]]
-    else:
-        print("No distractors being added to the current scene for SDG")
-        return []
-
-
 def full_textures_list():
     return [prefix_with_isaac_asset_server(p) for p in CFG["materials"]["textures"]]
 
@@ -155,10 +154,37 @@ def add_palletjacks():
     return rep.create.group(rep_obj_list)
 
 
-def add_distractors(distractor_type):
-    full_distractors = full_distractors_list(distractor_type)
-    distractors = [rep.create.from_usd(p, count=1) for p in full_distractors]
-    return rep.create.group(distractors)
+def add_distractors():
+    """Spawn distractor groups according to diversity, occurrence, and clutter_level.
+
+    For each group:
+      - randomly pick `diversity` variants from the asset pool
+      - spawn `max(1, round(occurrence × clutter_level))` instances of each variant
+    Returns a rep group, or None if clutter_level is 0.
+    """
+    dist_cfg = CFG["distractors"]
+    clutter = dist_cfg.get("clutter_level", 1.0)
+    if clutter <= 0:
+        print("clutter_level=0 — no distractors added")
+        return None
+
+    all_prims = []
+    for group_name, group_cfg in dist_cfg.get("groups", {}).items():
+        pool = group_cfg.get("assets", [])
+        if not pool:
+            continue
+        diversity  = min(group_cfg.get("diversity", len(pool)), len(pool))
+        count      = max(1, round(group_cfg.get("occurrence", 1) * clutter))
+        selected   = random.sample(pool, diversity)
+        for asset in selected:
+            all_prims.append(
+                rep.create.from_usd(prefix_with_isaac_asset_server(asset), count=count)
+            )
+        print(f"  {group_name}: {diversity} variant(s) × {count} instance(s)")
+
+    if not all_prims:
+        return None
+    return rep.create.group(all_prims)
 
 
 def run_orchestrator():
@@ -198,8 +224,10 @@ def write_run_config(output_dir):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    env_url = prefix_with_isaac_asset_server(CFG["environment"]["env_url"])
-    print(f"Loading Stage {env_url}")
+    env_name = CFG["environment"]["name"]
+    env_rel  = CFG["environment_urls"][env_name]
+    env_url  = prefix_with_isaac_asset_server(env_rel)
+    print(f"Loading Stage {env_name} → {env_url}")
     open_stage(env_url)
     stage = get_current_stage()
 
@@ -211,9 +239,7 @@ def main():
     textures = full_textures_list()
     rep_palletjack_group = add_palletjacks()
 
-    distractor_type = CFG["run"]["distractors"]
-    if distractor_type != "None":
-        rep_distractor_group = add_distractors(distractor_type)
+    rep_distractor_group = add_distractors()
 
     update_semantics(stage=stage, keep_semantics=["palletjack"])
 
@@ -268,9 +294,13 @@ def main():
             pos_max = tuple(cam_cfg["position_max"]) + (cam_cfg["camera_height_max"],)
             pose_kwargs = {"position": rep.distribution.uniform(pos_min, pos_max)}
             if cam_cfg.get("camera_tilt_min") is not None:
+                yaw_min  = cam_cfg.get("camera_yaw_min",  0.0)
+                yaw_max  = cam_cfg.get("camera_yaw_max",  360.0)
+                roll_min = cam_cfg.get("camera_roll_min", 0.0)
+                roll_max = cam_cfg.get("camera_roll_max", 0.0)
                 pose_kwargs["rotation"] = rep.distribution.uniform(
-                    (cam_cfg["camera_tilt_min"], 0.0,   0.0),
-                    (cam_cfg["camera_tilt_max"], 0.0, 360.0),
+                    (cam_cfg["camera_tilt_min"], roll_min, yaw_min),
+                    (cam_cfg["camera_tilt_max"], roll_max, yaw_max),
                 )
             else:
                 pose_kwargs["look_at"] = tuple(cam_cfg["look_at"])
@@ -303,7 +333,7 @@ def main():
                 ),
             )
 
-        if distractor_type != "None":
+        if rep_distractor_group is not None:
             with rep_distractor_group:
                 rep.modify.pose(
                     position=rep.distribution.uniform(

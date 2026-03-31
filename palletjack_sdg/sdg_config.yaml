@@ -16,7 +16,13 @@ render:
 
 # ── Environment ───────────────────────────────────────────────────────────────
 environment:
-  env_url: "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+  name: "warehouse"   # warehouse | full_warehouse | warehouse_multiple_shelves | warehouse_with_forklifts
+
+environment_urls:
+  warehouse:                  "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+  full_warehouse:             "/Isaac/Environments/Simple_Warehouse/full_warehouse.usd"
+  warehouse_multiple_shelves: "/Isaac/Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
+  warehouse_with_forklifts:   "/Isaac/Environments/Simple_Warehouse/warehouse_with_forklifts.usd"
 
 # ── Camera ────────────────────────────────────────────────────────────────────
 camera:
@@ -89,7 +95,7 @@ palletjacks:
   color_min: [0.0, 0.0, 0.0]
   color_max: [1.0, 1.0, 1.0]
 
-# ── Distractor randomization (shared for both pools) ─────────────────────────
+# ── Distractor randomization (pose applied to all groups each frame) ──────────
 distractor_randomization:
   position_min: [-6.0, -6.0, 0.0]
   position_max: [6.0,  12.0, 0.0]
@@ -98,78 +104,87 @@ distractor_randomization:
   scale_min: 1.0
   scale_max: 1.5
 
-# ── Warehouse distractor asset pool ──────────────────────────────────────────
-distractors_warehouse:
-  assets:
-    - "/Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_03.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_03.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_C_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticB_01.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticD_01.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticE_01.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_BucketPlastic_B.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1268.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1482.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1683.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_291.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1454.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1513.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_03.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_05.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_C_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd"
-    - "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd"
+# ── Distractors ───────────────────────────────────────────────────────────────
+# clutter_level: global multiplier on every group's occurrence count.
+#   0   = no distractors at all
+#   1.0 = default counts as specified per group
+#   2.0 = double the instances of every group
+#
+# Per group:
+#   assets    : full pool of asset variants for this group
+#   diversity : how many different variants to randomly pick each run (≤ len(assets))
+#   occurrence: number of instances spawned per picked variant (× clutter_level)
+distractors:
+  clutter_level: 1.0
 
-# ── Additional distractor asset pool ─────────────────────────────────────────
-distractors_additional:
-  assets:
-    - "/Isaac/Environments/Hospital/Props/Pharmacy_Low.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_BedSideTable_01b.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_BooksSet_26.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_BottleB.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_BottleA.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_BottleC.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Cart_01a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Chair_02a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Chair_01a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Computer_02b.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Desk_04a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_DisposalStand_02.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_FirstAidKit_01a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_GasCart_01c.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Gurney_01b.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_HospitalBed_01b.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_MedicalBag_01a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Mirror.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_MopSet_01b.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_SideTable_02a.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_SupplyCabinet_01c.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_SupplyCart_01e.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_TrashCan.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_Washbasin.usd"
-    - "/Isaac/Environments/Hospital/Props/SM_WheelChair_01a.usd"
-    - "/Isaac/Environments/Office/Props/SM_WaterCooler.usd"
-    - "/Isaac/Environments/Office/Props/SM_TV.usd"
-    - "/Isaac/Environments/Office/Props/SM_TableC.usd"
-    - "/Isaac/Environments/Office/Props/SM_Recliner.usd"
-    - "/Isaac/Environments/Office/Props/SM_Personenleitsystem_Red1m.usd"
-    - "/Isaac/Environments/Office/Props/SM_Lamp02_162.usd"
-    - "/Isaac/Environments/Office/Props/SM_Lamp02.usd"
-    - "/Isaac/Environments/Office/Props/SM_HandDryer.usd"
-    - "/Isaac/Environments/Office/Props/SM_Extinguisher.usd"
+  groups:
+    CardBox:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1268.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1482.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1683.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_291.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1454.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1513.usd"
+      diversity: 3
+      occurrence: 2
+
+    BarelPlastic:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_02.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_03.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_03.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_C_02.usd"
+      diversity: 2
+      occurrence: 2
+
+    BottlePlastic:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticB_01.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticD_01.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticE_01.usd"
+      diversity: 2
+      occurrence: 3
+
+    CratePlastic:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_03.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_05.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_C_02.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd"
+      diversity: 2
+      occurrence: 2
+
+    TrafficSigns:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd"
+      diversity: 2
+      occurrence: 2
+
+    Bucket:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_BucketPlastic_B.usd"
+      diversity: 1
+      occurrence: 2
+
+    RackPile:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd"
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd"
+      diversity: 1
+      occurrence: 1
+
+    PushCart:
+      assets:
+        - "/Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd"
+      diversity: 1
+      occurrence: 1
 
 # ── Lighting ──────────────────────────────────────────────────────────────────
 lighting:
