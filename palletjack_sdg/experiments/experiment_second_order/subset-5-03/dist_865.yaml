@@ -1,0 +1,37 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 0.5423
+  camera_height_max: 4.2631
+  fov_min: 79
+  fov_max: 94
+  noise_std_min: 0.3811
+  noise_std_max: 4.1093
+  motion_blur_strength_min: 0.7694
+  motion_blur_strength_max: 1.798
+  camera_type: pinhole
+  camera_tilt_min: -23.0
+  camera_tilt_max: -19.0
+distractors:
+  clutter_level: 0.3672
+lighting:
+  intensity_mean: 98648.0
+  intensity_std: 450635.0
+materials:
+  roughness_min: 0.1954
+  roughness_max: 0.644
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+palletjacks:
+  count_per_model: 2
+environment:
+  name: warehouse

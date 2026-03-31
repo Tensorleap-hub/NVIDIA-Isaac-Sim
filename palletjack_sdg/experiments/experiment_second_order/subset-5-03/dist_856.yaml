@@ -1,0 +1,38 @@
+extends: ../../../sdg_config.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_height_min: 1.1048
+  camera_height_max: 4.8343
+  fov_min: 75
+  fov_max: 120
+  noise_std_min: 2.7343
+  noise_std_max: 5.2027
+  motion_blur_strength_min: 1.466
+  motion_blur_strength_max: 4.9585
+  camera_type: pinhole
+  camera_tilt_min: -27.0
+  camera_tilt_max: -26.0
+distractors:
+  clutter_level: 0.7357
+lighting:
+  intensity_mean: 144791.0
+  intensity_std: 424546.0
+materials:
+  roughness_min: 0.2786
+  roughness_max: 0.7381
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_plastic_blue.jpg
+palletjacks:
+  count_per_model: 2
+environment:
+  name: warehouse_with_forklifts
