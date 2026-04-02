@@ -57,16 +57,21 @@ def _deep_merge(base, override):
             result[k] = v
     return result
 
-with open(args.config, "r") as f:
-    raw_cfg = yaml.safe_load(f)
+def _load_cfg(config_path):
+    with open(config_path, "r") as f:
+        raw_cfg = yaml.safe_load(f)
 
-if "extends" in raw_cfg:
-    base_path = os.path.join(os.path.dirname(os.path.abspath(args.config)), raw_cfg.pop("extends"))
-    with open(base_path, "r") as f:
-        base_cfg = yaml.safe_load(f)
-    CFG = _deep_merge(base_cfg, raw_cfg)
-else:
-    CFG = raw_cfg
+    if "extends" not in raw_cfg:
+        return raw_cfg
+
+    base_path = os.path.join(
+        os.path.dirname(os.path.abspath(config_path)),
+        raw_cfg.pop("extends"),
+    )
+    base_cfg = _load_cfg(base_path)
+    return _deep_merge(base_cfg, raw_cfg)
+
+CFG = _load_cfg(args.config)
 
 # ── Merge CLI overrides (CLI wins over YAML) ──────────────────────────────────
 if args.headless      is not None: CFG["run"]["headless"]                    = args.headless
