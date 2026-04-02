@@ -1,4 +1,4 @@
-extends: ../../../sdg_config_mean_std.yaml
+extends: ../../../../sdg_config_mean_std.yaml
 run:
   num_frames: 25
   data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/baseline_reference
