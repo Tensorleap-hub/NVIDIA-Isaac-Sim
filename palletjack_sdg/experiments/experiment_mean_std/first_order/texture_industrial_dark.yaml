@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/texture_industrial_dark
+materials:
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg

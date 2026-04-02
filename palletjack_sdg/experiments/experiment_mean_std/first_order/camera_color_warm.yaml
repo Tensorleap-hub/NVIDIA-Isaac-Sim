@@ -1,0 +1,12 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/camera_color_warm
+camera:
+  color_mean:
+  - 1.115
+  - 1.01
+  - 0.93
+  color_std:
+  - 0.020207
+  - 0.017321
+  - 0.017321

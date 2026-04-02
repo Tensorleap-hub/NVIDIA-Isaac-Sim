@@ -1,0 +1,7 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/clutter_rackpile_extreme
+distractors:
+  groups:
+    RackPile:
+      occurrence: 6

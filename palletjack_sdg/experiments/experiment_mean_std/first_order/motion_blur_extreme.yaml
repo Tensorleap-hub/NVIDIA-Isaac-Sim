@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/motion_blur_extreme
+camera:
+  motion_blur_strength_mean: 5.0
+  motion_blur_strength_std: 0.57735

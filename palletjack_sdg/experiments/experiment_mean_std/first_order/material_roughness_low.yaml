@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/material_roughness_low
+materials:
+  roughness_mean: 0.05
+  roughness_std: 0.028868

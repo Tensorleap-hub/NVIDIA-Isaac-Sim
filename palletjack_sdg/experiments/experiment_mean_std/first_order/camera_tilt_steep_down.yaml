@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/camera_tilt_steep_down
+camera:
+  camera_tilt_mean: -62.5
+  camera_tilt_std: 4.330127
