@@ -1,0 +1,8 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/camera_color_cool"
+
+camera:
+  color_min: [0.90, 0.98, 1.08]
+  color_max: [0.96, 1.04, 1.15]

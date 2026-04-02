@@ -1,0 +1,9 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/camera_fisheye_equidistant"
+
+camera:
+  camera_type: "fisheyeEquidistant"
+  fov_min: 130
+  fov_max: 185

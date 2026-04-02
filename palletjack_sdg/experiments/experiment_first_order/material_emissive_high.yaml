@@ -1,0 +1,8 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/material_emissive_high"
+
+materials:
+  emissive_intensity_min: 1500.0
+  emissive_intensity_max: 2000.0

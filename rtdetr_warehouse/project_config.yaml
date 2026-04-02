@@ -47,7 +47,7 @@ loss:
     alpha: 0.25
     gamma: 2.0
 
-max_samples:  150 # null = no limit; set to e.g. 100 to cap each subset
+max_samples:   # null = no limit; set to e.g. 100 to cap each subset
 
 score_threshold: 0.3
 max_detections: 300
@@ -58,6 +58,12 @@ check_sample_index: 0
 synth_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse"
   additional: true          # set to false to exclude synthetic data entirely
-  run_numbers: [0,1,2,3]           # null = include all runs; list of ints to include specific runs e.g. [1, 3, 5]
-  num_samples: 150           # null = no limit; set to e.g. 500 to cap additional dataset size
-                                 #   (data is shuffled be fore capping and sampling keeps experiments run relative sizes)
+  run_numbers: [0,1,2,3,4,5,6]           # null = include all runs; list of ints to include specific runs e.g. [1, 3, 5]
+  num_samples: 500           # null = no limit; set to e.g. 500 to cap additional dataset size
+                                 #   (data is shuffled before capping and sampling keeps experiments run relative sizes)
+
+extended_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse/extended"
+  additional: true          # set to false to exclude extended data entirely
+  extended_numbers:      # null = include all; list of ints to include specific run folders e.g. [0, 1]
+  num_samples:              # null = no limit; per-run cap (same semantics as synth_data.num_samples)

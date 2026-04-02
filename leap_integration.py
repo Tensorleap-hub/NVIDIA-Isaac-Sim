@@ -1,6 +1,8 @@
 """
 Tensorleap integration — YOLO11s on LOCO Warehouse dataset.
-Model : yolo11s.onnx  — output0 shape (1, 84, anchors): 4 bbox + 80 COCO classes, pixel coords
+Model : yolo11s.onnx — outputs:
+  output0: (1, 84, 8400) — 4 bbox (cx,cy,w,h pixels, DFL-decoded) + 80 COCO class scores (sigmoid)
+  output1/2/3: (1, 144, H, W) — raw feature maps at strides 8/16/32
 Data  : LOCO warehouse (COCO format) — 5 classes
         small_load_carrier | forklift | pallet | stillage | pallet_truck
 """
@@ -9,18 +11,27 @@ import onnxruntime as ort
 
 from code_loader.contract.datasetclasses import PredictionTypeHandler
 from code_loader.inner_leap_binder.leapbinder_decorators import (
-    tensorleap_custom_loss,
     tensorleap_integration_test,
     tensorleap_load_model,
 )
 
 from rtdetr_warehouse import (
     data_type_metadata,
+    gt_boxes_encoder,
+    gt_encoder,
+    gt_labels_encoder,
+    gt_valid_mask_encoder,
     image_visualizer,
     input_encoder,
     preprocess_func_leap,
     sample_metadata,
     synth_metadata,
+    yolo_bb_decoder,
+    yolo_confusion_matrix,
+    yolo_loss_components,
+    yolo_per_sample_metrics,
+    yolo_pred_bb_decoder,
+    yolo_total_loss,
 )
 from rtdetr_warehouse.config import CONFIG, abs_path_from_root
 
@@ -38,20 +49,23 @@ def load_model():
     return ort.InferenceSession(model_path, sess_options=sess_options, providers=["CPUExecutionProvider"])
 
 
-@tensorleap_custom_loss("dummy_loss")
-def dummy_loss(raw_output: np.ndarray) -> np.ndarray:
-    return np.array([0.0], dtype=np.float32)
-
-
 @tensorleap_integration_test()
 def check_integration(idx, subset):
-    model = load_model()
-    image = input_encoder(idx, subset)
-
-    raw = model.run(None, {"images": image})
+    model     = load_model()
+    image     = input_encoder(idx, subset)
+    gt        = gt_encoder(idx, subset)
+    gt_boxes  = gt_boxes_encoder(idx, subset)
+    gt_labels = gt_labels_encoder(idx, subset)
+    gt_valid  = gt_valid_mask_encoder(idx, subset)
+    raw       = model.run(None, {"images": image})
 
     _ = image_visualizer(image)
-    _ = dummy_loss(raw[0])
+    _ = yolo_pred_bb_decoder(image, raw[0])
+    _ = yolo_bb_decoder(image, gt, raw[0])
+    _ = yolo_total_loss(raw[0], gt_boxes, gt_labels, gt_valid)
+    _ = yolo_loss_components(raw[0], gt_boxes, gt_labels, gt_valid)
+    _ = yolo_per_sample_metrics(raw[0], gt)
+    _ = yolo_confusion_matrix(raw[0], gt)
     _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
     _ = synth_metadata(idx, subset)

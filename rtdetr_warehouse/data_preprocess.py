@@ -72,7 +72,8 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         elif subset in val_subsets:
             val_records.append(record)
 
-    synth_records = _load_synth_records()
+    synth_records    = _load_synth_records()
+    extended_records = _load_extended_records()
 
     max_samples = CONFIG.get("max_samples")
     if max_samples is not None:
@@ -80,18 +81,23 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         val_records   = val_records[:max_samples]
 
     synth_records.sort(key=lambda r: r["run_number"])
+    extended_records.sort(key=lambda r: (r["run_number"], r["experiment"]))
+
+    additional_records = synth_records + extended_records
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
-    synth_ids = [
-        f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
-        for r in synth_records
+    additional_ids = [
+        (f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+         if r["subset"] == "synth"
+         else f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}")
+        for r in additional_records
     ]
 
     return [
         PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
         PreprocessResponse(data={sid: r for sid, r in zip(val_ids,   val_records)},   sample_ids=val_ids,   state=DataStateType.validation),
-        PreprocessResponse(data={sid: r for sid, r in zip(synth_ids, synth_records)}, sample_ids=synth_ids, state=DataStateType.additional),
+        PreprocessResponse(data={sid: r for sid, r in zip(additional_ids, additional_records)}, sample_ids=additional_ids, state=DataStateType.additional),
     ]
 
 
@@ -222,6 +228,118 @@ def _load_synth_records() -> list:
                 })
 
     num_samples = synth_cfg.get("num_samples")
+    if num_samples is not None:
+        by_run = {}
+        for r in records:
+            by_run.setdefault(r["run_number"], []).append(r)
+        sampled = []
+        rng = random.Random(42)
+        for run_records in by_run.values():
+            if len(run_records) > num_samples:
+                rng.shuffle(run_records)
+                sampled.extend(run_records[:num_samples])
+            else:
+                sampled.extend(run_records)
+        records = sampled
+
+    return records
+
+
+def _load_extended_records() -> list:
+    """
+    Load frames from extended/{run_number}/{exp_dir}/Camera/ directories.
+
+    Same KITTI format as synth data; run dirs are plain integers (0, 1, ...).
+    Records are tagged subset='extended' and carry run_config for metadata.
+    """
+    ext_cfg = CONFIG.get("extended_data", {})
+    if not ext_cfg.get("additional", True):
+        return []
+
+    base = ext_cfg.get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    allowed_runs = ext_cfg.get("extended_numbers")  # None, int, or list of ints
+    if isinstance(allowed_runs, int):
+        allowed_runs = [allowed_runs]
+
+    run_dirs = sorted(
+        d for d in os.listdir(base)
+        if os.path.isdir(os.path.join(base, d)) and d.isdigit()
+    )
+    if allowed_runs is not None:
+        allowed_runs = set(allowed_runs)
+        available_runs = {int(d) for d in run_dirs}
+        missing = allowed_runs - available_runs
+        if missing:
+            raise ValueError(
+                f"extended_data.extended_numbers: desired {sorted(allowed_runs)}, "
+                f"data has {sorted(available_runs)}, "
+                f"missing {sorted(missing)}"
+            )
+        run_dirs = [d for d in run_dirs if int(d) in allowed_runs]
+
+    records = []
+    for run_dir in run_dirs:
+        run_number = int(run_dir)
+        run_path = os.path.join(base, run_dir)
+
+        exp_dirs = sorted(
+            d for d in os.listdir(run_path)
+            if os.path.isdir(os.path.join(run_path, d))
+        )
+
+        for exp_dir in exp_dirs:
+            exp_path = os.path.join(run_path, exp_dir)
+            run_config_path = os.path.join(exp_path, "run_config.yaml")
+            if not os.path.isfile(run_config_path):
+                continue
+
+            with open(run_config_path, "r") as f:
+                exp_config = yaml.safe_load(f)
+            run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+            rgb_dir = os.path.join(exp_path, "Camera", "rgb")
+            ann_dir = os.path.join(exp_path, "Camera", "object_detection")
+            num_frames = int(run_config.get("run", {}).get("num_frames", 0))
+            orig_w = int(run_config.get("render", {}).get("width", 960))
+            orig_h = int(run_config.get("render", {}).get("height", 544))
+
+            for i in range(num_frames):
+                img_path = os.path.join(rgb_dir, f"{i}.png")
+                if not os.path.isfile(img_path):
+                    continue
+                ann_path = os.path.join(ann_dir, f"{i}.txt")
+
+                anns = []
+                if os.path.isfile(ann_path):
+                    with open(ann_path, "r") as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) < 8:
+                                continue
+                            if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
+                                continue
+                            x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
+                            anns.append({
+                                "category_id": 11,
+                                "bbox": [x1, y1, x2 - x1, y2 - y1],
+                            })
+
+                records.append({
+                    "image_id": i,
+                    "path": img_path,
+                    "width": orig_w,
+                    "height": orig_h,
+                    "subset": "extended",
+                    "anns": anns,
+                    "run_config": run_config,
+                    "run_number": run_number,
+                    "experiment": exp_dir,
+                })
+
+    num_samples = ext_cfg.get("num_samples")
     if num_samples is not None:
         by_run = {}
         for r in records:

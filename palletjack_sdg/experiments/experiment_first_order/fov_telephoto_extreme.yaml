@@ -1,0 +1,8 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/fov_telephoto_extreme"
+
+camera:
+  fov_min: 30
+  fov_max: 36
