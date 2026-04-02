@@ -1,0 +1,43 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/exp14
+environment:
+  name: full_warehouse
+distractors:
+  clutter_level: 1.0
+camera:
+  camera_height_mean: 2.15
+  camera_height_std: 0.375278
+  camera_tilt_mean: -25.0
+  camera_tilt_std: 5.773503
+  camera_yaw_mean: 0.0
+  camera_yaw_std: 34.641016
+  camera_roll_mean: 0.0
+  camera_roll_std: 2.309401
+  fov_mean: 60.0
+  fov_std: 5.773503
+  color_mean:
+  - 0.99
+  - 0.95
+  - 0.875
+  color_std:
+  - 0.063509
+  - 0.057735
+  - 0.043301
+  noise_std_mean: 2.0
+  noise_std_std: 0.57735
+  motion_blur_strength_mean: 1.0
+  motion_blur_strength_std: 0.288675
+lighting:
+  intensity_mean: 110000.0
+  intensity_std: 350000.0
+materials:
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_carpet_abstract_pattern.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
+  roughness_mean: 0.45
+  roughness_std: 0.144338
+  emissive_intensity_mean: 125.0
+  emissive_intensity_std: 72.168784
