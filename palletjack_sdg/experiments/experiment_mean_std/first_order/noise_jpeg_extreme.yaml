@@ -1,0 +1,12 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/noise_jpeg_extreme
+
+camera:
+  dataset_noise:
+    enabled: true
+    mode: jpeg
+    jpeg_quality_mean: 8
+    jpeg_quality_std: 0.0
+

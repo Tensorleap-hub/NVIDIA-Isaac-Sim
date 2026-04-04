@@ -1,0 +1,15 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/image_aug_color_gain_extreme
+
+image_augmentation:
+  enabled: true
+  brightness_gain_mean: 1.0
+  brightness_gain_std: 0.0
+  contrast_gain_mean: 1.0
+  contrast_gain_std: 0.0
+  gamma_mean: 1.0
+  gamma_std: 0.0
+  color_gain_mean: [1.8, 0.65, 0.45]
+  color_gain_std: [0.0, 0.0, 0.0]

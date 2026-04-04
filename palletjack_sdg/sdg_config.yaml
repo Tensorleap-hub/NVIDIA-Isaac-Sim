@@ -79,9 +79,26 @@ camera:
   jpeg_quality_max: 100
   dataset_noise:
     enabled: false
+    mode: gaussian   # gaussian | jpeg | gaussian_jpeg
     sigma_min: 0.0
     sigma_max: 0.0
+    jpeg_quality_min: 25
+    jpeg_quality_max: 75
     seed: -1
+
+# ── Post-write RGB augmentation ───────────────────────────────────────────────
+# Applied per saved image. Legacy camera.color_* fields are mapped here when
+# image_augmentation.color_gain_* are not provided.
+image_augmentation:
+  enabled: false
+  brightness_gain_min: 1.0
+  brightness_gain_max: 1.0
+  contrast_gain_min: 1.0
+  contrast_gain_max: 1.0
+  gamma_min: 1.0
+  gamma_max: 1.0
+  color_gain_min: [1.0, 1.0, 1.0]
+  color_gain_max: [1.0, 1.0, 1.0]
 
 # ── Palletjacks ───────────────────────────────────────────────────────────────
 palletjacks:

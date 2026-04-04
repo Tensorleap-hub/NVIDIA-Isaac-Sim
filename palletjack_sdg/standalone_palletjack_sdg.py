@@ -22,6 +22,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 import os
+import io
 import math
 import random
 import argparse
@@ -157,8 +158,11 @@ def get_dataset_noise_cfg(cam_cfg):
     ds_cfg = (cam_cfg.get("dataset_noise") or {}).copy()
     if ds_cfg:
         ds_cfg.setdefault("enabled", False)
+        ds_cfg.setdefault("mode", "gaussian")
         ds_cfg.setdefault("sigma_min", 0.0)
         ds_cfg.setdefault("sigma_max", 0.0)
+        ds_cfg.setdefault("jpeg_quality_min", 95)
+        ds_cfg.setdefault("jpeg_quality_max", 100)
         ds_cfg.setdefault("seed", -1)
         if (
             ds_cfg.get("enabled")
@@ -172,46 +176,159 @@ def get_dataset_noise_cfg(cam_cfg):
     return {
         "enabled": (legacy_min is not None and float(legacy_min) > 0.0)
         or (legacy_max is not None and float(legacy_max) > 0.0),
+        "mode": "gaussian",
         "sigma_min": 0.0 if legacy_min is None else float(legacy_min),
         "sigma_max": 0.0 if legacy_max is None else float(legacy_max),
+        "jpeg_quality_min": 95,
+        "jpeg_quality_max": 100,
         "seed": -1,
     }
 
 
-def apply_gaussian_noise_to_saved_rgb(output_dir, noise_cfg):
-    """Apply fresh Gaussian noise to each saved RGB image."""
-    if not noise_cfg.get("enabled", False):
-        print("Dataset noise disabled — skipping RGB augmentation")
+def resolve_image_augmentation_cfg(cam_cfg):
+    """Resolve post-write image augmentation config, including legacy camera color."""
+    aug_cfg = (CFG.get("image_augmentation") or {}).copy()
+    aug_cfg.setdefault("enabled", False)
+    aug_cfg.setdefault("brightness_gain_min", 1.0)
+    aug_cfg.setdefault("brightness_gain_max", 1.0)
+    aug_cfg.setdefault("contrast_gain_min", 1.0)
+    aug_cfg.setdefault("contrast_gain_max", 1.0)
+    aug_cfg.setdefault("gamma_min", 1.0)
+    aug_cfg.setdefault("gamma_max", 1.0)
+
+    if "color_gain_min" not in aug_cfg or "color_gain_max" not in aug_cfg:
+        color_min = cam_cfg.get("color_min")
+        color_max = cam_cfg.get("color_max")
+        if color_min is not None and color_max is not None:
+            aug_cfg.setdefault("color_gain_min", list(color_min))
+            aug_cfg.setdefault("color_gain_max", list(color_max))
+    aug_cfg.setdefault("color_gain_min", [1.0, 1.0, 1.0])
+    aug_cfg.setdefault("color_gain_max", [1.0, 1.0, 1.0])
+
+    neutral = (
+        aug_cfg["brightness_gain_min"] == 1.0
+        and aug_cfg["brightness_gain_max"] == 1.0
+        and aug_cfg["contrast_gain_min"] == 1.0
+        and aug_cfg["contrast_gain_max"] == 1.0
+        and aug_cfg["gamma_min"] == 1.0
+        and aug_cfg["gamma_max"] == 1.0
+        and list(aug_cfg["color_gain_min"]) == [1.0, 1.0, 1.0]
+        and list(aug_cfg["color_gain_max"]) == [1.0, 1.0, 1.0]
+    )
+    if not neutral:
+        aug_cfg["enabled"] = True
+    return aug_cfg
+
+
+def sample_uniform_scalar(lo, hi):
+    return random.uniform(float(lo), float(hi))
+
+
+def sample_uniform_vector(lo, hi):
+    return tuple(sample_uniform_scalar(a, b) for a, b in zip(lo, hi))
+
+
+def sample_image_augmentation_params(aug_cfg):
+    return {
+        "brightness_gain": sample_uniform_scalar(
+            aug_cfg["brightness_gain_min"], aug_cfg["brightness_gain_max"]
+        ),
+        "contrast_gain": sample_uniform_scalar(
+            aug_cfg["contrast_gain_min"], aug_cfg["contrast_gain_max"]
+        ),
+        "gamma": sample_uniform_scalar(aug_cfg["gamma_min"], aug_cfg["gamma_max"]),
+        "color_gain": sample_uniform_vector(
+            aug_cfg["color_gain_min"], aug_cfg["color_gain_max"]
+        ),
+    }
+
+
+def apply_image_augmentation(image_data, aug_params):
+    data = image_data.astype(np.float32)
+    color_gain = np.asarray(aug_params["color_gain"], dtype=np.float32).reshape(1, 1, 3)
+    data *= color_gain
+    data *= float(aug_params["brightness_gain"])
+    data = (data - 127.5) * float(aug_params["contrast_gain"]) + 127.5
+    gamma = max(1e-6, float(aug_params["gamma"]))
+    data = 255.0 * np.power(np.clip(data, 0.0, 255.0) / 255.0, gamma)
+    return np.clip(data, 0.0, 255.0)
+
+
+def apply_jpeg_artifacts(image_data, quality):
+    quality = int(max(1, min(100, round(quality))))
+    with io.BytesIO() as buffer:
+        Image.fromarray(image_data.astype(np.uint8), mode="RGB").save(
+            buffer, format="JPEG", quality=quality
+        )
+        buffer.seek(0)
+        with Image.open(buffer) as img:
+            return np.asarray(img.convert("RGB"), dtype=np.float32)
+
+
+def find_rgb_image_paths(output_dir):
+    candidate_dirs = [
+        os.path.join(output_dir, "Camera", "rgb"),
+        os.path.join(output_dir, "image_2"),
+        os.path.join(output_dir, "images"),
+    ]
+    extensions = (".png", ".jpg", ".jpeg")
+
+    for candidate_dir in candidate_dirs:
+        if os.path.isdir(candidate_dir):
+            image_paths = sorted(
+                os.path.join(candidate_dir, name)
+                for name in os.listdir(candidate_dir)
+                if name.lower().endswith(extensions)
+            )
+            if image_paths:
+                return candidate_dir, image_paths
+
+    image_paths = []
+    for root, _, files in os.walk(output_dir):
+        for name in files:
+            if name.lower().endswith(extensions):
+                image_paths.append(os.path.join(root, name))
+    image_paths.sort()
+    return (os.path.dirname(image_paths[0]), image_paths) if image_paths else (None, [])
+
+
+def apply_post_write_effects_to_saved_rgb(output_dir, noise_cfg, aug_cfg):
+    """Apply image augmentation, per-image noise, and optional JPEG artifacts."""
+    if not noise_cfg.get("enabled", False) and not aug_cfg.get("enabled", False):
+        print("Image augmentation and dataset noise disabled — skipping RGB augmentation")
         return
 
-    image_dir = os.path.join(output_dir, "images")
-    if not os.path.isdir(image_dir):
-        print(f"No KITTI image directory found at {image_dir}; skipping RGB augmentation")
+    image_dir, image_paths = find_rgb_image_paths(output_dir)
+    if not image_paths:
+        print(f"No RGB image directory found under {output_dir}; skipping RGB augmentation")
         return
 
     sigma_min = max(0.0, float(noise_cfg.get("sigma_min", 0.0)))
     sigma_max = max(sigma_min, float(noise_cfg.get("sigma_max", sigma_min)))
+    jpeg_quality_min = int(noise_cfg.get("jpeg_quality_min", 95))
+    jpeg_quality_max = int(noise_cfg.get("jpeg_quality_max", 100))
+    mode = str(noise_cfg.get("mode", "gaussian"))
     seed = int(noise_cfg.get("seed", -1))
     rng = np.random.default_rng(None if seed < 0 else seed)
 
-    image_paths = sorted(
-        os.path.join(image_dir, name)
-        for name in os.listdir(image_dir)
-        if name.lower().endswith((".png", ".jpg", ".jpeg"))
-    )
     print(
-        f"Applying per-image Gaussian dataset noise to {len(image_paths)} image(s) "
-        f"with sigma in [{sigma_min:.4f}, {sigma_max:.4f}]"
+        f"Applying post-write effects to {len(image_paths)} image(s) in {image_dir}: "
+        f"aug_enabled={aug_cfg.get('enabled', False)}, noise_mode={mode}"
     )
 
     for image_path in image_paths:
-        sigma = float(rng.uniform(sigma_min, sigma_max))
-        if sigma <= 0:
-            continue
         with Image.open(image_path) as img:
             data = np.asarray(img.convert("RGB"), dtype=np.float32)
-        noisy = np.clip(data + rng.normal(0.0, sigma, size=data.shape), 0.0, 255.0).astype(np.uint8)
-        Image.fromarray(noisy, mode="RGB").save(image_path)
+        if aug_cfg.get("enabled", False):
+            data = apply_image_augmentation(data, sample_image_augmentation_params(aug_cfg))
+        if mode in ("gaussian", "gaussian_jpeg") and noise_cfg.get("enabled", False):
+            sigma = float(rng.uniform(sigma_min, sigma_max))
+            if sigma > 0:
+                data = np.clip(data + rng.normal(0.0, sigma, size=data.shape), 0.0, 255.0)
+        if mode in ("jpeg", "gaussian_jpeg") and noise_cfg.get("enabled", False):
+            quality = int(rng.integers(min(jpeg_quality_min, jpeg_quality_max), max(jpeg_quality_min, jpeg_quality_max) + 1))
+            data = apply_jpeg_artifacts(np.clip(data, 0.0, 255.0), quality)
+        Image.fromarray(np.clip(data, 0.0, 255.0).astype(np.uint8), mode="RGB").save(image_path)
 
 
 def sample_camera_color_uniform(cam_cfg):
@@ -238,6 +355,28 @@ def apply_camera_color_gain(camera_item, color_gain):
         input_prims=camera_item,
     )
     print(f"Camera color gain: {color_gain}")
+
+
+def normalize_projection_type(camera_type):
+    if camera_type == "fisheyeEquidistant":
+        return "fisheyePolynomial"
+    if camera_type == "fisheyePolynomial":
+        return "fisheyePolynomial"
+    return camera_type or "pinhole"
+
+
+def is_fisheye_projection(camera_type):
+    return normalize_projection_type(camera_type) != "pinhole"
+
+
+def get_fisheye_max_fov(cam_cfg):
+    if cam_cfg.get("fisheye_max_fov") is not None:
+        return float(cam_cfg["fisheye_max_fov"])
+    if cam_cfg.get("fov_max") is not None:
+        return float(cam_cfg["fov_max"])
+    if cam_cfg.get("fov_min") is not None:
+        return float(cam_cfg["fov_min"])
+    return 200.0
 
 
 def add_palletjacks():
@@ -352,13 +491,12 @@ def main():
     if motion_blur > 0:
         settings.set("/rtx/post/motionblur/enabled", True)
         settings.set("/rtx/post/motionblur/maxBlurDiameterFraction", float(motion_blur))
-    camera_color_gain = sample_camera_color_uniform(cam_cfg)
-
-    # --- Focal length range (derived from focal_length_min/max or fov_min/max) ---
+    # --- Focal length range (pinhole only) ---
     aperture = cam_cfg.get("horizontal_aperture") or 20.955
+    projection_type = normalize_projection_type(cam_cfg.get("camera_type", "pinhole"))
     fl_min = cam_cfg.get("focal_length_min")
     fl_max = cam_cfg.get("focal_length_max")
-    if fl_min is None and cam_cfg.get("fov_min") is not None:
+    if not is_fisheye_projection(projection_type) and fl_min is None and cam_cfg.get("fov_min") is not None:
         # FOV (degrees) → focal length: fl = aperture / (2 * tan(fov/2))
         fl_min = aperture / (2 * math.tan(math.radians(cam_cfg["fov_max"]) / 2))
         fl_max = aperture / (2 * math.tan(math.radians(cam_cfg["fov_min"]) / 2))
@@ -366,15 +504,16 @@ def main():
     # --- Camera creation ---
     cam_kwargs = {
         "clipping_range": tuple(cam_cfg["clipping_range"]),
-        "projection_type": cam_cfg.get("camera_type", "pinhole"),
+        "projection_type": projection_type,
     }
     if cam_cfg.get("focus_distance") is not None:
         cam_kwargs["focus_distance"] = cam_cfg["focus_distance"]
     if cam_cfg.get("f_stop") is not None:
         cam_kwargs["f_stop"] = cam_cfg["f_stop"]
     cam_kwargs["horizontal_aperture"] = aperture
+    if is_fisheye_projection(projection_type):
+        cam_kwargs["fisheye_max_fov"] = get_fisheye_max_fov(cam_cfg)
     cam = rep.create.camera(**cam_kwargs)
-    apply_camera_color_gain(cam, camera_color_gain)
 
     # ── Replicator pipeline ───────────────────────────────────────────────────
     pj_cfg  = CFG["palletjacks"]
@@ -401,7 +540,7 @@ def main():
                 pose_kwargs["look_at"] = tuple(cam_cfg["look_at"])
             rep.modify.pose(**pose_kwargs)
 
-            if fl_min is not None:
+            if not is_fisheye_projection(projection_type) and fl_min is not None:
                 rep.modify.attribute("focalLength", rep.distribution.uniform(fl_min, fl_max))
 
         with rep.get.prims(path_pattern="SteerAxles"):
@@ -495,7 +634,11 @@ def main():
 
     run_orchestrator()
     simulation_app.update()
-    apply_gaussian_noise_to_saved_rgb(output_directory, dataset_noise_cfg)
+    apply_post_write_effects_to_saved_rgb(
+        output_directory,
+        dataset_noise_cfg,
+        resolve_image_augmentation_cfg(cam_cfg),
+    )
 
     # ── Dump resolved config alongside the data ───────────────────────────────
     write_run_config(output_directory)
