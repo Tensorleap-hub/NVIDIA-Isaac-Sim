@@ -4,4 +4,4 @@ run:
 lighting:
   intensity_mean: 30000.0
   intensity_std: 500.0
-
+  visibility_choices: [true]

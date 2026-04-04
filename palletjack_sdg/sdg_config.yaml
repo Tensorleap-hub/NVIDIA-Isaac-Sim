@@ -79,11 +79,13 @@ camera:
   jpeg_quality_max: 100
   dataset_noise:
     enabled: false
-    mode: gaussian   # gaussian | jpeg | gaussian_jpeg
+    mode: gaussian   # gaussian | jpeg | gaussian_jpeg | shot | shot_jpeg
     sigma_min: 0.0
     sigma_max: 0.0
     jpeg_quality_min: 25
     jpeg_quality_max: 75
+    shot_scale_min: 100.0
+    shot_scale_max: 100.0
     seed: -1
 
 # ── Post-write RGB augmentation ───────────────────────────────────────────────

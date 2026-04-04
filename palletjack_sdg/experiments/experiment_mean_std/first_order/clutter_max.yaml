@@ -1,0 +1,35 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/clutter_max
+
+environment:
+  name: warehouse_multiple_shelves
+
+distractors:
+  clutter_level: 4.5
+  groups:
+    CardBox:
+      diversity: 5
+      occurrence: 6
+    BarelPlastic:
+      diversity: 4
+      occurrence: 5
+    BottlePlastic:
+      diversity: 4
+      occurrence: 6
+    CratePlastic:
+      diversity: 4
+      occurrence: 5
+    TrafficSigns:
+      diversity: 2
+      occurrence: 4
+    Bucket:
+      diversity: 1
+      occurrence: 5
+    RackPile:
+      diversity: 2
+      occurrence: 4
+    PushCart:
+      diversity: 1
+      occurrence: 3

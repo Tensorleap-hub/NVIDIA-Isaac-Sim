@@ -1,0 +1,24 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/clutter_medium
+
+distractors:
+  clutter_level: 1.5
+  groups:
+    CardBox:
+      diversity: 3
+      occurrence: 2
+    BarelPlastic:
+      diversity: 2
+      occurrence: 2
+    BottlePlastic:
+      diversity: 2
+      occurrence: 3
+    CratePlastic:
+      diversity: 2
+      occurrence: 2
+    RackPile:
+      diversity: 1
+      occurrence: 2
+

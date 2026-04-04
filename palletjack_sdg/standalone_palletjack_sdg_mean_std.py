@@ -187,6 +187,8 @@ def get_dataset_noise_cfg(cam_cfg):
         ds_cfg.setdefault("sigma_std", 0.0)
         ds_cfg.setdefault("jpeg_quality_mean", 95)
         ds_cfg.setdefault("jpeg_quality_std", 2.0)
+        ds_cfg.setdefault("shot_scale_mean", 100.0)
+        ds_cfg.setdefault("shot_scale_std", 0.0)
         ds_cfg.setdefault("seed", -1)
         if (
             ds_cfg.get("enabled")
@@ -205,6 +207,8 @@ def get_dataset_noise_cfg(cam_cfg):
         "sigma_std": 0.0 if legacy_std is None else float(legacy_std),
         "jpeg_quality_mean": 95,
         "jpeg_quality_std": 2.0,
+        "shot_scale_mean": 100.0,
+        "shot_scale_std": 0.0,
         "seed": -1,
     }
 
@@ -292,6 +296,14 @@ def apply_jpeg_artifacts(image_data, quality):
             return np.asarray(img.convert("RGB"), dtype=np.float32)
 
 
+def apply_shot_noise(image_data, shot_scale, rng):
+    shot_scale = max(1e-6, float(shot_scale))
+    normalized = np.clip(image_data, 0.0, 255.0) / 255.0
+    photons = np.clip(normalized * shot_scale, 0.0, None)
+    noisy = rng.poisson(photons).astype(np.float32) / shot_scale
+    return np.clip(noisy * 255.0, 0.0, 255.0)
+
+
 def find_rgb_image_paths(output_dir):
     candidate_dirs = [
         os.path.join(output_dir, "Camera", "rgb"),
@@ -334,6 +346,8 @@ def apply_post_write_effects_to_saved_rgb(output_dir, noise_cfg, aug_cfg):
     sigma_std = max(0.0, float(noise_cfg.get("sigma_std", 0.0)))
     jpeg_quality_mean = float(noise_cfg.get("jpeg_quality_mean", 95))
     jpeg_quality_std = max(0.0, float(noise_cfg.get("jpeg_quality_std", 2.0)))
+    shot_scale_mean = max(1e-6, float(noise_cfg.get("shot_scale_mean", 100.0)))
+    shot_scale_std = max(0.0, float(noise_cfg.get("shot_scale_std", 0.0)))
     mode = str(noise_cfg.get("mode", "gaussian"))
     seed = int(noise_cfg.get("seed", -1))
     rng = np.random.default_rng(None if seed < 0 else seed)
@@ -352,7 +366,13 @@ def apply_post_write_effects_to_saved_rgb(output_dir, noise_cfg, aug_cfg):
             sigma = sigma_mean if sigma_std <= 0 else max(0.0, float(rng.normal(sigma_mean, sigma_std)))
             if sigma > 0:
                 data = np.clip(data + rng.normal(0.0, sigma, size=data.shape), 0.0, 255.0)
+        if mode in ("shot", "shot_jpeg") and noise_cfg.get("enabled", False):
+            shot_scale = shot_scale_mean if shot_scale_std <= 0 else max(1e-6, float(rng.normal(shot_scale_mean, shot_scale_std)))
+            data = apply_shot_noise(data, shot_scale, rng)
         if mode in ("jpeg", "gaussian_jpeg") and noise_cfg.get("enabled", False):
+            quality = jpeg_quality_mean if jpeg_quality_std <= 0 else float(rng.normal(jpeg_quality_mean, jpeg_quality_std))
+            data = apply_jpeg_artifacts(np.clip(data, 0.0, 255.0), quality)
+        if mode == "shot_jpeg" and noise_cfg.get("enabled", False):
             quality = jpeg_quality_mean if jpeg_quality_std <= 0 else float(rng.normal(jpeg_quality_mean, jpeg_quality_std))
             data = apply_jpeg_artifacts(np.clip(data, 0.0, 255.0), quality)
         Image.fromarray(np.clip(data, 0.0, 255.0).astype(np.uint8), mode="RGB").save(image_path)
