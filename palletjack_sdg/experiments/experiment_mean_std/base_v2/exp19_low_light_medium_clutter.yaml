@@ -1,0 +1,43 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp19_low_light_medium_clutter
+
+environment:
+  name: warehouse_with_forklifts
+
+distractors:
+  clutter_level: 1.5
+  groups:
+    RackPile:
+      diversity: 2
+      occurrence: 2
+    CardBox:
+      diversity: 2
+      occurrence: 2
+
+camera:
+  camera_height_mean: 1.4
+  camera_height_std: 0.2
+  camera_tilt_mean: -14.0
+  camera_tilt_std: 3.0
+  fov_mean: 74.0
+  fov_std: 4.0
+  dataset_noise:
+    enabled: true
+    mode: gaussian
+    sigma_mean: 10.0
+    sigma_std: 2.0
+
+lighting:
+  intensity_mean: 35000.0
+  intensity_std: 25000.0
+  visibility_choices: [true]
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  emissive_intensity_mean: 0.0
+  emissive_intensity_std: 0.0

@@ -5,3 +5,6 @@ lighting:
   intensity_mean: 5000.0
   intensity_std: 500.0
   visibility_choices: [true]
+materials:
+  emissive_intensity_mean: 0.0
+  emissive_intensity_std: 0.0

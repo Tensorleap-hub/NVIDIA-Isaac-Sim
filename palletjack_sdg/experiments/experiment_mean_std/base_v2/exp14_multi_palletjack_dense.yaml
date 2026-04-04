@@ -1,0 +1,40 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp14_multi_palletjack_dense
+
+environment:
+  name: full_warehouse
+
+distractors:
+  clutter_level: 1.2
+  groups:
+    CardBox:
+      diversity: 3
+      occurrence: 3
+    CratePlastic:
+      diversity: 2
+      occurrence: 2
+
+camera:
+  camera_height_mean: 1.9
+  camera_height_std: 0.25
+  camera_tilt_mean: -13.0
+  camera_tilt_std: 3.5
+  fov_mean: 82.0
+  fov_std: 5.0
+
+palletjacks:
+  count_per_model: 3
+  position_std: [3.5, 5.0, 0.0]
+  rotation_std: [0.0, 0.0, 120.0]
+
+lighting:
+  intensity_mean: 110000.0
+  intensity_std: 180000.0
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg

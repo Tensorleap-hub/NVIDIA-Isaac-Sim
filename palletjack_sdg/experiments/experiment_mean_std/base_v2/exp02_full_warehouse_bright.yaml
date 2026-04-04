@@ -1,0 +1,42 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp02_full_warehouse_bright
+
+environment:
+  name: full_warehouse
+
+distractors:
+  clutter_level: 0.8
+
+camera:
+  camera_height_mean: 2.1
+  camera_height_std: 0.35
+  camera_tilt_mean: -10.0
+  camera_tilt_std: 3.0
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 90.0
+  fov_mean: 68.0
+  fov_std: 5.0
+  motion_blur_strength_mean: 0.2
+  motion_blur_strength_std: 0.1
+
+palletjacks:
+  count_per_model: 2
+  position_std: [2.8, 4.0, 0.0]
+
+lighting:
+  intensity_mean: 220000.0
+  intensity_std: 120000.0
+  visibility_choices: [true]
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_green_white.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
+  roughness_mean: 0.3
+  roughness_std: 0.1
+  emissive_intensity_mean: 140.0
+  emissive_intensity_std: 35.0
