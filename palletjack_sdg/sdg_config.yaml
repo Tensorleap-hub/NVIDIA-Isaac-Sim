@@ -70,13 +70,18 @@ camera:
   color_min: null   # e.g. [0.8, 0.8, 0.8]
   color_max: null   # e.g. [1.2, 1.2, 1.2]
 
-  # Post-processing — sampled once per run from [min, max]
-  noise_std_min: 2.0       # sensor noise std-dev; 0 = disabled
+  # Legacy noise fields. These now map to per-image dataset noise after write.
+  noise_std_min: 2.0       # per-image Gaussian sigma lower bound; 0 = disabled
   noise_std_max: 10.0
   motion_blur_strength_min: 1.0   # RTX motion-blur diameter fraction; 0 = disabled
   motion_blur_strength_max: 4.0
   jpeg_quality_min: 95     # JPEG output quality (0–100)
   jpeg_quality_max: 100
+  dataset_noise:
+    enabled: false
+    sigma_min: 0.0
+    sigma_max: 0.0
+    seed: -1
 
 # ── Palletjacks ───────────────────────────────────────────────────────────────
 palletjacks:

@@ -56,13 +56,18 @@ camera:
   color_mean: null
   color_std: [0.0, 0.0, 0.0]
 
-  # Post-processing values are sampled once per run.
+  # Legacy noise fields. These now map to per-image dataset noise after write.
   noise_std_mean: 6.0
   noise_std_std: 2.309401
   motion_blur_strength_mean: 2.5
   motion_blur_strength_std: 0.866025
   jpeg_quality_mean: 97.5
   jpeg_quality_std: 1.443376
+  dataset_noise:
+    enabled: false
+    sigma_mean: 0.0
+    sigma_std: 0.0
+    seed: -1
 
 palletjacks:
   count_per_model: 2

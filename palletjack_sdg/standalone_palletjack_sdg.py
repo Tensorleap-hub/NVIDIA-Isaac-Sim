@@ -27,6 +27,8 @@ import random
 import argparse
 import yaml
 import datetime
+import numpy as np
+from PIL import Image
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # All run-level args default to None so we can detect explicit overrides.
@@ -150,6 +152,94 @@ def full_textures_list():
     return [prefix_with_isaac_asset_server(p) for p in CFG["materials"]["textures"]]
 
 
+def get_dataset_noise_cfg(cam_cfg):
+    """Resolve per-image dataset-noise config from explicit or legacy fields."""
+    ds_cfg = (cam_cfg.get("dataset_noise") or {}).copy()
+    if ds_cfg:
+        ds_cfg.setdefault("enabled", False)
+        ds_cfg.setdefault("sigma_min", 0.0)
+        ds_cfg.setdefault("sigma_max", 0.0)
+        ds_cfg.setdefault("seed", -1)
+        if (
+            ds_cfg.get("enabled")
+            or float(ds_cfg.get("sigma_min", 0.0)) > 0.0
+            or float(ds_cfg.get("sigma_max", 0.0)) > 0.0
+        ):
+            return ds_cfg
+
+    legacy_min = cam_cfg.get("noise_std_min", 0.0)
+    legacy_max = cam_cfg.get("noise_std_max", 0.0)
+    return {
+        "enabled": (legacy_min is not None and float(legacy_min) > 0.0)
+        or (legacy_max is not None and float(legacy_max) > 0.0),
+        "sigma_min": 0.0 if legacy_min is None else float(legacy_min),
+        "sigma_max": 0.0 if legacy_max is None else float(legacy_max),
+        "seed": -1,
+    }
+
+
+def apply_gaussian_noise_to_saved_rgb(output_dir, noise_cfg):
+    """Apply fresh Gaussian noise to each saved RGB image."""
+    if not noise_cfg.get("enabled", False):
+        print("Dataset noise disabled — skipping RGB augmentation")
+        return
+
+    image_dir = os.path.join(output_dir, "images")
+    if not os.path.isdir(image_dir):
+        print(f"No KITTI image directory found at {image_dir}; skipping RGB augmentation")
+        return
+
+    sigma_min = max(0.0, float(noise_cfg.get("sigma_min", 0.0)))
+    sigma_max = max(sigma_min, float(noise_cfg.get("sigma_max", sigma_min)))
+    seed = int(noise_cfg.get("seed", -1))
+    rng = np.random.default_rng(None if seed < 0 else seed)
+
+    image_paths = sorted(
+        os.path.join(image_dir, name)
+        for name in os.listdir(image_dir)
+        if name.lower().endswith((".png", ".jpg", ".jpeg"))
+    )
+    print(
+        f"Applying per-image Gaussian dataset noise to {len(image_paths)} image(s) "
+        f"with sigma in [{sigma_min:.4f}, {sigma_max:.4f}]"
+    )
+
+    for image_path in image_paths:
+        sigma = float(rng.uniform(sigma_min, sigma_max))
+        if sigma <= 0:
+            continue
+        with Image.open(image_path) as img:
+            data = np.asarray(img.convert("RGB"), dtype=np.float32)
+        noisy = np.clip(data + rng.normal(0.0, sigma, size=data.shape), 0.0, 255.0).astype(np.uint8)
+        Image.fromarray(noisy, mode="RGB").save(image_path)
+
+
+def sample_camera_color_uniform(cam_cfg):
+    color_min = cam_cfg.get("color_min")
+    color_max = cam_cfg.get("color_max")
+    if color_min is None or color_max is None:
+        return None
+
+    sampled = tuple(
+        max(0.0, random.uniform(float(lo), float(hi)))
+        for lo, hi in zip(color_min, color_max)
+    )
+    return sampled
+
+
+def apply_camera_color_gain(camera_item, color_gain):
+    if color_gain is None:
+        return
+
+    rep.modify.attribute(
+        "omni:sensor:core:colorCorrectionWhiteBalance",
+        color_gain,
+        attribute_type="float3",
+        input_prims=camera_item,
+    )
+    print(f"Camera color gain: {color_gain}")
+
+
 def add_palletjacks():
     pj_cfg = CFG["palletjacks"]
     rep_obj_list = [
@@ -252,7 +342,7 @@ def main():
     cam_cfg = CFG["camera"]
 
     # --- Per-run post-processing values (sampled once) ---
-    noise_std = random.uniform(cam_cfg["noise_std_min"], cam_cfg["noise_std_max"])
+    dataset_noise_cfg = get_dataset_noise_cfg(cam_cfg)
     motion_blur = random.uniform(
         cam_cfg["motion_blur_strength_min"], cam_cfg["motion_blur_strength_max"]
     )
@@ -262,8 +352,7 @@ def main():
     if motion_blur > 0:
         settings.set("/rtx/post/motionblur/enabled", True)
         settings.set("/rtx/post/motionblur/maxBlurDiameterFraction", float(motion_blur))
-    if noise_std > 0:
-        settings.set("/rtx/post/tonemap/noiseStrength", float(noise_std))
+    camera_color_gain = sample_camera_color_uniform(cam_cfg)
 
     # --- Focal length range (derived from focal_length_min/max or fov_min/max) ---
     aperture = cam_cfg.get("horizontal_aperture") or 20.955
@@ -285,6 +374,7 @@ def main():
         cam_kwargs["f_stop"] = cam_cfg["f_stop"]
     cam_kwargs["horizontal_aperture"] = aperture
     cam = rep.create.camera(**cam_kwargs)
+    apply_camera_color_gain(cam, camera_color_gain)
 
     # ── Replicator pipeline ───────────────────────────────────────────────────
     pj_cfg  = CFG["palletjacks"]
@@ -405,6 +495,7 @@ def main():
 
     run_orchestrator()
     simulation_app.update()
+    apply_gaussian_noise_to_saved_rgb(output_directory, dataset_noise_cfg)
 
     # ── Dump resolved config alongside the data ───────────────────────────────
     write_run_config(output_directory)

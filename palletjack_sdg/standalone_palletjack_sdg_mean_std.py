@@ -27,6 +27,8 @@ import random
 import argparse
 import yaml
 import datetime
+import numpy as np
+from PIL import Image
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # All run-level args default to None so we can detect explicit overrides.
@@ -174,6 +176,68 @@ def sample_normal(mean, std, lower=None, upper=None, integer=False):
     return value
 
 
+def get_dataset_noise_cfg(cam_cfg):
+    """Resolve per-image dataset-noise config from explicit or legacy fields."""
+    ds_cfg = (cam_cfg.get("dataset_noise") or {}).copy()
+    if ds_cfg:
+        ds_cfg.setdefault("enabled", False)
+        ds_cfg.setdefault("sigma_mean", 0.0)
+        ds_cfg.setdefault("sigma_std", 0.0)
+        ds_cfg.setdefault("seed", -1)
+        if (
+            ds_cfg.get("enabled")
+            or float(ds_cfg.get("sigma_mean", 0.0)) > 0.0
+            or float(ds_cfg.get("sigma_std", 0.0)) > 0.0
+        ):
+            return ds_cfg
+
+    legacy_mean = cam_cfg.get("noise_std_mean", 0.0)
+    legacy_std = cam_cfg.get("noise_std_std", 0.0)
+    return {
+        "enabled": (legacy_mean is not None and float(legacy_mean) > 0.0)
+        or (legacy_std is not None and float(legacy_std) > 0.0),
+        "sigma_mean": 0.0 if legacy_mean is None else float(legacy_mean),
+        "sigma_std": 0.0 if legacy_std is None else float(legacy_std),
+        "seed": -1,
+    }
+
+
+def apply_gaussian_noise_to_saved_rgb(output_dir, noise_cfg):
+    """Apply fresh Gaussian noise to each saved RGB image."""
+    if not noise_cfg.get("enabled", False):
+        print("Dataset noise disabled — skipping RGB augmentation")
+        return
+
+    image_dir = os.path.join(output_dir, "images")
+    if not os.path.isdir(image_dir):
+        print(f"No KITTI image directory found at {image_dir}; skipping RGB augmentation")
+        return
+
+    sigma_mean = max(0.0, float(noise_cfg.get("sigma_mean", 0.0)))
+    sigma_std = max(0.0, float(noise_cfg.get("sigma_std", 0.0)))
+    seed = int(noise_cfg.get("seed", -1))
+    rng = np.random.default_rng(None if seed < 0 else seed)
+
+    image_paths = sorted(
+        os.path.join(image_dir, name)
+        for name in os.listdir(image_dir)
+        if name.lower().endswith((".png", ".jpg", ".jpeg"))
+    )
+    print(
+        f"Applying per-image Gaussian dataset noise to {len(image_paths)} image(s) "
+        f"with sigma mean={sigma_mean:.4f}, std={sigma_std:.4f}"
+    )
+
+    for image_path in image_paths:
+        sigma = sigma_mean if sigma_std <= 0 else max(0.0, float(rng.normal(sigma_mean, sigma_std)))
+        if sigma <= 0:
+            continue
+        with Image.open(image_path) as img:
+            data = np.asarray(img.convert("RGB"), dtype=np.float32)
+        noisy = np.clip(data + rng.normal(0.0, sigma, size=data.shape), 0.0, 255.0).astype(np.uint8)
+        Image.fromarray(noisy, mode="RGB").save(image_path)
+
+
 def rep_normal(mean, std):
     """Create a replicator normal distribution for scalar or vector values."""
     mean = _maybe_tuple(mean)
@@ -187,6 +251,32 @@ def rep_normal(mean, std):
 
 def fov_to_focal_length(horizontal_aperture, fov_degrees):
     return horizontal_aperture / (2 * math.tan(math.radians(fov_degrees) / 2))
+
+
+def sample_camera_color_normal(cam_cfg):
+    color_mean = cam_cfg.get("color_mean")
+    color_std = cam_cfg.get("color_std")
+    if color_mean is None or color_std is None:
+        return None
+
+    sampled = tuple(
+        max(0.0, sample_normal(channel_mean, channel_std, lower=0.0))
+        for channel_mean, channel_std in zip(color_mean, color_std)
+    )
+    return sampled
+
+
+def apply_camera_color_gain(camera_item, color_gain):
+    if color_gain is None:
+        return
+
+    rep.modify.attribute(
+        "omni:sensor:core:colorCorrectionWhiteBalance",
+        color_gain,
+        attribute_type="float3",
+        input_prims=camera_item,
+    )
+    print(f"Camera color gain: {color_gain}")
 
 
 def add_palletjacks():
@@ -291,11 +381,7 @@ def main():
     cam_cfg = CFG["camera"]
 
     # --- Per-run post-processing values (sampled once) ---
-    noise_std = sample_normal(
-        cam_cfg["noise_std_mean"],
-        cam_cfg.get("noise_std_std", 0.0),
-        lower=0.0,
-    )
+    dataset_noise_cfg = get_dataset_noise_cfg(cam_cfg)
     motion_blur = sample_normal(
         cam_cfg["motion_blur_strength_mean"],
         cam_cfg.get("motion_blur_strength_std", 0.0),
@@ -313,8 +399,7 @@ def main():
     if motion_blur > 0:
         settings.set("/rtx/post/motionblur/enabled", True)
         settings.set("/rtx/post/motionblur/maxBlurDiameterFraction", float(motion_blur))
-    if noise_std > 0:
-        settings.set("/rtx/post/tonemap/noiseStrength", float(noise_std))
+    camera_color_gain = sample_camera_color_normal(cam_cfg)
 
     # --- Focal length distribution (direct or derived from FOV mean/std) ---
     aperture = cam_cfg.get("horizontal_aperture") or 20.955
@@ -342,6 +427,7 @@ def main():
         cam_kwargs["f_stop"] = cam_cfg["f_stop"]
     cam_kwargs["horizontal_aperture"] = aperture
     cam = rep.create.camera(**cam_kwargs)
+    apply_camera_color_gain(cam, camera_color_gain)
 
     # ── Replicator pipeline ───────────────────────────────────────────────────
     pj_cfg  = CFG["palletjacks"]
@@ -476,6 +562,7 @@ def main():
 
     run_orchestrator()
     simulation_app.update()
+    apply_gaussian_noise_to_saved_rgb(output_directory, dataset_noise_cfg)
 
     # ── Dump resolved config alongside the data ───────────────────────────────
     write_run_config(output_directory)

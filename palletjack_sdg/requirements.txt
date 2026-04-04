@@ -1,3 +1,4 @@
 # Isaac Sim runtime provides: omni.*, carb, pxr, numpy
 # Only list packages not bundled with Isaac Sim.
+pillow
 pyyaml

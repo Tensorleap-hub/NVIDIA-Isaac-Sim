@@ -3,3 +3,4 @@ run:
   data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/lighting_intensity_high
 lighting:
   intensity_mean: 180000.0
+  intensity_std: 500.0
