@@ -93,15 +93,20 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
          else f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}")
         for r in additional_records
     ]
-
-    return [
-        PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
-        PreprocessResponse(data={sid: r for sid, r in zip(val_ids,   val_records)},   sample_ids=val_ids,   state=DataStateType.validation),
-        PreprocessResponse(data={sid: r for sid, r in zip(additional_ids, additional_records)}, sample_ids=additional_ids, state=DataStateType.additional),
-    ]
-
-
-# ---------------------------------------------------------------------------
+    if len(additional_ids) > 0:
+        return [
+            PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
+            PreprocessResponse(data={sid: r for sid, r in zip(val_ids,   val_records)},   sample_ids=val_ids,   state=DataStateType.validation),
+            PreprocessResponse(data={sid: r for sid, r in zip(additional_ids, additional_records)}, sample_ids=additional_ids, state=DataStateType.additional),
+        ]
+    else:
+        return [
+            PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids,
+                               state=DataStateType.training),
+            PreprocessResponse(data={sid: r for sid, r in zip(val_ids, val_records)}, sample_ids=val_ids,
+                               state=DataStateType.validation),
+            ]
+            # ---------------------------------------------------------------------------
 # Synthetic data loading (KITTI annotations, Isaac Sim)
 # ---------------------------------------------------------------------------
 

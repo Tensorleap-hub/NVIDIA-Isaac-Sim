@@ -13,7 +13,7 @@ from .yolo_losses import (
     yolo_loss_components,
 )
 from .metadata import data_type_metadata, sample_metadata
-from .synth_metadata import synth_metadata
+from .synth_metadata import synth_metadata, synth_metadata_mean_std
 from .yolo_metrics import yolo_per_sample_metrics, yolo_confusion_matrix
 from .yolo_visualizers import image_visualizer, yolo_bb_decoder, yolo_pred_bb_decoder
 
@@ -31,6 +31,7 @@ __all__ = [
     "data_type_metadata",
     "sample_metadata",
     "synth_metadata",
+    "synth_metadata_mean_std",
     "yolo_per_sample_metrics",
     "yolo_confusion_matrix",
     "image_visualizer",
