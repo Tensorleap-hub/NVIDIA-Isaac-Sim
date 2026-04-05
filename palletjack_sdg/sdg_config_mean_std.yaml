@@ -12,6 +12,17 @@ render:
   width: 960
   height: 544
 
+output:
+  # auto: keep KITTI layout for the default RGB+OD case, switch to BasicWriter
+  # when extra modalities are enabled or RGB is disabled.
+  writer: auto            # auto | kitti | basic
+  rgb: true
+  od: true
+  depth: false
+  depth_annotator: distance_to_camera   # distance_to_camera | distance_to_image_plane
+  semantic_segmentation: false
+  instance_segmentation: false
+
 environment:
   name: warehouse
 
