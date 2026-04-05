@@ -1,0 +1,94 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+  distractors: warehouse
+environment:
+  name: warehouse_multiple_shelves
+camera:
+  camera_type: fisheyePolynomial
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 5.0421
+  - 6.6533
+  camera_tilt_mean: -15.0
+  camera_tilt_std: 3.1063
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 18.1543
+  camera_roll_mean: 0.0
+  camera_roll_std: 0.0
+  focal_length_std: 0.0
+  fov_mean: 51.0
+  fov_std: 8.5279
+  jpeg_quality_mean: 97.5
+  jpeg_quality_std: 1.4434
+  dataset_noise:
+    enabled: false
+    mode: gaussian
+    sigma_mean: 0.379
+    sigma_std: 1.8724
+    jpeg_quality_mean: 20.0
+    jpeg_quality_std: 7.0
+    shot_scale_mean: 70.0
+    shot_scale_std: 2.0
+    seed: -1
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0
+  brightness_gain_std: 0.0
+  contrast_gain_mean: 1.0
+  contrast_gain_std: 0.0
+  gamma_mean: 1.0
+  gamma_std: 0.0
+distractor_randomization:
+  scale_mean: 1.25
+  scale_std: 0.1443
+distractors:
+  clutter_level: 0.3929
+  groups:
+    CardBox:
+      diversity: 6
+      occurrence: 6
+    BarelPlastic:
+      diversity: 2
+      occurrence: 4
+    BottlePlastic:
+      diversity: 5
+      occurrence: 6
+    CratePlastic:
+      diversity: 4
+      occurrence: 3
+    TrafficSigns:
+      diversity: 2
+      occurrence: 2
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 1
+      occurrence: 1
+    PushCart:
+      diversity: 2
+      occurrence: 3
+lighting:
+  color_mean:
+  - 0.5
+  - 0.5
+  - 0.5
+  color_std:
+  - 0.2887
+  - 0.2887
+  - 0.2887
+  intensity_mean: 156861.0
+  intensity_std: 311463.0
+materials:
+  roughness_mean: 0.3944
+  roughness_std: 0.2301
+  emissive_intensity_mean: 114.0
+  emissive_intensity_std: 287.6168
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
