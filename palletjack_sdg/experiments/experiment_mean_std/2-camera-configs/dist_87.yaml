@@ -1,0 +1,30 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: full_warehouse
+camera:
+  camera_type: pinhole
+  camera_tilt_mean: -18.0
+  camera_tilt_std: 5.3883
+  focal_length_std: 0.0
+  fov_mean: 86.0
+  fov_std: 5.8611
+  dataset_noise:
+    enabled: false
+    mode: gaussian
+    sigma_mean: 1.8629
+    sigma_std: 0.3639
+    jpeg_quality_mean: 26.0
+    jpeg_quality_std: 7.0
+    shot_scale_mean: 51.0
+    shot_scale_std: 2.0
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0
+  brightness_gain_std: 0.0
+  contrast_gain_mean: 1.0
+  contrast_gain_std: 0.0
+  gamma_mean: 1.0
+  gamma_std: 0.0
