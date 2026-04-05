@@ -1,0 +1,18 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: full_warehouse
+camera:
+  camera_height_mean: 1.7958
+  camera_height_std: 0.1146
+  dataset_noise:
+    enabled: true
+    mode: jpeg
+    sigma_mean: 0.7982
+    sigma_std: 0.0541
+    jpeg_quality_mean: 21.0
+    jpeg_quality_std: 5.0
+    shot_scale_mean: 97.0
+    shot_scale_std: 0.0
