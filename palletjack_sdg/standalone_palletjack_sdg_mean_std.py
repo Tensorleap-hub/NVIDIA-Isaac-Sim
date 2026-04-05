@@ -25,6 +25,7 @@ import os
 import math
 import random
 import argparse
+import sys
 import yaml
 import datetime
 
@@ -72,6 +73,10 @@ def _load_cfg(config_path):
     return _deep_merge(base_cfg, raw_cfg)
 
 CFG = _load_cfg(args.config)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 # ── Merge CLI overrides (CLI wins over YAML) ──────────────────────────────────
 if args.headless      is not None: CFG["run"]["headless"]                    = args.headless
@@ -110,14 +115,14 @@ from omni.isaac.core.utils.stage import get_current_stage, open_stage
 from pxr import Semantics
 import omni.replicator.core as rep
 from omni.isaac.core.utils.semantics import get_semantics
-from utils.camera import (
+from palletjack_sdg.utils.camera import (
     fov_to_focal_length,
     get_fisheye_max_fov_mean_std,
     is_fisheye_projection,
     normalize_projection_type,
     rep_normal,
 )
-from utils.image_effects import (
+from palletjack_sdg.utils.image_effects import (
     apply_post_write_effects_to_saved_rgb,
     get_dataset_noise_cfg,
     resolve_image_augmentation_cfg,
