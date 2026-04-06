@@ -1,0 +1,55 @@
+project_name: dinov2_subset3_optuna_loop
+workspace_dir: ./workspace
+seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
+real_dataset_root: /Users/orram/Tensorleap/data/warehouse/dataset
+real_annotations_file: /Users/orram/Tensorleap/data/warehouse/dataset/labels/loco-sub3-v1-train.json
+max_iterations: 5
+iteration_batch_size: 8
+random_seed: 42
+top_n_best_trials: 3
+mmd_max_samples: 1000
+dino:
+  model_name: dinov2_vitb14_reg
+  repo: facebookresearch/dinov2
+  batch_size: 32
+  resize_size: 256
+  image_size: 224
+isaac:
+  isaac_sim_path: /opt/IsaacSim
+  script_path: ../palletjack_sdg/standalone_palletjack_sdg_mean_std.py
+  headless: true
+search_space:
+  include:
+    - environment.name
+    - distractors.clutter_level
+    - camera.camera_height_mean
+    - camera.camera_height_std
+    - camera.camera_tilt_mean
+    - camera.camera_tilt_std
+    - camera.camera_yaw_mean
+    - camera.camera_yaw_std
+    - camera.camera_roll_mean
+    - camera.camera_roll_std
+    - camera.fov_mean
+    - camera.fov_std
+    - camera.motion_blur_strength_mean
+    - camera.motion_blur_strength_std
+    - camera.dataset_noise.mode
+    - camera.dataset_noise.sigma_mean
+    - camera.dataset_noise.sigma_std
+    - camera.dataset_noise.jpeg_quality_mean
+    - camera.dataset_noise.jpeg_quality_std
+    - palletjacks.count_per_model
+    - palletjacks.position_std
+    - lighting.intensity_mean
+    - lighting.intensity_std
+    - lighting.visibility_choices
+    - materials.textures
+    - materials.roughness_mean
+    - materials.roughness_std
+    - materials.emissive_intensity_mean
+    - materials.emissive_intensity_std
+  exclude:
+    - run.data_dir
+    - run.num_frames
+    - run.headless

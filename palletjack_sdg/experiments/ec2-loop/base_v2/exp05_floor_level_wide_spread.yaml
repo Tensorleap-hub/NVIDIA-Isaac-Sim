@@ -1,0 +1,36 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp05_floor_level_wide_spread
+
+environment:
+  name: warehouse
+
+distractors:
+  clutter_level: 1.2
+
+camera:
+  position_std: [5.5, 8.5]
+  camera_height_mean: 0.55
+  camera_height_std: 0.08
+  camera_tilt_mean: -14.0
+  camera_tilt_std: 4.0
+  fov_mean: 92.0
+  fov_std: 10.0
+
+palletjacks:
+  count_per_model: 2
+  position_std: [4.5, 6.5, 0.0]
+
+distractor_randomization:
+  position_std: [5.0, 7.0, 0.0]
+
+lighting:
+  intensity_mean: 100000.0
+  intensity_std: 260000.0
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
