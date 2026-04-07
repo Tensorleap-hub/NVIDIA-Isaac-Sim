@@ -10,6 +10,7 @@ import pandas as pd
 from calibration_optuna import DEFAULT_CONFIG
 from calibration_optuna.data_utils import infer_bounds_and_types_from_metadata
 from calibration_optuna.experiment_runner import ExperimentRunner
+from calibration_optuna.metrics import compute_per_param_set_metrics
 
 from .config import WorkflowConfig
 from .data import (
@@ -105,9 +106,19 @@ class SimulationCalibrationController:
             )
             artifacts = self._materialize_and_execute_iteration(iteration_index, current_rows)
             self.ui.set_status(phase="optimize", note="computing embeddings and Optuna suggestions")
-            suggestions = self._run_optimizer_iteration(artifacts)
+            suggestions, iteration_summary = self._run_optimizer_iteration(artifacts)
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
             next_rows = [suggestion["params"] for suggestion in suggestions]
+            best_trial_id = best_trials[0][0] if best_trials else "-"
+            best_objective = self._get_best_objective_string()
+            self.ui.set_status(
+                best_trial_id=best_trial_id,
+                best_objective=best_objective,
+                iteration_best=iteration_summary["iteration_best"],
+                iteration_mean=iteration_summary["iteration_mean"],
+                iteration_median=iteration_summary["iteration_median"],
+                note="iteration complete",
+            )
 
             state["iterations"].append(
                 {
@@ -115,6 +126,7 @@ class SimulationCalibrationController:
                     "input_rows": current_rows,
                     "artifacts": [self._serialize_artifact(item) for item in artifacts],
                     "suggestions": suggestions,
+                    "iteration_summary": iteration_summary,
                     "best_trials": [
                         {"trial_id": trial_id, "params": params}
                         for trial_id, params in best_trials
@@ -180,7 +192,16 @@ class SimulationCalibrationController:
                 )
                 for item in iteration["artifacts"]
             ]
-            self._run_optimizer_iteration(artifacts)
+            _, iteration_summary = self._run_optimizer_iteration(artifacts)
+            best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
+            best_trial_id = best_trials[0][0] if best_trials else "-"
+            self.ui.set_status(
+                best_trial_id=best_trial_id,
+                best_objective=self._get_best_objective_string(),
+                iteration_best=iteration_summary["iteration_best"],
+                iteration_mean=iteration_summary["iteration_mean"],
+                iteration_median=iteration_summary["iteration_median"],
+            )
 
     def _materialize_and_execute_iteration(
         self,
@@ -249,7 +270,7 @@ class SimulationCalibrationController:
             self.ui.set_status(completed_runs=run_index + 1)
         return artifacts
 
-    def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> list[dict[str, Any]]:
+    def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str]]:
         embeddings = []
         current_distributions = []
         embeddings_indices_by_dist = {}
@@ -269,6 +290,13 @@ class SimulationCalibrationController:
             start_index = end_index
 
         embeddings_by_shape = [np.concatenate(embeddings, axis=0)]
+        metrics_list = compute_per_param_set_metrics(
+            embeddings_by_shape,
+            embeddings_indices_by_dist,
+            self.runner.real_embeddings_400d,
+            n_param_sets=len(current_distributions),
+            mmd_max_samples=self.optimizer_config["mmd_max_samples"],
+        )
         raw_suggestions = self.runner.run_iteration(
             current_distributions=current_distributions,
             embeddings_by_shape=embeddings_by_shape,
@@ -282,7 +310,15 @@ class SimulationCalibrationController:
                 if key.startswith(f"{self.group_name}__"):
                     flattened[key[len(f"{self.group_name}__"):]] = value
             suggestions.append({"suggestion_id": suggestion_id, "params": flattened})
-        return suggestions
+        objective_name = self.optimizer_config["optimization_metrics"][0]
+        objective_values = [metrics[objective_name] for metrics in metrics_list]
+        iteration_summary = {
+            "objective_name": objective_name,
+            "iteration_best": f"{min(objective_values):.6f}",
+            "iteration_mean": f"{float(np.mean(objective_values)):.6f}",
+            "iteration_median": f"{float(np.median(objective_values)):.6f}",
+        }
+        return suggestions, iteration_summary
 
     def _build_distribution_metadata(self, rows: list[dict[str, Any]]) -> pd.DataFrame:
         metadata_rows = []
@@ -303,3 +339,10 @@ class SimulationCalibrationController:
             "image_count": artifact.image_count,
             "flattened_params": artifact.flattened_params,
         }
+
+    def _get_best_objective_string(self) -> str:
+        completed_trials = [trial for trial in self.runner.optimizer.study.trials if trial.values is not None]
+        if not completed_trials:
+            return "-"
+        best_value = min(trial.values[0] for trial in completed_trials)
+        return f"{best_value:.6f}"

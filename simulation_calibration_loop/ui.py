@@ -18,6 +18,11 @@ class UISnapshot:
     completed_runs: int = 0
     real_cache_status: str = "-"
     note: str = ""
+    best_trial_id: str = "-"
+    best_objective: str = "-"
+    iteration_best: str = "-"
+    iteration_mean: str = "-"
+    iteration_median: str = "-"
     recent_logs: deque[str] = field(default_factory=lambda: deque(maxlen=20))
 
 
@@ -70,6 +75,11 @@ class WorkflowUI:
                 completed_runs=self.snapshot.completed_runs,
                 real_cache_status=self.snapshot.real_cache_status,
                 note=self.snapshot.note,
+                best_trial_id=self.snapshot.best_trial_id,
+                best_objective=self.snapshot.best_objective,
+                iteration_best=self.snapshot.iteration_best,
+                iteration_mean=self.snapshot.iteration_mean,
+                iteration_median=self.snapshot.iteration_median,
                 recent_logs=deque(self.snapshot.recent_logs, maxlen=20),
             )
 
@@ -81,6 +91,11 @@ class WorkflowUI:
             f"Runs: {snapshot.completed_runs}/{snapshot.total_runs}",
             f"Current run: {snapshot.current_run}",
             f"Real cache: {snapshot.real_cache_status}",
+            f"Best trial: {snapshot.best_trial_id}",
+            f"Best objective: {snapshot.best_objective}",
+            f"Iteration best: {snapshot.iteration_best}",
+            f"Iteration mean: {snapshot.iteration_mean}",
+            f"Iteration median: {snapshot.iteration_median}",
             f"Note: {snapshot.note}",
             "",
             "Isaac logs:",

@@ -1,6 +1,7 @@
 import json
 import os
 import random
+from collections import Counter
 from typing import List
 
 import cv2
@@ -19,6 +20,15 @@ from rtdetr_warehouse.config import COCO_ID_TO_IDX, CONFIG
 
 IMAGE_SIZE = int(CONFIG["image_size"])
 MAX_DETS = int(CONFIG["max_num_of_objects"])
+
+
+def _validate_unique_sample_ids(sample_ids: list[str], label: str) -> None:
+    duplicates = [sample_id for sample_id, count in Counter(sample_ids).items() if count > 1]
+    if duplicates:
+        preview = ", ".join(sorted(duplicates)[:10])
+        raise ValueError(
+            f"Duplicate sample ids found in {label}: {preview}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +103,10 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
          else f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}")
         for r in additional_records
     ]
+    _validate_unique_sample_ids(train_ids, "training split")
+    _validate_unique_sample_ids(val_ids, "validation split")
+    _validate_unique_sample_ids(additional_ids, "additional split")
+    _validate_unique_sample_ids(train_ids + val_ids + additional_ids, "all splits")
     if len(additional_ids) > 0:
         return [
             PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
