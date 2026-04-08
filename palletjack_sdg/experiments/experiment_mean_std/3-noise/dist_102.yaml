@@ -6,13 +6,13 @@ environment:
   name: warehouse
 camera:
   camera_height_mean: 1.7643
-  camera_height_std: 0.0805
+  camera_height_std: 0.0816
   dataset_noise:
     enabled: true
-    mode: jpeg
-    sigma_mean: 0.3995
-    sigma_std: 0.6457
-    jpeg_quality_mean: 25.0
-    jpeg_quality_std: 3.0
+    mode: gaussian_jpeg
+    sigma_mean: 3.8575
+    sigma_std: 1.8846
+    jpeg_quality_mean: 31.0
+    jpeg_quality_std: 4.0
     shot_scale_mean: 100.0
     shot_scale_std: 0.0

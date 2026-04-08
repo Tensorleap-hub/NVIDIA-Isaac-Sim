@@ -10,7 +10,6 @@ import pandas as pd
 from calibration_optuna import DEFAULT_CONFIG
 from calibration_optuna.data_utils import infer_bounds_and_types_from_metadata
 from calibration_optuna.experiment_runner import ExperimentRunner
-from calibration_optuna.metrics import compute_per_param_set_metrics
 
 from .config import WorkflowConfig
 from .data import (
@@ -56,9 +55,16 @@ class SimulationCalibrationController:
         )
         if not self.schema:
             raise ValueError("Search-space filtering removed all Isaac parameters; update search_space.include/exclude")
-        self.seed_rows = [flatten_config(item[1], self.schema) for item in seed_items]
+        self.seed_rows = [
+            {
+                "suggestion_id": f"seed_{index}",
+                "optuna_trial_number": None,
+                "params": flatten_config(item[1], self.schema),
+            }
+            for index, item in enumerate(seed_items)
+        ]
         self.group_name = "simulation_1"
-        self.seed_metadata = self._build_distribution_metadata(self.seed_rows)
+        self.seed_metadata = self._build_distribution_metadata([row["params"] for row in self.seed_rows])
         self.param_bounds, self.param_type = infer_bounds_and_types_from_metadata(
             self.seed_metadata,
             [self.group_name],
@@ -108,7 +114,7 @@ class SimulationCalibrationController:
             self.ui.set_status(phase="optimize", note="computing embeddings and Optuna suggestions")
             suggestions, iteration_summary = self._run_optimizer_iteration(artifacts)
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
-            next_rows = [suggestion["params"] for suggestion in suggestions]
+            next_rows = suggestions
             best_trial_id = best_trials[0][0] if best_trials else "-"
             best_objective = self._get_best_objective_string()
             self.ui.set_status(
@@ -172,7 +178,7 @@ class SimulationCalibrationController:
     def _load_iteration_rows(self, state: dict[str, Any], start_iteration: int) -> list[dict[str, Any]]:
         if start_iteration == 0:
             return self.seed_rows
-        return [item["params"] for item in state["iterations"][-1]["suggestions"]]
+        return state["iterations"][-1]["suggestions"]
 
     def _replay_completed_iterations(self, state: dict[str, Any]) -> None:
         if not state["iterations"]:
@@ -189,6 +195,7 @@ class SimulationCalibrationController:
                     embedding_path=Path(item["embedding_path"]),
                     image_count=int(item["image_count"]),
                     flattened_params=item["flattened_params"],
+                    optuna_trial_number=item.get("optuna_trial_number"),
                 )
                 for item in iteration["artifacts"]
             ]
@@ -217,13 +224,14 @@ class SimulationCalibrationController:
         prepare_output_dir(cache_dir, clean=False)
 
         artifacts: list[RunArtifact] = []
-        for run_index, row in enumerate(rows):
+        for run_index, row_record in enumerate(rows):
             run_id = f"iter{iteration_index:03d}_run{run_index:03d}"
             yaml_path = yaml_dir / f"{run_id}.yaml"
             output_dir = outputs_dir / run_id
             log_path = output_dir / "isaac.log"
             embedding_path = cache_dir / f"{run_id}_{self.config.dino.model_name}.npy"
-            config_dict = materialize_config(self.base_template, row, self.schema)
+            params_row = row_record["params"]
+            config_dict = materialize_config(self.base_template, params_row, self.schema)
             save_yaml_config(yaml_path, config_dict)
 
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
@@ -241,7 +249,7 @@ class SimulationCalibrationController:
                     num_frames_override=self.config.isaac.num_frames_override,
                     log_callback=self.ui.append_log,
                 )
-                image_paths = discover_generated_images(output_dir)
+            image_paths = discover_generated_images(output_dir / "Camera" / "rgb")
             if not image_paths:
                 raise ValueError(f"No generated images discovered under {output_dir}")
             manifest = {
@@ -264,7 +272,8 @@ class SimulationCalibrationController:
                     log_path=log_path,
                     embedding_path=embedding_path,
                     image_count=len(image_paths),
-                    flattened_params=row,
+                    flattened_params=params_row,
+                    optuna_trial_number=row_record.get("optuna_trial_number"),
                 )
             )
             self.ui.set_status(completed_runs=run_index + 1)
@@ -274,6 +283,7 @@ class SimulationCalibrationController:
         embeddings = []
         current_distributions = []
         embeddings_indices_by_dist = {}
+        trial_numbers = []
         start_index = 0
 
         for dist_index, artifact in enumerate(artifacts):
@@ -287,20 +297,15 @@ class SimulationCalibrationController:
                 params[f"{self.group_name}__{key}"] = value
             current_distributions.append((artifact.run_id, params))
             embeddings_indices_by_dist[dist_index] = [(0, np.arange(start_index, end_index))]
+            trial_numbers.append(artifact.optuna_trial_number)
             start_index = end_index
 
         embeddings_by_shape = [np.concatenate(embeddings, axis=0)]
-        metrics_list = compute_per_param_set_metrics(
-            embeddings_by_shape,
-            embeddings_indices_by_dist,
-            self.runner.real_embeddings_400d,
-            n_param_sets=len(current_distributions),
-            mmd_max_samples=self.optimizer_config["mmd_max_samples"],
-        )
-        raw_suggestions = self.runner.run_iteration(
+        raw_suggestions, metrics_list = self.runner.evaluate_iteration(
             current_distributions=current_distributions,
             embeddings_by_shape=embeddings_by_shape,
             embeddings_indices_by_dist=embeddings_indices_by_dist,
+            trial_numbers=trial_numbers,
         )
 
         suggestions = []
@@ -309,7 +314,16 @@ class SimulationCalibrationController:
             for key, value in params.items():
                 if key.startswith(f"{self.group_name}__"):
                     flattened[key[len(f"{self.group_name}__"):]] = value
-            suggestions.append({"suggestion_id": suggestion_id, "params": flattened})
+            trial_number = None
+            if suggestion_id.startswith("trial_"):
+                trial_number = int(suggestion_id.split("_", 1)[1])
+            suggestions.append(
+                {
+                    "suggestion_id": suggestion_id,
+                    "optuna_trial_number": trial_number,
+                    "params": flattened,
+                }
+            )
         objective_name = self.optimizer_config["optimization_metrics"][0]
         objective_values = [metrics[objective_name] for metrics in metrics_list]
         iteration_summary = {
@@ -338,6 +352,7 @@ class SimulationCalibrationController:
             "embedding_path": str(artifact.embedding_path),
             "image_count": artifact.image_count,
             "flattened_params": artifact.flattened_params,
+            "optuna_trial_number": artifact.optuna_trial_number,
         }
 
     def _get_best_objective_string(self) -> str:

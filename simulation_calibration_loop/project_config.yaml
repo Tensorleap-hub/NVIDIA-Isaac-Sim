@@ -19,36 +19,15 @@ isaac:
   script_path: ../palletjack_sdg/standalone_palletjack_sdg_mean_std.py
   headless: true
 search_space:
+  themes:
+    - environment
+    - camera
+    - noise
+    - objects
+    - lighting
+    - materials
   include:
-    - environment.name
-    - distractors.clutter_level
-    - camera.camera_height_mean
-    - camera.camera_height_std
-    - camera.camera_tilt_mean
-    - camera.camera_tilt_std
-    - camera.camera_yaw_mean
-    - camera.camera_yaw_std
-    - camera.camera_roll_mean
-    - camera.camera_roll_std
-    - camera.fov_mean
-    - camera.fov_std
-    - camera.motion_blur_strength_mean
-    - camera.motion_blur_strength_std
-    - camera.dataset_noise.mode
-    - camera.dataset_noise.sigma_mean
-    - camera.dataset_noise.sigma_std
-    - camera.dataset_noise.jpeg_quality_mean
-    - camera.dataset_noise.jpeg_quality_std
-    - palletjacks.count_per_model
-    - palletjacks.position_std
-    - lighting.intensity_mean
-    - lighting.intensity_std
-    - lighting.visibility_choices
-    - materials.textures
-    - materials.roughness_mean
-    - materials.roughness_std
-    - materials.emissive_intensity_mean
-    - materials.emissive_intensity_std
+    []
   exclude:
     - run.data_dir
     - run.num_frames

@@ -98,23 +98,41 @@ Important fields:
 
 `search_space` controls which Isaac YAML parameters are exposed to Optuna.
 
-If `include` is non-empty, only those exact paths are optimized.
+You can configure it in two ways:
+
+- `themes`: higher-level parameter groups such as `camera`, `noise`, `objects`, `lighting`, `materials`, and `environment`
+- `include`: explicit path additions
+- `exclude`: explicit removals
+
+The final search space is:
+
+`expanded(themes) + include - exclude`
+
+If the final `include` list is non-empty, only those exact paths are optimized.
 
 Example:
 
 ```yaml
 search_space:
+  themes:
+    - camera
+    - lighting
   include:
-    - camera.camera_height_mean
-    - camera.fov_mean
-    - lighting.intensity_mean
     - materials.textures
   exclude:
-    - run.data_dir
-    - run.num_frames
+    - camera.camera_roll_std
 ```
 
 All non-selected Isaac fields remain fixed from the base template YAML used for materialization.
+
+Available themes:
+
+- `environment`
+- `camera`
+- `noise`
+- `objects`
+- `lighting`
+- `materials`
 
 
 ## Workspace Layout
