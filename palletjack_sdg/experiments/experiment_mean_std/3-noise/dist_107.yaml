@@ -3,16 +3,16 @@ run:
   num_frames: 128
   data_dir: /placeholder
 environment:
-  name: warehouse
+  name: full_warehouse
 camera:
-  camera_height_mean: 1.5341
-  camera_height_std: 0.1424
+  camera_height_mean: 2.5153
+  camera_height_std: 0.9429
   dataset_noise:
-    enabled: true
-    mode: jpeg
-    sigma_mean: 1.2445
-    sigma_std: 0.0568
-    jpeg_quality_mean: 22.0
-    jpeg_quality_std: 5.0
-    shot_scale_mean: 100.0
+    enabled: false
+    mode: shot
+    sigma_mean: 0.954
+    sigma_std: 0.7997
+    jpeg_quality_mean: 19.0
+    jpeg_quality_std: 3.0
+    shot_scale_mean: 53.0
     shot_scale_std: 0.0

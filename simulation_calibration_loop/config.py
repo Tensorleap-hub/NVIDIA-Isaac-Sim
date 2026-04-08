@@ -29,8 +29,54 @@ class IsaacConfig:
 
 @dataclass
 class SearchSpaceConfig:
+    themes: list[str] = field(default_factory=list)
     include: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
+
+
+SEARCH_SPACE_THEMES: dict[str, list[str]] = {
+    "environment": [
+        "environment.name",
+    ],
+    "camera": [
+        "camera.camera_height_mean",
+        "camera.camera_height_std",
+        "camera.camera_tilt_mean",
+        "camera.camera_tilt_std",
+        "camera.camera_yaw_mean",
+        "camera.camera_yaw_std",
+        "camera.camera_roll_mean",
+        "camera.camera_roll_std",
+        "camera.fov_mean",
+        "camera.fov_std",
+    ],
+    "noise": [
+        "camera.motion_blur_strength_mean",
+        "camera.motion_blur_strength_std",
+        "camera.dataset_noise.mode",
+        "camera.dataset_noise.sigma_mean",
+        "camera.dataset_noise.sigma_std",
+        "camera.dataset_noise.jpeg_quality_mean",
+        "camera.dataset_noise.jpeg_quality_std",
+    ],
+    "objects": [
+        "distractors.clutter_level",
+        "palletjacks.count_per_model",
+        "palletjacks.position_std",
+    ],
+    "lighting": [
+        "lighting.intensity_mean",
+        "lighting.intensity_std",
+        "lighting.visibility_choices",
+    ],
+    "materials": [
+        "materials.textures",
+        "materials.roughness_mean",
+        "materials.roughness_std",
+        "materials.emissive_intensity_mean",
+        "materials.emissive_intensity_std",
+    ],
+}
 
 
 @dataclass
@@ -61,6 +107,23 @@ def _load_section(data: dict[str, Any] | None, cls: type[Any]) -> Any:
     return cls(**section_data)
 
 
+def _expand_search_space(search_space: SearchSpaceConfig) -> SearchSpaceConfig:
+    expanded_include = list(search_space.include)
+    for theme in search_space.themes:
+        if theme not in SEARCH_SPACE_THEMES:
+            valid = ", ".join(sorted(SEARCH_SPACE_THEMES))
+            raise ValueError(f"Unknown search-space theme '{theme}'. Valid themes: {valid}")
+        expanded_include.extend(SEARCH_SPACE_THEMES[theme])
+
+    deduped_include = list(dict.fromkeys(expanded_include))
+    deduped_exclude = list(dict.fromkeys(search_space.exclude))
+    return SearchSpaceConfig(
+        themes=list(search_space.themes),
+        include=deduped_include,
+        exclude=deduped_exclude,
+    )
+
+
 def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     config_path = Path(config_path).resolve()
     raw = yaml.safe_load(config_path.read_text()) or {}
@@ -80,6 +143,7 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         isaac=_load_section(raw.get("isaac"), IsaacConfig),
         search_space=_load_section(raw.get("search_space"), SearchSpaceConfig),
     )
+    workflow.search_space = _expand_search_space(workflow.search_space)
 
     workflow.workspace_dir = str(workflow.resolve_path(workflow.workspace_dir, relative_to_config=config_path))
     workflow.seed_config_dir = str(workflow.resolve_path(workflow.seed_config_dir, relative_to_config=config_path))

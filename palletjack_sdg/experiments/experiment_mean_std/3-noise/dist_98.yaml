@@ -3,16 +3,16 @@ run:
   num_frames: 128
   data_dir: /placeholder
 environment:
-  name: warehouse
+  name: warehouse_with_forklifts
 camera:
-  camera_height_mean: 1.5559
-  camera_height_std: 0.1959
+  camera_height_mean: 2.1961
+  camera_height_std: 0.7846
   dataset_noise:
-    enabled: true
-    mode: jpeg
-    sigma_mean: 0.1985
-    sigma_std: 0.0895
-    jpeg_quality_mean: 27.0
-    jpeg_quality_std: 4.0
-    shot_scale_mean: 92.0
-    shot_scale_std: 0.0
+    enabled: false
+    mode: gaussian
+    sigma_mean: 0.7561
+    sigma_std: 1.177
+    jpeg_quality_mean: 29.0
+    jpeg_quality_std: 10.0
+    shot_scale_mean: 23.0
+    shot_scale_std: 1.0
