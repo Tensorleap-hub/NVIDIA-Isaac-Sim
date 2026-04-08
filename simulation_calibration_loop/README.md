@@ -31,18 +31,36 @@ The workflow is:
 - `test_isaac_small_loop.py`: small end-to-end Isaac loop test
 
 
+## External Loop Environment
+
+Use a dedicated external Python environment for the DINOv2 + Optuna code. This keeps the
+outer calibration loop separate from Isaac Sim's bundled Python environment.
+
+Create the loop venv:
+
+```bash
+bash simulation_calibration_loop/setup_loop_venv.sh
+```
+
+This venv is created from Isaac Sim's Python 3.11 interpreter and installs
+[`local_requirements.txt`](/home/ubuntu/NVIDIA-Isaac-Sim/local_requirements.txt) into
+`./.sim_loop_venv`.
+
+
 ## Main Workflow
 
 Run from the repository root:
 
 ```bash
-PYTHONPATH=. python -m simulation_calibration_loop.run_dinov2_optuna_loop
+bash simulation_calibration_loop/run_main_loop.sh
 ```
 
 or:
 
 ```bash
-PYTHONPATH=. python run_dinov2_optuna_loop.py --config simulation_calibration_loop/project_config.yaml
+bash simulation_calibration_loop/run_with_loop_venv.sh \
+  run_dinov2_optuna_loop.py \
+  --config simulation_calibration_loop/project_config.yaml
 ```
 
 The main entrypoint loads `simulation_calibration_loop/project_config.yaml`, creates a workspace under `workspace_dir`, and persists progress in `state.json`.
@@ -139,7 +157,10 @@ This test does not launch Isaac. It uses existing real and synthetic images.
 Run:
 
 ```bash
-PYTHONPATH=. python -m simulation_calibration_loop.smoke_test_dinov2 --samples-per-domain 4 --device cpu
+bash simulation_calibration_loop/run_with_loop_venv.sh \
+  -m simulation_calibration_loop.smoke_test_dinov2 \
+  --samples-per-domain 4 \
+  --device cpu
 ```
 
 What it does:
@@ -166,7 +187,7 @@ This test does launch Isaac, but keeps the run small.
 Run:
 
 ```bash
-PYTHONPATH=. python -m simulation_calibration_loop.test_isaac_small_loop --config simulation_calibration_loop/test_isaac_small_loop.yaml --device cpu
+bash simulation_calibration_loop/run_small_loop.sh --device cpu
 ```
 
 What it does:
@@ -194,11 +215,12 @@ You need:
 - a working Isaac Sim installation
 - access to the local warehouse dataset root
 - DINOv2 downloadable or already cached through `torch.hub`
-- Python deps from `local_requirements.txt`
+- the external loop venv from `simulation_calibration_loop/setup_loop_venv.sh`
 
 Notes:
 
-- Isaac itself is not installed by Python requirements.
+- Isaac scene generation still runs through `isaac.isaac_sim_path/python.sh`.
+- The outer calibration loop should run from `./.sim_loop_venv`, not Isaac's bundled site-packages.
 - The first DINOv2 run may download weights if they are not cached locally.
 
 

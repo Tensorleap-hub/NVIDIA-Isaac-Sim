@@ -229,7 +229,8 @@ class SimulationCalibrationController:
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
             if not output_dir.exists():
                 output_dir.mkdir(parents=True, exist_ok=True)
-            if not log_path.exists():
+            image_paths = discover_generated_images(output_dir)
+            if not log_path.exists() or not image_paths:
                 run_isaac_generation(
                     isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
                     script_path=Path(self.config.isaac.script_path),
@@ -240,8 +241,7 @@ class SimulationCalibrationController:
                     num_frames_override=self.config.isaac.num_frames_override,
                     log_callback=self.ui.append_log,
                 )
-
-            image_paths = discover_generated_images(output_dir)
+                image_paths = discover_generated_images(output_dir)
             if not image_paths:
                 raise ValueError(f"No generated images discovered under {output_dir}")
             manifest = {

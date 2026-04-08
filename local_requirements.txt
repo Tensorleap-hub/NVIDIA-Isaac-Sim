@@ -1,4 +1,4 @@
-numpy
+numpy<2
 pyyaml
 scipy
 torch==2.1.2
@@ -7,4 +7,4 @@ onnxruntime
 opencv-python-headless
 pandas
 optuna
-sklearn
+scikit-learn

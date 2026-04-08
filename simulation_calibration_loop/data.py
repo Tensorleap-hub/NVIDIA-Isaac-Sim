@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 
@@ -155,6 +156,16 @@ def run_isaac_generation(
     num_frames_override: int | None,
     log_callback,
 ) -> None:
+    nvjitlink_lib_dir = isaac_sim_path / "exts" / "omni.isaac.ml_archive" / "pip_prebundle" / "nvidia" / "nvjitlink" / "lib"
+    env = dict(os.environ)
+    if nvjitlink_lib_dir.is_dir():
+        current_ld_library_path = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = (
+            f"{nvjitlink_lib_dir}:{current_ld_library_path}"
+            if current_ld_library_path
+            else str(nvjitlink_lib_dir)
+        )
+
     command = [
         "./python.sh",
         str(script_path),
@@ -171,6 +182,7 @@ def run_isaac_generation(
     process = subprocess.Popen(
         command,
         cwd=isaac_sim_path,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
