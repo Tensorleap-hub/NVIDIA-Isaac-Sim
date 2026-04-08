@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
-import os
 import sys
 import time
 
@@ -33,6 +32,7 @@ class WorkflowUI:
         self._stop = Event()
         self._thread: Thread | None = None
         self._interactive = sys.stdout.isatty()
+        self._last_emitted_signature: tuple | None = None
 
     def start(self) -> None:
         if not self._interactive:
@@ -49,14 +49,28 @@ class WorkflowUI:
         with self._lock:
             for key, value in kwargs.items():
                 setattr(self.snapshot, key, value)
-        if not self._interactive and "phase" in kwargs:
-            print(f"[workflow] phase={kwargs['phase']}")
+            snapshot = UISnapshot(
+                phase=self.snapshot.phase,
+                iteration_index=self.snapshot.iteration_index,
+                max_iterations=self.snapshot.max_iterations,
+                current_run=self.snapshot.current_run,
+                total_runs=self.snapshot.total_runs,
+                completed_runs=self.snapshot.completed_runs,
+                real_cache_status=self.snapshot.real_cache_status,
+                note=self.snapshot.note,
+                best_trial_id=self.snapshot.best_trial_id,
+                best_objective=self.snapshot.best_objective,
+                iteration_best=self.snapshot.iteration_best,
+                iteration_mean=self.snapshot.iteration_mean,
+                iteration_median=self.snapshot.iteration_median,
+                recent_logs=deque(self.snapshot.recent_logs, maxlen=20),
+            )
+        if not self._interactive:
+            self._emit_status_snapshot(snapshot)
 
     def append_log(self, line: str) -> None:
         with self._lock:
             self.snapshot.recent_logs.append(line)
-        if not self._interactive:
-            print(line)
 
     def _render_loop(self) -> None:
         while not self._stop.is_set():
@@ -104,3 +118,35 @@ class WorkflowUI:
         screen = "\033[2J\033[H" + "\n".join(lines)
         sys.stdout.write(screen)
         sys.stdout.flush()
+
+    def _emit_status_snapshot(self, snapshot: UISnapshot) -> None:
+        signature = (
+            snapshot.phase,
+            snapshot.iteration_index,
+            snapshot.max_iterations,
+            snapshot.completed_runs,
+            snapshot.total_runs,
+            snapshot.current_run,
+            snapshot.best_trial_id,
+            snapshot.best_objective,
+            snapshot.iteration_best,
+            snapshot.iteration_mean,
+            snapshot.iteration_median,
+            snapshot.note,
+        )
+        if signature == self._last_emitted_signature:
+            return
+        self._last_emitted_signature = signature
+        summary = (
+            f"[workflow] phase={snapshot.phase} "
+            f"iter={snapshot.iteration_index}/{snapshot.max_iterations} "
+            f"runs={snapshot.completed_runs}/{snapshot.total_runs} "
+            f"current={snapshot.current_run} "
+            f"best_trial={snapshot.best_trial_id} "
+            f"best_obj={snapshot.best_objective} "
+            f"iter_best={snapshot.iteration_best} "
+            f"iter_mean={snapshot.iteration_mean} "
+            f"iter_med={snapshot.iteration_median} "
+            f"note={snapshot.note}"
+        )
+        print(summary, flush=True)

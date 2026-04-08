@@ -553,7 +553,8 @@ class OptunaOptimizer:
         self,
         current_distributions: List[Tuple[str, Dict]],
         metrics_list: List[Dict[str, float]],
-        config: Dict
+        config: Dict,
+        trial_numbers: List[int | None] | None = None,
     ) -> List[Tuple[str, Dict]]:
         """
         Register current results and suggest next distribution specifications.
@@ -579,6 +580,21 @@ class OptunaOptimizer:
                 f"Mismatch: {len(current_distributions)} distributions but "
                 f"{len(metrics_list)} metric dicts"
             )
+        if trial_numbers is None:
+            trial_numbers = []
+            for dist_id, _ in current_distributions:
+                if isinstance(dist_id, str) and dist_id.startswith("trial_"):
+                    try:
+                        trial_numbers.append(int(dist_id.split("_", 1)[1]))
+                    except ValueError:
+                        trial_numbers.append(None)
+                else:
+                    trial_numbers.append(None)
+        if len(trial_numbers) != len(current_distributions):
+            raise ValueError(
+                f"Mismatch: {len(current_distributions)} distributions but "
+                f"{len(trial_numbers)} trial numbers"
+            )
 
         current_distributions = self._edit_current_distribution(current_distributions)
 
@@ -591,7 +607,7 @@ class OptunaOptimizer:
         # Tell: Register current results with Optuna using add_trial()
         print(f"  Registering {len(current_distributions)} results with Optuna...")
 
-        for idx, ((dist_id, params), metrics) in enumerate(zip(current_distributions, metrics_list)):
+        for idx, ((dist_id, params), metrics, trial_number) in enumerate(zip(current_distributions, metrics_list, trial_numbers)):
             # Get metric values
             trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
             # Clamp params to distribution bounds (real data may have values slightly outside
@@ -602,14 +618,23 @@ class OptunaOptimizer:
                 if dist is not None and hasattr(dist, 'low') and hasattr(dist, 'high'):
                     val = max(dist.low, min(dist.high, val))
                 clamped_params[key] = val
-            # Create and add the completed trial
-            trial = optuna.trial.create_trial(
-                params=clamped_params,
-                distributions=distributions,
-                values=trial_values,
-                state=optuna.trial.TrialState.COMPLETE
-            )
-            self.study.add_trial(trial)
+            if trial_number is None:
+                # External seed data not produced by ask()
+                trial = optuna.trial.create_trial(
+                    params=clamped_params,
+                    distributions=distributions,
+                    values=trial_values,
+                    state=optuna.trial.TrialState.COMPLETE
+                )
+                self.study.add_trial(trial)
+            else:
+                # Complete an asked trial produced in a previous iteration
+                self.study.tell(
+                    trial_number,
+                    values=trial_values,
+                    state=optuna.trial.TrialState.COMPLETE,
+                    skip_if_finished=True,
+                )
 
             # Log probabilities for readability
             probs = self.logits_to_probabilities(params)
@@ -623,15 +648,12 @@ class OptunaOptimizer:
         suggestions = []
         self.pending_trials = []
 
-        # Get current trial count for generating dist_ids
-        completed_count = len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])
-
         print(f"\n  Suggesting {n_distributions} distributions for next iteration...")
 
         for i in range(n_distributions):
             trial = self.study.ask()
             params_with_logits = self._define_joint_search_space(trial)
-            dist_id = f"dist_{completed_count + i}"
+            dist_id = f"trial_{trial.number}"
 
             # Convert logits to probabilities for output only
             params_with_probs = self.convert_logits_to_probs_in_params(params_with_logits)
@@ -642,6 +664,7 @@ class OptunaOptimizer:
             probs_str = ', '.join([f"{k}={v:.2%}" for k, v in sorted(probs.items())])
 
         pareto_size = len(self.get_pareto_front())
+        completed_count = len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])
         print(f"  Total completed trials: {completed_count}")
         print(f"  Current Pareto front size: {pareto_size}")
 

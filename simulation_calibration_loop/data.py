@@ -26,6 +26,7 @@ class RunArtifact:
     embedding_path: Path
     image_count: int
     flattened_params: dict[str, Any]
+    optuna_trial_number: int | None
 
 
 def select_real_image_paths(dataset_root: str | Path, annotation_file: str | Path) -> list[Path]:
@@ -180,4 +181,7 @@ def run_isaac_generation(
     streamer.stream()
     return_code = process.wait()
     if return_code != 0:
-        raise RuntimeError(f"Isaac run failed for {yaml_path.name} with exit code {return_code}")
+        raise RuntimeError(
+            f"Isaac run failed for {yaml_path.name} with exit code {return_code}. "
+            f"See log: {log_path}"
+        )

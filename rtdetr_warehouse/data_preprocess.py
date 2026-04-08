@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import re
 from collections import Counter
 from typing import List
 
@@ -82,8 +83,9 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         elif subset in val_subsets:
             val_records.append(record)
 
-    synth_records    = _load_synth_records()
+    synth_records = _load_synth_records()
     extended_records = _load_extended_records()
+    optuna_records = _load_optuna_records()
 
     max_samples = CONFIG.get("max_samples")
     if max_samples is not None:
@@ -92,17 +94,26 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
 
     synth_records.sort(key=lambda r: r["run_number"])
     extended_records.sort(key=lambda r: (r["run_number"], r["experiment"]))
+    optuna_records.sort(key=lambda r: (r["iteration"], r["run_number"], r["experiment"]))
 
-    additional_records = synth_records + extended_records
+    additional_records = synth_records + extended_records + optuna_records
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
-    additional_ids = [
-        (f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
-         if r["subset"] == "synth"
-         else f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}")
-        for r in additional_records
-    ]
+    additional_ids = []
+    for r in additional_records:
+        if r["subset"] == "synth":
+            sample_id = f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+        elif r["subset"] == "extended":
+            sample_id = f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+        elif r["subset"] == "optuna":
+            sample_id = (
+                f"optuna_iter{r['iteration']}_run{r['run_number']}_"
+                f"{r['experiment']}_frame{r['image_id']}"
+            )
+        else:
+            raise ValueError(f"Unsupported additional subset {r['subset']!r}")
+        additional_ids.append(sample_id)
     _validate_unique_sample_ids(train_ids, "training split")
     _validate_unique_sample_ids(val_ids, "validation split")
     _validate_unique_sample_ids(additional_ids, "additional split")
@@ -371,6 +382,104 @@ def _load_extended_records() -> list:
                 sampled.extend(run_records[:num_samples])
             else:
                 sampled.extend(run_records)
+        records = sampled
+
+    return records
+
+
+_OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
+
+
+def _load_optuna_records() -> list:
+    """
+    Load frames from optuna-ec2/iterXXX_runYYY/Camera/ directories.
+
+    Each top-level directory is treated as one experiment. Records are tagged
+    subset='optuna' and carry parsed iteration/run identifiers for metadata.
+    """
+    optuna_cfg = CONFIG.get("optuna_data", {})
+    if not optuna_cfg.get("additional", True):
+        return []
+
+    base = optuna_cfg.get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    exp_dirs = sorted(
+        d for d in os.listdir(base)
+        if os.path.isdir(os.path.join(base, d)) and _OPTUNA_DIR_RE.match(d)
+    )
+
+    records = []
+    for exp_dir in exp_dirs:
+        match = _OPTUNA_DIR_RE.match(exp_dir)
+        if match is None:
+            continue
+
+        iteration = int(match.group("iteration"))
+        run_number = int(match.group("run"))
+        exp_path = os.path.join(base, exp_dir)
+        run_config_path = os.path.join(exp_path, "run_config.yaml")
+        if not os.path.isfile(run_config_path):
+            continue
+
+        with open(run_config_path, "r") as f:
+            exp_config = yaml.safe_load(f)
+        run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+        rgb_dir = os.path.join(exp_path, "Camera", "rgb")
+        ann_dir = os.path.join(exp_path, "Camera", "object_detection")
+        num_frames = int(run_config.get("run", {}).get("num_frames", 0))
+        orig_w = int(run_config.get("render", {}).get("width", 960))
+        orig_h = int(run_config.get("render", {}).get("height", 544))
+
+        for i in range(num_frames):
+            img_path = os.path.join(rgb_dir, f"{i}.png")
+            if not os.path.isfile(img_path):
+                continue
+            ann_path = os.path.join(ann_dir, f"{i}.txt")
+
+            anns = []
+            if os.path.isfile(ann_path):
+                with open(ann_path, "r") as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if len(parts) < 8:
+                            continue
+                        if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
+                            continue
+                        x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
+                        anns.append({
+                            "category_id": 11,
+                            "bbox": [x1, y1, x2 - x1, y2 - y1],
+                        })
+
+            records.append({
+                "image_id": i,
+                "path": img_path,
+                "width": orig_w,
+                "height": orig_h,
+                "subset": "optuna",
+                "anns": anns,
+                "run_config": run_config,
+                "run_number": run_number,
+                "iteration": iteration,
+                "experiment": exp_dir,
+            })
+
+    num_samples = optuna_cfg.get("num_samples")
+    if num_samples is not None:
+        by_experiment = {}
+        for record in records:
+            by_experiment.setdefault(record["experiment"], []).append(record)
+        sampled = []
+        rng = random.Random(42)
+        for experiment_records in by_experiment.values():
+            if len(experiment_records) > num_samples:
+                rng.shuffle(experiment_records)
+                sampled.extend(experiment_records[:num_samples])
+            else:
+                sampled.extend(experiment_records)
         records = sampled
 
     return records

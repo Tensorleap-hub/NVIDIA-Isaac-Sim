@@ -169,7 +169,11 @@ def main() -> None:
         raise ValueError(f"Failed to resolve initial YAML config {initial_yaml_path}")
 
     initial_config = resolved_initial_config
-    current_row = flatten_config(initial_config, schema)
+    current_record = {
+        "suggestion_id": "seed_0",
+        "optuna_trial_number": None,
+        "params": flatten_config(initial_config, schema),
+    }
 
     print("Small-loop configuration:")
     print(json.dumps(
@@ -198,7 +202,7 @@ def main() -> None:
         log_path = output_dir / "isaac.log"
         embedding_path = cache_dir / "synthetic.npy"
 
-        config_to_run = materialize_config(initial_config, current_row, schema)
+        config_to_run = materialize_config(initial_config, current_record["params"], schema)
         save_yaml_config(yaml_path, config_to_run)
 
         run_isaac_generation(
@@ -234,16 +238,17 @@ def main() -> None:
                 run_id,
                 {
                     "shape_logit_simulation_1": 0.0,
-                    **{f"simulation_1__{key}": value for key, value in current_row.items()},
+                    **{f"simulation_1__{key}": value for key, value in current_record["params"].items()},
                 },
             )
         ]
         embeddings_by_shape = [synthetic_embeddings]
         embeddings_indices_by_dist = {0: [(0, np.arange(len(synthetic_embeddings)))]}
-        suggestions = runner.run_iteration(
+        suggestions, _ = runner.evaluate_iteration(
             current_distributions=current_distributions,
             embeddings_by_shape=embeddings_by_shape,
             embeddings_indices_by_dist=embeddings_indices_by_dist,
+            trial_numbers=[current_record["optuna_trial_number"]],
         )
         best_trials = runner.get_best_trials(top_n=1)
 
@@ -252,6 +257,9 @@ def main() -> None:
         for key, value in suggestion_params.items():
             if key.startswith("simulation_1__"):
                 next_row[key[len("simulation_1__"):]] = value
+        next_trial_number = None
+        if suggestion_id.startswith("trial_"):
+            next_trial_number = int(suggestion_id.split("_", 1)[1])
 
         print("")
         print(f"Iteration {iteration_index + 1}/{int(config['iterations'])}")
@@ -265,7 +273,11 @@ def main() -> None:
             print(f"    {key}: {next_row[key]}")
         print("")
 
-        current_row = next_row
+        current_record = {
+            "suggestion_id": suggestion_id,
+            "optuna_trial_number": next_trial_number,
+            "params": next_row,
+        }
 
 
 if __name__ == "__main__":

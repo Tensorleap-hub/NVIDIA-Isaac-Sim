@@ -67,3 +67,8 @@ extended_data:
   additional: true          # set to false to exclude extended data entirely
   extended_numbers:      # null = include all; list of ints to include specific run folders e.g. [0, 1]
   num_samples:              # null = no limit; per-run cap (same semantics as synth_data.num_samples)
+
+optuna_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse/optuna-ec2"
+  additional: true          # set to false to exclude optuna-generated data entirely
+  num_samples:              # null = no limit; per-experiment cap after deterministic shuffle

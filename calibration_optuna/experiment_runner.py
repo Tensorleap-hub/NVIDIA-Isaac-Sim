@@ -91,8 +91,24 @@ class ExperimentRunner:
         self,
         current_distributions: List[Tuple[str, Dict]],
         embeddings_by_shape: List[np.ndarray],
-        embeddings_indices_by_dist: Dict[int, List[Tuple[int, np.ndarray]]]
+        embeddings_indices_by_dist: Dict[int, List[Tuple[int, np.ndarray]]],
+        trial_numbers: List[int | None] | None = None,
     ) -> List[Tuple[str, Dict]]:
+        suggestions, _ = self.evaluate_iteration(
+            current_distributions=current_distributions,
+            embeddings_by_shape=embeddings_by_shape,
+            embeddings_indices_by_dist=embeddings_indices_by_dist,
+            trial_numbers=trial_numbers,
+        )
+        return suggestions
+
+    def evaluate_iteration(
+        self,
+        current_distributions: List[Tuple[str, Dict]],
+        embeddings_by_shape: List[np.ndarray],
+        embeddings_indices_by_dist: Dict[int, List[Tuple[int, np.ndarray]]],
+        trial_numbers: List[int | None] | None = None,
+    ) -> Tuple[List[Tuple[str, Dict]], List[Dict[str, float]]]:
         """
         Process external data and get next suggestions.
 
@@ -129,10 +145,11 @@ class ExperimentRunner:
         next_suggestions = self.optimizer.suggest_next_distributions(
             current_distributions=current_distributions,
             metrics_list=metrics_list,
-            config=self.config
+            config=self.config,
+            trial_numbers=trial_numbers,
         )
 
-        return next_suggestions
+        return next_suggestions, metrics_list
 
     def get_best_trials(self, top_n: int = None) -> List[Tuple[str, Dict]]:
         """
