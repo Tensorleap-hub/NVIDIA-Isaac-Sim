@@ -6,7 +6,7 @@ synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loo
 seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
-max_iterations: 5
+max_iterations: 10
 iteration_batch_size: 8
 random_seed: 42
 top_n_best_trials: 10
