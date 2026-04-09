@@ -65,6 +65,13 @@ bash simulation_calibration_loop/run_with_loop_venv.sh \
 
 The main entrypoint loads `simulation_calibration_loop/project_config.yaml`, creates a workspace under `workspace_dir`, and persists progress in `state.json`.
 
+To auto-restart the loop after a crash or non-zero exit, waiting 60 seconds between attempts:
+
+```bash
+bash simulation_calibration_loop/run_main_loop_with_retry.sh \
+  --config simulation_calibration_loop/project_config_camera.yaml
+```
+
 
 ## Config
 
