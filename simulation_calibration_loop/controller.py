@@ -253,6 +253,8 @@ class SimulationCalibrationController:
             embedding_path = cache_dir / f"{run_id}_{self.config.dino.model_name}.npy"
             params_row = row_record["params"]
             config_dict = materialize_config(self.base_template, params_row, self.schema)
+            run_section = config_dict.setdefault("run", {})
+            run_section["data_dir"] = str(output_dir)
             save_yaml_config(yaml_path, config_dict)
 
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
