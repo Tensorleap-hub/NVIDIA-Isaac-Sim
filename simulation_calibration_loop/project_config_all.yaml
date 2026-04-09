@@ -1,12 +1,12 @@
 project_name: dinov2_subset3_optuna_loop_lighting
 workspace_dir: ./workspace_lighting
 baseline_state_path: ./workspace_noise/state.json
-s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/lighting/
+s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/all/
 synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_camera/iteration_000/outputs
 seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
-max_iterations: 10
+max_iterations: 50
 iteration_batch_size: 8
 random_seed: 42
 top_n_best_trials: 10
@@ -22,8 +22,6 @@ isaac:
   script_path: ../palletjack_sdg/standalone_palletjack_sdg_mean_std.py
   headless: true
 search_space:
-  themes:
-    - lighting
   include: []
   exclude:
     - run.data_dir
