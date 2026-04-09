@@ -52,6 +52,11 @@ echo ""
 
 cd "$ISAAC_SIM_PATH"
 
+NVJITLINK_LIB_DIR="$ISAAC_SIM_PATH/exts/omni.isaac.ml_archive/pip_prebundle/nvidia/nvjitlink/lib"
+if [ -d "$NVJITLINK_LIB_DIR" ]; then
+    export LD_LIBRARY_PATH="$NVJITLINK_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 for EXP_CONFIG in "${CONFIGS[@]}"; do
     EXP_NAME="$(basename "$EXP_CONFIG" .yaml)"
     OUTPUT_DIR="$BASE_OUTPUT/$EXP_NAME"
