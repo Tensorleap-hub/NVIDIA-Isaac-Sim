@@ -24,6 +24,7 @@ isaac:
 search_space:
   include: []
   exclude:
+    - fisheye_max_fov
     - run.data_dir
     - run.num_frames
     - run.headless
