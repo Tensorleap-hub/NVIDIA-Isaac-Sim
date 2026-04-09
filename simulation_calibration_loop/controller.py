@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from calibration_optuna import DEFAULT_CONFIG
 from calibration_optuna.data_utils import infer_bounds_and_types_from_metadata
@@ -37,16 +42,18 @@ class SimulationCalibrationController:
     def __init__(self, config: WorkflowConfig):
         self.config = config
         self.workspace_dir = Path(config.workspace_dir)
+        self.s3_best_runs_prefix = config.s3_best_runs_prefix.rstrip("/") if config.s3_best_runs_prefix else None
+        self.baseline_state_path = Path(config.baseline_state_path) if config.baseline_state_path else None
+        self.synthetic_rgb_base_dir = Path(config.synthetic_rgb_base_dir) if config.synthetic_rgb_base_dir else None
         self.seed_config_dir = Path(config.seed_config_dir)
         self.state_store = StateStore(self.workspace_dir / "state.json")
-        self.ui = WorkflowUI()
+        self.ui = WorkflowUI(log_path=self.workspace_dir / "main_loop_screen.log")
 
         seed_items = load_yaml_configs(self.seed_config_dir)
         if not seed_items:
             raise ValueError(f"No YAML files found in {self.seed_config_dir}")
 
         self.seed_configs = seed_items
-        self.base_template = deepcopy(seed_items[0][1])
         inferred_schema = infer_parameter_schema([item[1] for item in seed_items])
         self.schema = filter_parameter_specs(
             inferred_schema,
@@ -55,6 +62,7 @@ class SimulationCalibrationController:
         )
         if not self.schema:
             raise ValueError("Search-space filtering removed all Isaac parameters; update search_space.include/exclude")
+        self.base_template = self._load_base_template(seed_items)
         self.seed_rows = [
             {
                 "suggestion_id": f"seed_{index}",
@@ -100,6 +108,11 @@ class SimulationCalibrationController:
         state = self.state_store.load()
         start_iteration = len(state["iterations"])
         self._replay_completed_iterations(state)
+        self._export_best_runs_to_s3(state)
+        initial_distance = "-"
+        if state["iterations"]:
+            initial_distance = state["iterations"][0]["iteration_summary"]["iteration_best"]
+        self.ui.set_status(initial_distance=initial_distance)
         current_rows = self._load_iteration_rows(state, start_iteration)
 
         for iteration_index in range(start_iteration, self.config.max_iterations):
@@ -112,14 +125,19 @@ class SimulationCalibrationController:
             )
             artifacts = self._materialize_and_execute_iteration(iteration_index, current_rows)
             self.ui.set_status(phase="optimize", note="computing embeddings and Optuna suggestions")
-            suggestions, iteration_summary = self._run_optimizer_iteration(artifacts)
+            suggestions, iteration_summary, objective_values = self._run_optimizer_iteration(artifacts)
+            for artifact, objective_value in zip(artifacts, objective_values, strict=True):
+                artifact.objective_value = objective_value
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
             next_rows = suggestions
             best_trial_id = best_trials[0][0] if best_trials else "-"
             best_objective = self._get_best_objective_string()
+            if initial_distance == "-":
+                initial_distance = iteration_summary["iteration_best"]
             self.ui.set_status(
                 best_trial_id=best_trial_id,
                 best_objective=best_objective,
+                initial_distance=initial_distance,
                 iteration_best=iteration_summary["iteration_best"],
                 iteration_mean=iteration_summary["iteration_mean"],
                 iteration_median=iteration_summary["iteration_median"],
@@ -140,6 +158,7 @@ class SimulationCalibrationController:
                 }
             )
             self.state_store.save(state)
+            self._export_best_runs_to_s3(state)
             current_rows = next_rows
 
         self.ui.set_status(phase="complete", note="workflow finished")
@@ -196,15 +215,17 @@ class SimulationCalibrationController:
                     image_count=int(item["image_count"]),
                     flattened_params=item["flattened_params"],
                     optuna_trial_number=item.get("optuna_trial_number"),
+                    objective_value=item.get("objective_value"),
                 )
                 for item in iteration["artifacts"]
             ]
-            _, iteration_summary = self._run_optimizer_iteration(artifacts)
+            _, iteration_summary, _ = self._run_optimizer_iteration(artifacts)
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
             best_trial_id = best_trials[0][0] if best_trials else "-"
             self.ui.set_status(
                 best_trial_id=best_trial_id,
                 best_objective=self._get_best_objective_string(),
+                initial_distance=state["iterations"][0]["iteration_summary"]["iteration_best"],
                 iteration_best=iteration_summary["iteration_best"],
                 iteration_mean=iteration_summary["iteration_mean"],
                 iteration_median=iteration_summary["iteration_median"],
@@ -237,8 +258,11 @@ class SimulationCalibrationController:
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
             if not output_dir.exists():
                 output_dir.mkdir(parents=True, exist_ok=True)
-            image_paths = discover_generated_images(output_dir)
-            if not log_path.exists() or not image_paths:
+            local_rgb_dir = output_dir / "Camera" / "rgb"
+            image_paths = discover_generated_images(local_rgb_dir)
+            if not image_paths:
+                image_paths = self._copy_synthetic_rgb_from_base(output_dir, run_id)
+            if not image_paths:
                 run_isaac_generation(
                     isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
                     script_path=Path(self.config.isaac.script_path),
@@ -249,7 +273,7 @@ class SimulationCalibrationController:
                     num_frames_override=self.config.isaac.num_frames_override,
                     log_callback=self.ui.append_log,
                 )
-            image_paths = discover_generated_images(output_dir / "Camera" / "rgb")
+                image_paths = discover_generated_images(local_rgb_dir)
             if not image_paths:
                 raise ValueError(f"No generated images discovered under {output_dir}")
             manifest = {
@@ -279,7 +303,7 @@ class SimulationCalibrationController:
             self.ui.set_status(completed_runs=run_index + 1)
         return artifacts
 
-    def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str], list[float]]:
         embeddings = []
         current_distributions = []
         embeddings_indices_by_dist = {}
@@ -332,7 +356,7 @@ class SimulationCalibrationController:
             "iteration_mean": f"{float(np.mean(objective_values)):.6f}",
             "iteration_median": f"{float(np.median(objective_values)):.6f}",
         }
-        return suggestions, iteration_summary
+        return suggestions, iteration_summary, objective_values
 
     def _build_distribution_metadata(self, rows: list[dict[str, Any]]) -> pd.DataFrame:
         metadata_rows = []
@@ -353,6 +377,7 @@ class SimulationCalibrationController:
             "image_count": artifact.image_count,
             "flattened_params": artifact.flattened_params,
             "optuna_trial_number": artifact.optuna_trial_number,
+            "objective_value": artifact.objective_value,
         }
 
     def _get_best_objective_string(self) -> str:
@@ -361,3 +386,182 @@ class SimulationCalibrationController:
             return "-"
         best_value = min(trial.values[0] for trial in completed_trials)
         return f"{best_value:.6f}"
+
+    def _copy_synthetic_rgb_from_base(self, output_dir: Path, run_id: str) -> list[Path]:
+        if self.synthetic_rgb_base_dir is None:
+            return []
+
+        source_rgb_dir = self.synthetic_rgb_base_dir / run_id / "Camera" / "rgb"
+        if not source_rgb_dir.exists():
+            return []
+
+        target_rgb_dir = output_dir / "Camera" / "rgb"
+        if target_rgb_dir.exists():
+            return discover_generated_images(target_rgb_dir)
+
+        target_rgb_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_rgb_dir, target_rgb_dir)
+        return discover_generated_images(target_rgb_dir)
+
+    def _load_base_template(self, seed_items: list[tuple[Path, dict[str, Any]]]) -> dict[str, Any]:
+        if self.baseline_state_path is None:
+            return deepcopy(seed_items[0][1])
+
+        if not self.baseline_state_path.exists():
+            raise ValueError(f"Baseline state file does not exist: {self.baseline_state_path}")
+
+        baseline_state = json.loads(self.baseline_state_path.read_text())
+        if not baseline_state.get("iterations"):
+            raise ValueError(f"Baseline state file has no iterations: {self.baseline_state_path}")
+
+        best_trials = baseline_state["iterations"][-1].get("best_trials", [])
+        if not best_trials:
+            raise ValueError(f"Baseline state file has no best trials: {self.baseline_state_path}")
+
+        best_trial_id = best_trials[0]["trial_id"]
+        best_trial_number = self._trial_number_from_trial_id(best_trial_id)
+        artifact = self._find_artifact_for_trial_number(baseline_state, best_trial_number)
+        if artifact is None:
+            raise ValueError(
+                f"Could not find artifact for baseline trial {best_trial_id} in {self.baseline_state_path}"
+            )
+
+        yaml_path = Path(artifact["yaml_path"])
+        if not yaml_path.exists():
+            raise ValueError(f"Baseline yaml does not exist: {yaml_path}")
+        self.ui.append_log(f"[baseline] using best base trial {best_trial_id} from {yaml_path}")
+        return deepcopy(yaml.safe_load(yaml_path.read_text()))
+
+    def _trial_number_from_trial_id(self, trial_id: str) -> int:
+        if not trial_id.startswith("trial_"):
+            raise ValueError(f"Unsupported trial id format: {trial_id}")
+        return int(trial_id.split("_", 1)[1])
+
+    def _find_artifact_for_trial_number(
+        self,
+        state: dict[str, Any],
+        trial_number: int,
+    ) -> dict[str, Any] | None:
+        for iteration in state.get("iterations", []):
+            for artifact in iteration.get("artifacts", []):
+                if artifact.get("optuna_trial_number") == trial_number:
+                    return artifact
+        return None
+
+    def _export_best_runs_to_s3(self, state: dict[str, Any]) -> None:
+        if self.s3_best_runs_prefix is None or not state["iterations"]:
+            return
+
+        if shutil.which("aws") is None:
+            raise RuntimeError("AWS CLI is required for S3 export, but 'aws' was not found on PATH")
+
+        artifacts = self._collect_completed_artifacts(state)
+        selected_artifacts = [
+            artifact
+            for artifact in sorted(
+                artifacts,
+                key=lambda item: float("inf") if item.objective_value is None else item.objective_value,
+            )[: self.config.top_n_best_trials]
+        ]
+        if not selected_artifacts:
+            return
+
+        with tempfile.TemporaryDirectory(prefix=f"{self.config.project_name}_s3_") as temp_dir:
+            stage_root = Path(temp_dir)
+            manifest_runs = []
+            for artifact in selected_artifacts:
+                trial_id = f"trial_{artifact.optuna_trial_number}" if artifact.optuna_trial_number is not None else artifact.run_id
+                trial_stage_dir = stage_root / trial_id
+                output_stage_dir = trial_stage_dir / "outputs" / artifact.run_id
+                cache_stage_dir = trial_stage_dir / "cache"
+                yaml_stage_dir = trial_stage_dir / "yamls"
+                output_stage_dir.parent.mkdir(parents=True, exist_ok=True)
+                cache_stage_dir.mkdir(parents=True, exist_ok=True)
+                yaml_stage_dir.mkdir(parents=True, exist_ok=True)
+
+                shutil.copytree(artifact.output_dir, output_stage_dir)
+                shutil.copy2(artifact.embedding_path, cache_stage_dir / artifact.embedding_path.name)
+                manifest_path = artifact.embedding_path.with_suffix(".manifest.json")
+                if manifest_path.exists():
+                    shutil.copy2(manifest_path, cache_stage_dir / manifest_path.name)
+                shutil.copy2(artifact.yaml_path, yaml_stage_dir / artifact.yaml_path.name)
+
+                manifest_runs.append(
+                    {
+                        "trial_id": trial_id,
+                        "run_id": artifact.run_id,
+                        "iteration_index": int(artifact.run_id[4:7]),
+                        "objective_value": artifact.objective_value,
+                        "source_output_dir": str(artifact.output_dir),
+                        "source_yaml_path": str(artifact.yaml_path),
+                        "source_embedding_path": str(artifact.embedding_path),
+                    }
+                )
+
+            manifest = {
+                "project_name": self.config.project_name,
+                "top_n_best_trials": self.config.top_n_best_trials,
+                "s3_prefix": self.s3_best_runs_prefix,
+                "best_trials": manifest_runs,
+            }
+            (stage_root / "best_runs_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+            self.ui.append_log(
+                f"[s3] syncing top {len(selected_artifacts)} runs to {self.s3_best_runs_prefix}"
+            )
+            self._sync_directory_to_s3(stage_root, self.s3_best_runs_prefix)
+            self.ui.append_log(f"[s3] sync complete: {self.s3_best_runs_prefix}")
+
+    def _collect_completed_artifacts(self, state: dict[str, Any]) -> list[RunArtifact]:
+        artifacts: list[RunArtifact] = []
+        for iteration in state["iterations"]:
+            for item in iteration["artifacts"]:
+                artifacts.append(
+                    RunArtifact(
+                        run_id=item["run_id"],
+                        yaml_path=Path(item["yaml_path"]),
+                        output_dir=Path(item["output_dir"]),
+                        log_path=Path(item["log_path"]),
+                        embedding_path=Path(item["embedding_path"]),
+                        image_count=int(item["image_count"]),
+                        flattened_params=item["flattened_params"],
+                        optuna_trial_number=(
+                            int(item["optuna_trial_number"])
+                            if item.get("optuna_trial_number") is not None
+                            else None
+                        ),
+                        objective_value=(
+                            float(item["objective_value"])
+                            if item.get("objective_value") is not None
+                            else None
+                        ),
+                    )
+                )
+        return artifacts
+
+    def _sync_directory_to_s3(self, source_dir: Path, s3_prefix: str) -> None:
+        command = [
+            "aws",
+            "s3",
+            "sync",
+            str(source_dir),
+            s3_prefix,
+            "--delete",
+            "--only-show-errors",
+        ]
+        process = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if process.stdout:
+            for line in process.stdout.splitlines():
+                self.ui.append_log(f"[s3] {line}")
+        if process.stderr:
+            for line in process.stderr.splitlines():
+                self.ui.append_log(f"[s3] {line}")
+        if process.returncode != 0:
+            raise RuntimeError(
+                f"S3 sync failed with exit code {process.returncode} for prefix {s3_prefix}"
+            )

@@ -83,6 +83,8 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
 class WorkflowConfig:
     project_name: str
     workspace_dir: str
+    s3_best_runs_prefix: str | None
+    baseline_state_path: str | None
     seed_config_dir: str
     real_dataset_root: str
     real_annotations_file: str
@@ -91,6 +93,7 @@ class WorkflowConfig:
     random_seed: int = 42
     top_n_best_trials: int = 3
     mmd_max_samples: int = 1000
+    synthetic_rgb_base_dir: str | None = None
     dino: DINOv2Config = field(default_factory=DINOv2Config)
     isaac: IsaacConfig = field(default_factory=IsaacConfig)
     search_space: SearchSpaceConfig = field(default_factory=SearchSpaceConfig)
@@ -131,6 +134,9 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     workflow = WorkflowConfig(
         project_name=raw["project_name"],
         workspace_dir=str(Path(raw["workspace_dir"]).expanduser()),
+        s3_best_runs_prefix=str(raw["s3_best_runs_prefix"]).rstrip("/") if raw.get("s3_best_runs_prefix") else None,
+        baseline_state_path=str(Path(raw["baseline_state_path"]).expanduser()) if raw.get("baseline_state_path") else None,
+        synthetic_rgb_base_dir=str(Path(raw["synthetic_rgb_base_dir"]).expanduser()) if raw.get("synthetic_rgb_base_dir") else None,
         seed_config_dir=str(Path(raw["seed_config_dir"]).expanduser()),
         real_dataset_root=str(Path(raw["real_dataset_root"]).expanduser()),
         real_annotations_file=str(Path(raw["real_annotations_file"]).expanduser()),
@@ -146,6 +152,14 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     workflow.search_space = _expand_search_space(workflow.search_space)
 
     workflow.workspace_dir = str(workflow.resolve_path(workflow.workspace_dir, relative_to_config=config_path))
+    if workflow.synthetic_rgb_base_dir is not None:
+        workflow.synthetic_rgb_base_dir = str(
+            workflow.resolve_path(workflow.synthetic_rgb_base_dir, relative_to_config=config_path)
+        )
+    if workflow.baseline_state_path is not None:
+        workflow.baseline_state_path = str(
+            workflow.resolve_path(workflow.baseline_state_path, relative_to_config=config_path)
+        )
     workflow.seed_config_dir = str(workflow.resolve_path(workflow.seed_config_dir, relative_to_config=config_path))
     workflow.real_dataset_root = str(workflow.resolve_path(workflow.real_dataset_root, relative_to_config=config_path))
     workflow.real_annotations_file = str(workflow.resolve_path(workflow.real_annotations_file, relative_to_config=config_path))

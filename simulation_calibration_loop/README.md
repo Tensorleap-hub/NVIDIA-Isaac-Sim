@@ -79,6 +79,9 @@ Important fields:
 - `real_annotations_file`: subset-3 annotations
 - `max_iterations`: number of optimization iterations
 - `iteration_batch_size`: number of Isaac YAMLs to evaluate per iteration
+- `top_n_best_trials`: how many best Optuna trials to track and export
+- `baseline_state_path`: optional state file used to load the best base YAML as the default template
+- `s3_best_runs_prefix`: optional S3 prefix for syncing the current top trials after each completed iteration
 
 ### DINO config
 
@@ -140,6 +143,7 @@ Available themes:
 The main workflow writes into `workspace_dir`:
 
 - `state.json`: durable iteration ledger
+- `main_loop_screen.log`: combined UI and Isaac run log
 - `cache/real/*.npy`: cached real DINO embeddings
 - `iteration_000/`
 - `iteration_001/`
@@ -150,6 +154,9 @@ Each iteration directory contains:
 - `yamls/`: materialized Isaac YAMLs for that iteration
 - `outputs/`: Isaac output folders and logs
 - `cache/`: cached synthetic DINO embeddings
+
+If `s3_best_runs_prefix` is set, the workflow also stages the current top `top_n_best_trials`
+runs and syncs them to that S3 prefix after each completed iteration.
 
 
 ## Progress UI

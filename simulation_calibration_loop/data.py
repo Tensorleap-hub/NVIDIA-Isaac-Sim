@@ -28,6 +28,7 @@ class RunArtifact:
     image_count: int
     flattened_params: dict[str, Any]
     optuna_trial_number: int | None
+    objective_value: float | None = None
 
 
 def select_real_image_paths(dataset_root: str | Path, annotation_file: str | Path) -> list[Path]:
