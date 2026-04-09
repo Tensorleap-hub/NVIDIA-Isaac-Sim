@@ -1,3 +1,10 @@
+"""Runtime helpers for the simulation calibration workflow.
+
+This module contains the side-effecting pieces of the pipeline: selecting real
+images, embedding images with DINOv2, launching Isaac, and persisting workflow
+state and logs.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,6 +27,8 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 @dataclass
 class RunArtifact:
+    """Captures one evaluated synthetic run and its reusable artifacts."""
+
     run_id: str
     yaml_path: Path
     output_dir: Path
@@ -32,6 +41,7 @@ class RunArtifact:
 
 
 def select_real_image_paths(dataset_root: str | Path, annotation_file: str | Path) -> list[Path]:
+    """Resolve LOCO-style annotation entries into concrete local image paths."""
     dataset_root = Path(dataset_root)
     annotation_file = Path(annotation_file)
     payload = json.loads(annotation_file.read_text())
@@ -45,6 +55,8 @@ def select_real_image_paths(dataset_root: str | Path, annotation_file: str | Pat
 
 
 class DINOv2Embedder:
+    """Thin wrapper around Torch Hub DINOv2 inference with disk caching."""
+
     def __init__(self, repo: str, model_name: str, device: str, image_size: int, resize_size: int):
         self.repo = repo
         self.model_name = model_name
@@ -72,6 +84,7 @@ class DINOv2Embedder:
         cache_path: Path,
         manifest: dict[str, Any],
     ) -> np.ndarray:
+        """Embed a list of images, reusing a cache entry when the manifest matches."""
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path = cache_path.with_suffix(".manifest.json")
         if cache_path.exists() and manifest_path.exists():
@@ -92,11 +105,13 @@ class DINOv2Embedder:
         return embeddings
 
     def _load_image(self, path: Path) -> torch.Tensor:
+        """Load one image and apply the DINOv2 preprocessing pipeline."""
         with Image.open(path) as image:
             return self.transform(image.convert("RGB"))
 
 
 def discover_generated_images(output_dir: Path) -> list[Path]:
+    """Recursively collect RGB image files under an output directory."""
     images = []
     for path in output_dir.rglob("*"):
         if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
@@ -105,12 +120,15 @@ def discover_generated_images(output_dir: Path) -> list[Path]:
 
 
 class ProcessLogStreamer:
+    """Mirror Isaac stdout into a per-run log file and UI callback."""
+
     def __init__(self, process: subprocess.Popen[str], log_path: Path, log_callback):
         self.process = process
         self.log_path = log_path
         self.log_callback = log_callback
 
     def stream(self) -> None:
+        """Drain the child process output until EOF."""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("w") as log_file:
             assert self.process.stdout is not None
@@ -121,20 +139,25 @@ class ProcessLogStreamer:
 
 
 class StateStore:
+    """JSON-backed checkpoint store for workflow resume."""
+
     def __init__(self, state_path: Path):
         self.state_path = state_path
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
 
     def load(self) -> dict[str, Any]:
+        """Load state from disk, or initialize an empty iteration ledger."""
         if not self.state_path.exists():
             return {"iterations": []}
         return json.loads(self.state_path.read_text())
 
     def save(self, state: dict[str, Any]) -> None:
+        """Persist the current workflow state to disk."""
         self.state_path.write_text(json.dumps(state, indent=2, sort_keys=True))
 
 
 def make_cache_key(parts: list[str]) -> str:
+    """Create a stable cache key from a sequence of string parts."""
     digest = hashlib.sha256()
     for part in parts:
         digest.update(part.encode("utf-8"))
@@ -142,6 +165,7 @@ def make_cache_key(parts: list[str]) -> str:
 
 
 def prepare_output_dir(path: Path, *, clean: bool) -> None:
+    """Ensure an output directory exists, optionally replacing it first."""
     if clean and path.exists():
         shutil.rmtree(path)
     path.mkdir(parents=True, exist_ok=True)
@@ -158,6 +182,7 @@ def run_isaac_generation(
     num_frames_override: int | None,
     log_callback,
 ) -> None:
+    """Launch one Isaac SDG job and stream its logs into the workflow."""
     nvjitlink_lib_dir = isaac_sim_path / "exts" / "omni.isaac.ml_archive" / "pip_prebundle" / "nvidia" / "nvjitlink" / "lib"
     env = dict(os.environ)
     if nvjitlink_lib_dir.is_dir():

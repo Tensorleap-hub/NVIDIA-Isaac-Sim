@@ -1,3 +1,9 @@
+"""Terminal reporting for the simulation calibration workflow.
+
+Interactive terminals get a live dashboard. Non-interactive runs, such as
+`screen` or redirected logs, get compact status lines that are easy to tail.
+"""
+
 from __future__ import annotations
 
 from collections import deque
@@ -10,6 +16,8 @@ import time
 
 @dataclass
 class UISnapshot:
+    """Point-in-time view of the workflow state rendered by the UI."""
+
     phase: str = "idle"
     iteration_index: int = 0
     max_iterations: int = 0
@@ -28,6 +36,8 @@ class UISnapshot:
 
 
 class WorkflowUI:
+    """Render workflow progress to the terminal and an optional log file."""
+
     def __init__(self, log_path: str | Path | None = None) -> None:
         self.snapshot = UISnapshot()
         self._lock = RLock()
@@ -41,17 +51,20 @@ class WorkflowUI:
             self._log_path.write_text("")
 
     def start(self) -> None:
+        """Start the interactive render loop when stdout is a TTY."""
         if not self._interactive:
             return
         self._thread = Thread(target=self._render_loop, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
+        """Stop the interactive render loop."""
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=1.0)
 
     def set_status(self, **kwargs) -> None:
+        """Update the current UI snapshot and emit a summary when it changes."""
         with self._lock:
             for key, value in kwargs.items():
                 setattr(self.snapshot, key, value)
@@ -75,17 +88,20 @@ class WorkflowUI:
         self._emit_status_snapshot(snapshot)
 
     def append_log(self, line: str) -> None:
+        """Record one log line without flooding non-interactive stdout."""
         with self._lock:
             self.snapshot.recent_logs.append(line)
         self._write_line(f"[isaac] {line}")
 
     def _render_loop(self) -> None:
+        """Redraw the interactive dashboard until the workflow stops."""
         while not self._stop.is_set():
             self._render_once()
             time.sleep(0.2)
         self._render_once()
 
     def _render_once(self) -> None:
+        """Render the current snapshot to an interactive terminal."""
         with self._lock:
             snapshot = UISnapshot(
                 phase=self.snapshot.phase,
@@ -129,6 +145,7 @@ class WorkflowUI:
         sys.stdout.flush()
 
     def _emit_status_snapshot(self, snapshot: UISnapshot) -> None:
+        """Emit one compact summary line when the visible status changes."""
         signature = (
             snapshot.phase,
             snapshot.iteration_index,
@@ -165,6 +182,7 @@ class WorkflowUI:
             print(summary, flush=True)
 
     def _write_line(self, line: str) -> None:
+        """Append one line to the optional workflow log file."""
         if self._log_path is None:
             return
         with self._lock:

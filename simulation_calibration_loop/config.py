@@ -1,3 +1,10 @@
+"""Configuration loading for the simulation calibration workflow.
+
+This module keeps the user-facing YAML config small and typed while also
+expanding higher-level concepts such as search-space themes into the explicit
+Isaac parameter paths consumed by the controller.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,6 +17,8 @@ import yaml
 
 @dataclass
 class DINOv2Config:
+    """Runtime settings for the DINOv2 feature extractor."""
+
     model_name: str = "dinov2_vitb14_reg"
     repo: str = "facebookresearch/dinov2"
     batch_size: int = 32
@@ -21,6 +30,8 @@ class DINOv2Config:
 
 @dataclass
 class IsaacConfig:
+    """Settings for launching the external Isaac Sim generator."""
+
     isaac_sim_path: str = "/opt/IsaacSim"
     script_path: str = "palletjack_sdg/standalone_palletjack_sdg_mean_std.py"
     headless: bool = True
@@ -29,6 +40,8 @@ class IsaacConfig:
 
 @dataclass
 class SearchSpaceConfig:
+    """Controls which flattened Isaac parameters are exposed to Optuna."""
+
     themes: list[str] = field(default_factory=list)
     include: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
@@ -81,6 +94,8 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
 
 @dataclass
 class WorkflowConfig:
+    """Top-level workflow configuration loaded from `project_config.yaml`."""
+
     project_name: str
     workspace_dir: str
     s3_best_runs_prefix: str | None
@@ -99,6 +114,7 @@ class WorkflowConfig:
     search_space: SearchSpaceConfig = field(default_factory=SearchSpaceConfig)
 
     def resolve_path(self, candidate: str, *, relative_to_config: Path) -> Path:
+        """Resolve a config path relative to the YAML file when needed."""
         path = Path(candidate)
         if path.is_absolute():
             return path
@@ -106,11 +122,13 @@ class WorkflowConfig:
 
 
 def _load_section(data: dict[str, Any] | None, cls: type[Any]) -> Any:
+    """Instantiate a dataclass-backed subsection with defaults."""
     section_data = data or {}
     return cls(**section_data)
 
 
 def _expand_search_space(search_space: SearchSpaceConfig) -> SearchSpaceConfig:
+    """Expand theme names into explicit parameter paths and deduplicate them."""
     expanded_include = list(search_space.include)
     for theme in search_space.themes:
         if theme not in SEARCH_SPACE_THEMES:
@@ -128,6 +146,7 @@ def _expand_search_space(search_space: SearchSpaceConfig) -> SearchSpaceConfig:
 
 
 def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
+    """Load, normalize, and path-resolve the workflow configuration YAML."""
     config_path = Path(config_path).resolve()
     raw = yaml.safe_load(config_path.read_text()) or {}
 

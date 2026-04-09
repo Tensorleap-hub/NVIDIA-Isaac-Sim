@@ -1,3 +1,10 @@
+"""Schema utilities for mapping Isaac YAMLs to Optuna parameter rows.
+
+The controller works with flat parameter dictionaries because Optuna expects a
+tabular search space, while Isaac expects nested YAMLs. This module owns that
+translation in both directions.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +18,8 @@ import yaml
 
 @dataclass(frozen=True)
 class ParameterSpec:
+    """Describes one optimizable flattened parameter path."""
+
     path: str
     kind: str
     value_kind: str
@@ -49,6 +58,11 @@ def _all_primitive(values: list[Any]) -> bool:
 
 
 def infer_parameter_schema(configs: list[dict[str, Any]]) -> list[ParameterSpec]:
+    """Infer the flattening schema from a family of resolved seed YAMLs.
+
+    Scalars stay as single Optuna parameters, homogeneous fixed-length lists are
+    expanded into indexed parameters, and everything else is serialized as JSON.
+    """
     observed: dict[str, list[Any]] = {}
     for config in configs:
         for key, value in config.items():
@@ -120,6 +134,7 @@ def _encode_scalar(value: Any, value_kind: str) -> Any:
 
 
 def flatten_config(config: dict[str, Any], specs: list[ParameterSpec]) -> dict[str, Any]:
+    """Flatten a nested Isaac config into an Optuna-compatible parameter row."""
     row: dict[str, Any] = {}
     for spec in specs:
         value = _get_by_path(config, spec.path)
@@ -134,6 +149,7 @@ def flatten_config(config: dict[str, Any], specs: list[ParameterSpec]) -> dict[s
 
 
 def materialize_config(base_config: dict[str, Any], params: dict[str, Any], specs: list[ParameterSpec]) -> dict[str, Any]:
+    """Write a flat parameter row back into a nested Isaac config template."""
     config = copy.deepcopy(base_config)
     for spec in specs:
         if spec.kind == "scalar":
@@ -159,6 +175,7 @@ def filter_parameter_specs(
     include: list[str] | None = None,
     exclude: list[str] | None = None,
 ) -> list[ParameterSpec]:
+    """Filter the inferred schema down to the configured optimization subset."""
     include = include or []
     exclude = exclude or []
 
@@ -173,6 +190,7 @@ def filter_parameter_specs(
 
 
 def load_yaml_configs(config_dir: str | Path) -> list[tuple[Path, dict[str, Any]]]:
+    """Load and resolve all YAML configs in a seed directory."""
     config_dir = Path(config_dir)
     items = []
     for path in sorted(config_dir.glob("*.yaml")):
@@ -181,6 +199,7 @@ def load_yaml_configs(config_dir: str | Path) -> list[tuple[Path, dict[str, Any]
 
 
 def save_yaml_config(path: str | Path, config: dict[str, Any]) -> None:
+    """Persist a materialized Isaac config to disk."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
@@ -202,6 +221,7 @@ def _set_by_path(config: dict[str, Any], path: str, value: Any) -> None:
 
 
 def _load_yaml_with_extends(path: Path) -> dict[str, Any]:
+    """Resolve the repo's lightweight YAML inheritance via `extends`."""
     raw = yaml.safe_load(path.read_text())
     if "extends" not in raw:
         return raw
@@ -213,6 +233,7 @@ def _load_yaml_with_extends(path: Path) -> dict[str, Any]:
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge override values into a base YAML dictionary."""
     merged = copy.deepcopy(base)
     for key, value in override.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):

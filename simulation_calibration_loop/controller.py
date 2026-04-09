@@ -1,3 +1,5 @@
+"""Main orchestration for the Isaac -> DINOv2 -> Optuna calibration loop."""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -39,7 +41,10 @@ from .ui import WorkflowUI
 
 
 class SimulationCalibrationController:
+    """Own the iterative calibration workflow and its durable state."""
+
     def __init__(self, config: WorkflowConfig):
+        """Build the controller, optimizer search space, and runtime helpers."""
         self.config = config
         self.workspace_dir = Path(config.workspace_dir)
         self.s3_best_runs_prefix = config.s3_best_runs_prefix.rstrip("/") if config.s3_best_runs_prefix else None
@@ -63,6 +68,8 @@ class SimulationCalibrationController:
         if not self.schema:
             raise ValueError("Search-space filtering removed all Isaac parameters; update search_space.include/exclude")
         self.base_template = self._load_base_template(seed_items)
+        # Seed rows are external observations, not Optuna-issued trials. They are
+        # imported into the study with `add_trial(...)` on the first iteration.
         self.seed_rows = [
             {
                 "suggestion_id": f"seed_{index}",
@@ -71,6 +78,8 @@ class SimulationCalibrationController:
             }
             for index, item in enumerate(seed_items)
         ]
+        # calibration_optuna expects grouped parameter names even though this
+        # workflow currently optimizes a single synthetic family.
         self.group_name = "simulation_1"
         self.seed_metadata = self._build_distribution_metadata([row["params"] for row in self.seed_rows])
         self.param_bounds, self.param_type = infer_bounds_and_types_from_metadata(
@@ -100,6 +109,7 @@ class SimulationCalibrationController:
         )
 
     def run(self) -> None:
+        """Run the full calibration loop from real-cache setup through completion."""
         self.ui.start()
         self.ui.set_status(max_iterations=self.config.max_iterations)
         real_embeddings = self._prepare_real_embeddings()
@@ -129,6 +139,8 @@ class SimulationCalibrationController:
             for artifact, objective_value in zip(artifacts, objective_values, strict=True):
                 artifact.objective_value = objective_value
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
+            # Suggestions returned here are Optuna-issued trials. Their trial
+            # numbers are persisted and completed with `tell(...)` next round.
             next_rows = suggestions
             best_trial_id = best_trials[0][0] if best_trials else "-"
             best_objective = self._get_best_objective_string()
@@ -165,6 +177,7 @@ class SimulationCalibrationController:
         self.ui.stop()
 
     def _prepare_real_embeddings(self) -> np.ndarray:
+        """Load or compute the fixed reference embeddings for the real dataset."""
         self.ui.set_status(phase="real-cache", note="loading subset-3 reference embeddings")
         real_image_paths = select_real_image_paths(
             self.config.real_dataset_root,
@@ -195,11 +208,13 @@ class SimulationCalibrationController:
         )
 
     def _load_iteration_rows(self, state: dict[str, Any], start_iteration: int) -> list[dict[str, Any]]:
+        """Choose the current batch source: seeds on iteration 0, suggestions otherwise."""
         if start_iteration == 0:
             return self.seed_rows
         return state["iterations"][-1]["suggestions"]
 
     def _replay_completed_iterations(self, state: dict[str, Any]) -> None:
+        """Rebuild the in-memory Optuna study by replaying saved completed iterations."""
         if not state["iterations"]:
             return
 
@@ -236,6 +251,7 @@ class SimulationCalibrationController:
         iteration_index: int,
         rows: list[dict[str, Any]],
     ) -> list[RunArtifact]:
+        """Materialize one batch of YAMLs, run Isaac, and cache synthetic embeddings."""
         iteration_dir = self.workspace_dir / f"iteration_{iteration_index:03d}"
         yaml_dir = iteration_dir / "yamls"
         outputs_dir = iteration_dir / "outputs"
@@ -253,6 +269,9 @@ class SimulationCalibrationController:
             embedding_path = cache_dir / f"{run_id}_{self.config.dino.model_name}.npy"
             params_row = row_record["params"]
             config_dict = materialize_config(self.base_template, params_row, self.schema)
+            # Keep the generated YAML self-contained so Isaac writes into the
+            # iteration-specific output directory even if the base template had a
+            # different `run.data_dir`.
             run_section = config_dict.setdefault("run", {})
             run_section["data_dir"] = str(output_dir)
             save_yaml_config(yaml_path, config_dict)
@@ -261,6 +280,8 @@ class SimulationCalibrationController:
             if not output_dir.exists():
                 output_dir.mkdir(parents=True, exist_ok=True)
             local_rgb_dir = output_dir / "Camera" / "rgb"
+            # Only RGB images should feed DINOv2. Embedding the full output tree
+            # would mix in depth, semantic, or instance renders.
             image_paths = discover_generated_images(local_rgb_dir)
             if not image_paths:
                 image_paths = self._copy_synthetic_rgb_from_base(output_dir, run_id)
@@ -306,6 +327,7 @@ class SimulationCalibrationController:
         return artifacts
 
     def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str], list[float]]:
+        """Evaluate one completed synthetic batch and request the next suggestions."""
         embeddings = []
         current_distributions = []
         embeddings_indices_by_dist = {}
@@ -323,6 +345,9 @@ class SimulationCalibrationController:
                 params[f"{self.group_name}__{key}"] = value
             current_distributions.append((artifact.run_id, params))
             embeddings_indices_by_dist[dist_index] = [(0, np.arange(start_index, end_index))]
+            # `None` means "external trial" and is imported with `add_trial`.
+            # A real trial number means this row originated from `ask()` and must
+            # be completed with `tell(...)`.
             trial_numbers.append(artifact.optuna_trial_number)
             start_index = end_index
 
@@ -361,6 +386,7 @@ class SimulationCalibrationController:
         return suggestions, iteration_summary, objective_values
 
     def _build_distribution_metadata(self, rows: list[dict[str, Any]]) -> pd.DataFrame:
+        """Build the metadata table used to infer Optuna parameter bounds/types."""
         metadata_rows = []
         for distribution_id, row in enumerate(rows):
             metadata_row = {"distribution_id": distribution_id, f"shape_logit_{self.group_name}": 0.0}
@@ -370,6 +396,7 @@ class SimulationCalibrationController:
         return pd.DataFrame(metadata_rows)
 
     def _serialize_artifact(self, artifact: RunArtifact) -> dict[str, Any]:
+        """Convert a runtime artifact into a JSON-serializable checkpoint record."""
         return {
             "run_id": artifact.run_id,
             "yaml_path": str(artifact.yaml_path),
@@ -383,6 +410,7 @@ class SimulationCalibrationController:
         }
 
     def _get_best_objective_string(self) -> str:
+        """Return the best completed objective value currently known to Optuna."""
         completed_trials = [trial for trial in self.runner.optimizer.study.trials if trial.values is not None]
         if not completed_trials:
             return "-"
@@ -390,6 +418,7 @@ class SimulationCalibrationController:
         return f"{best_value:.6f}"
 
     def _copy_synthetic_rgb_from_base(self, output_dir: Path, run_id: str) -> list[Path]:
+        """Populate an iteration output from pre-generated RGBs when configured."""
         if self.synthetic_rgb_base_dir is None:
             return []
 
@@ -406,6 +435,7 @@ class SimulationCalibrationController:
         return discover_generated_images(target_rgb_dir)
 
     def _load_base_template(self, seed_items: list[tuple[Path, dict[str, Any]]]) -> dict[str, Any]:
+        """Pick the nested YAML template used for materializing future suggestions."""
         if self.baseline_state_path is None:
             return deepcopy(seed_items[0][1])
 
@@ -435,6 +465,7 @@ class SimulationCalibrationController:
         return deepcopy(yaml.safe_load(yaml_path.read_text()))
 
     def _trial_number_from_trial_id(self, trial_id: str) -> int:
+        """Parse the workflow's `trial_<n>` identifier format."""
         if not trial_id.startswith("trial_"):
             raise ValueError(f"Unsupported trial id format: {trial_id}")
         return int(trial_id.split("_", 1)[1])
@@ -444,6 +475,7 @@ class SimulationCalibrationController:
         state: dict[str, Any],
         trial_number: int,
     ) -> dict[str, Any] | None:
+        """Find the saved artifact that corresponds to one Optuna trial number."""
         for iteration in state.get("iterations", []):
             for artifact in iteration.get("artifacts", []):
                 if artifact.get("optuna_trial_number") == trial_number:
@@ -451,6 +483,7 @@ class SimulationCalibrationController:
         return None
 
     def _export_best_runs_to_s3(self, state: dict[str, Any]) -> None:
+        """Stage and sync the current top trials to S3 when export is enabled."""
         if self.s3_best_runs_prefix is None or not state["iterations"]:
             return
 
@@ -515,6 +548,7 @@ class SimulationCalibrationController:
             self.ui.append_log(f"[s3] sync complete: {self.s3_best_runs_prefix}")
 
     def _collect_completed_artifacts(self, state: dict[str, Any]) -> list[RunArtifact]:
+        """Rehydrate all completed run artifacts from the persisted state ledger."""
         artifacts: list[RunArtifact] = []
         for iteration in state["iterations"]:
             for item in iteration["artifacts"]:
@@ -542,6 +576,7 @@ class SimulationCalibrationController:
         return artifacts
 
     def _sync_directory_to_s3(self, source_dir: Path, s3_prefix: str) -> None:
+        """Sync a staged directory to S3 with the AWS CLI."""
         command = [
             "aws",
             "s3",
