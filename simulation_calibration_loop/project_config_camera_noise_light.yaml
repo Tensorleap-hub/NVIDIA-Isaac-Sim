@@ -1,0 +1,33 @@
+project_name: dinov2_subset3_optuna_loop_camera_noise_light
+workspace_dir: ./workspace_cam_noise_light
+baseline_state_path: ./workspace_lighting/state.json
+s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/camera_noise_light/
+synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_camera/iteration_000/outputs
+seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
+real_dataset_root: ../loco_dataset
+real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
+max_iterations: 50
+iteration_batch_size: 8
+random_seed: 42
+top_n_best_trials: 10
+mmd_max_samples: 1000
+dino:
+  model_name: dinov2_vitb14_reg
+  repo: facebookresearch/dinov2
+  batch_size: 32
+  resize_size: 256
+  image_size: 224
+isaac:
+  isaac_sim_path: /opt/IsaacSim
+  script_path: ../palletjack_sdg/standalone_palletjack_sdg_mean_std.py
+  headless: true
+search_space:
+  themes:
+    - camera
+    - lighting
+    - noise
+  include: []
+  exclude:
+    - run.data_dir
+    - run.num_frames
+    - run.headless
