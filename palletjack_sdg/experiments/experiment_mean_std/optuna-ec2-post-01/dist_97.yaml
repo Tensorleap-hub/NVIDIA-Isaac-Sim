@@ -1,0 +1,71 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+  distractors: warehouse
+environment:
+  name: warehouse_multiple_shelves
+camera:
+  camera_height_mean: 0.8101
+  camera_height_std: 0.5443
+  camera_tilt_mean: -1.0
+  camera_tilt_std: 2.1214
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 60.8623
+  camera_roll_mean: 0.0
+  camera_roll_std: 0.0
+  focal_length_std: 0.0
+  fov_mean: 112.0
+  fov_std: 7.5799
+  dataset_noise:
+    enabled: false
+    mode: jpeg
+    sigma_mean: 1.6476
+    sigma_std: 1.7287
+    shot_scale_mean: 22.0
+    shot_scale_std: 1.0
+    seed: -1
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0
+  brightness_gain_std: 0.0
+  contrast_gain_mean: 1.0
+  contrast_gain_std: 0.0
+  gamma_mean: 1.0
+  gamma_std: 0.0
+distractors:
+  clutter_level: 0.216
+  groups:
+    CardBox:
+      diversity: 5
+    BarelPlastic:
+      diversity: 3
+      occurrence: 3
+    CratePlastic:
+      diversity: 4
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 1
+      occurrence: 3
+    PushCart:
+      diversity: 1
+      occurrence: 3
+lighting:
+  color_mean:
+  - 0.5
+  - 0.5
+  - 0.5
+  color_std:
+  - 0.2887
+  - 0.2887
+  - 0.2887
+  intensity_mean: 161226.0
+  intensity_std: 419537.0
+materials:
+  emissive_intensity_mean: 77.0
+  emissive_intensity_std: 138.362
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg

@@ -15,7 +15,11 @@ def _safe_stat(values: np.ndarray, reducer) -> float:
 @tensorleap_metadata("data_type", DatasetMetadataType.string)
 def data_type_metadata(idx: int, preprocessing: PreprocessResponse) -> str:
     record = preprocessing.data[idx]
-    return "synth" if isinstance(record, dict) and "run_config" in record else "real"
+    if not isinstance(record, dict):
+        return "real"
+    if "run_config" not in record:
+        return "real"
+    return str(record.get("subset", "synth"))
 
 
 @tensorleap_metadata("metadata")
@@ -53,6 +57,11 @@ def sample_metadata(idx: int, preprocessing: PreprocessResponse) -> dict:
     return {
         "image_sharpness": sharpness,
         "subset": record["subset"],
+        "optuna_bucket": str(record.get("optuna_bucket", "")),
+        "optuna_theme": str(record.get("optuna_theme", "")),
+        "optuna_trial_number": float(record["trial_number"]) if record.get("trial_number") is not None else float(np.nan),
+        "optuna_rank": float(record["optuna_rank"]) if record.get("optuna_rank") is not None else float(np.nan),
+        "optuna_objective_value": float(record["optuna_objective_value"]) if record.get("optuna_objective_value") is not None else float(np.nan),
         "# of objects": len(valid_anns),
         "# of unique classes": int(len(unique_classes)),
         "bbox area mean":   _safe_stat(bbox_areas, np.mean),

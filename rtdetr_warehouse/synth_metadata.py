@@ -88,6 +88,13 @@ def _distractor_group_metadata(dist: dict) -> dict:
 
 
 _SENTINEL = {
+    "synth_source":                      "",
+    "synth_optuna_bucket":               "",
+    "synth_optuna_theme":                "",
+    "synth_optuna_trial_number":         _NAN,
+    "synth_optuna_rank":                 _NAN,
+    "synth_optuna_objective_value":      _NAN,
+    "synth_iteration":                   _NAN,
     "synth_run_number":                  _NAN,
     "synth_experiment":                  "",
     "synth_render_width":                _NAN,
@@ -129,6 +136,13 @@ _SENTINEL = {
 
 
 _MEAN_STD_SENTINEL = {
+    "synth_source":                             "",
+    "synth_optuna_bucket":                      "",
+    "synth_optuna_theme":                       "",
+    "synth_optuna_trial_number":                _NAN,
+    "synth_optuna_rank":                        _NAN,
+    "synth_optuna_objective_value":             _NAN,
+    "synth_iteration":                          _NAN,
     "synth_run_number":                           _NAN,
     "synth_experiment":                           "",
     "synth_render_width":                         _NAN,
@@ -247,6 +261,13 @@ def synth_metadata(idx: str, preprocess: PreprocessResponse) -> dict:
     tilt_max = cam.get("camera_tilt_max")
 
     return {
+        "synth_source":                      str(record.get("subset", "")),
+        "synth_optuna_bucket":               str(record.get("optuna_bucket", "")),
+        "synth_optuna_theme":                str(record.get("optuna_theme", "")),
+        "synth_optuna_trial_number":         _float_or_nan(record.get("trial_number")),
+        "synth_optuna_rank":                 _float_or_nan(record.get("optuna_rank")),
+        "synth_optuna_objective_value":      _float_or_nan(record.get("optuna_objective_value")),
+        "synth_iteration":                   _float_or_nan(record.get("iteration")),
         "synth_run_number":                  int(record.get("run_number", 0)),
         "synth_experiment":                  str(record.get("experiment", "")),
         "synth_render_width":                int(render.get("width", 0)),
@@ -316,6 +337,13 @@ def synth_metadata_mean_std(idx: str, preprocess: PreprocessResponse) -> dict:
     palletjack_color_std = pj.get("color_std")
 
     return {
+        "synth_source":                             str(record.get("subset", "")),
+        "synth_optuna_bucket":                      str(record.get("optuna_bucket", "")),
+        "synth_optuna_theme":                       str(record.get("optuna_theme", "")),
+        "synth_optuna_trial_number":                _float_or_nan(record.get("trial_number")),
+        "synth_optuna_rank":                        _float_or_nan(record.get("optuna_rank")),
+        "synth_optuna_objective_value":             _float_or_nan(record.get("optuna_objective_value")),
+        "synth_iteration":                          _float_or_nan(record.get("iteration")),
         "synth_run_number":                        int(record.get("run_number", 0)),
         "synth_experiment":                        str(record.get("experiment", "")),
         "synth_render_width":                      int(render.get("width", 0)),

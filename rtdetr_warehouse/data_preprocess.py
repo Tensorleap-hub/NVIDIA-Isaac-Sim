@@ -3,6 +3,7 @@ import os
 import random
 import re
 from collections import Counter
+from pathlib import Path
 from typing import List
 
 import cv2
@@ -94,7 +95,15 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
 
     synth_records.sort(key=lambda r: r["run_number"])
     extended_records.sort(key=lambda r: (r["run_number"], r["experiment"]))
-    optuna_records.sort(key=lambda r: (r["iteration"], r["run_number"], r["experiment"]))
+    optuna_records.sort(
+        key=lambda r: (
+            str(r.get("optuna_bucket", "")),
+            str(r.get("optuna_theme", "")),
+            r["iteration"],
+            r["run_number"],
+            r["experiment"],
+        )
+    )
 
     additional_records = synth_records + extended_records + optuna_records
 
@@ -108,7 +117,8 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
             sample_id = f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
         elif r["subset"] == "optuna":
             sample_id = (
-                f"optuna_iter{r['iteration']}_run{r['run_number']}_"
+                f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
+                f"iter{r['iteration']}_run{r['run_number']}_"
                 f"{r['experiment']}_frame{r['image_id']}"
             )
         else:
@@ -388,14 +398,108 @@ def _load_extended_records() -> list:
 
 
 _OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
+_OPTUNA_TRIAL_DIR_RE = re.compile(r"^trial_(?P<trial>\d+)$")
+
+
+def _parse_kitti_annotation_file(annotation_path: str) -> list[dict]:
+    anns = []
+    if not os.path.isfile(annotation_path):
+        return anns
+
+    with open(annotation_path, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 8:
+                continue
+            if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
+                continue
+            x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
+            anns.append({
+                "category_id": 11,
+                "bbox": [x1, y1, x2 - x1, y2 - y1],
+            })
+    return anns
+
+
+def _load_optuna_summary(summary_path: Path) -> dict:
+    if not summary_path.is_file():
+        return {}
+    with summary_path.open("r") as f:
+        summary = json.load(f)
+    return summary if isinstance(summary, dict) else {}
+
+
+def _append_optuna_experiment_records(
+    *,
+    records: list,
+    experiment_dir: Path,
+    experiment_name: str,
+    optuna_bucket: str,
+    optuna_theme: str,
+    trial_number: int | None,
+    summary: dict | None,
+    trial_dir: Path | None,
+) -> None:
+    match = _OPTUNA_DIR_RE.match(experiment_name)
+    if match is None:
+        return
+
+    run_config_path = experiment_dir / "run_config.yaml"
+    if not run_config_path.is_file() and trial_dir is not None:
+        fallback_yaml_path = trial_dir / "yamls" / f"{experiment_name}.yaml"
+        if fallback_yaml_path.is_file():
+            run_config_path = fallback_yaml_path
+    if not run_config_path.is_file():
+        return
+
+    with run_config_path.open("r") as f:
+        exp_config = yaml.safe_load(f)
+    run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+    rgb_dir = experiment_dir / "Camera" / "rgb"
+    ann_dir = experiment_dir / "Camera" / "object_detection"
+    num_frames = int(run_config.get("run", {}).get("num_frames", 0))
+    orig_w = int(run_config.get("render", {}).get("width", 960))
+    orig_h = int(run_config.get("render", {}).get("height", 544))
+    iteration = int(match.group("iteration"))
+    run_number = int(match.group("run"))
+    summary = summary or {}
+
+    rank_value = summary.get("rank")
+    objective_value = summary.get("objective_value")
+
+    for i in range(num_frames):
+        img_path = rgb_dir / f"{i}.png"
+        if not img_path.is_file():
+            continue
+        ann_path = ann_dir / f"{i}.txt"
+        anns = _parse_kitti_annotation_file(str(ann_path))
+
+        records.append({
+            "image_id": i,
+            "path": str(img_path),
+            "width": orig_w,
+            "height": orig_h,
+            "subset": "optuna",
+            "anns": anns,
+            "run_config": run_config,
+            "run_number": run_number,
+            "iteration": iteration,
+            "experiment": experiment_name,
+            "optuna_bucket": optuna_bucket,
+            "optuna_theme": optuna_theme,
+            "trial_number": trial_number,
+            "optuna_rank": int(rank_value) if rank_value is not None else None,
+            "optuna_objective_value": float(objective_value) if objective_value is not None else None,
+        })
 
 
 def _load_optuna_records() -> list:
     """
-    Load frames from optuna-ec2/iterXXX_runYYY/Camera/ directories.
-
-    Each top-level directory is treated as one experiment. Records are tagged
-    subset='optuna' and carry parsed iteration/run identifiers for metadata.
+    Load frames from optuna trees, including:
+      - flat top-level iterXXX_runYYY/Camera directories
+      - themed trial folders like camera/trial_147/outputs/iter016_run007
+      - worst folders like worst/camera/iter004_run007/outputs/iter004_run007
     """
     optuna_cfg = CONFIG.get("optuna_data", {})
     if not optuna_cfg.get("additional", True):
@@ -405,67 +509,76 @@ def _load_optuna_records() -> list:
     if not base or not os.path.isdir(base):
         return []
 
-    exp_dirs = sorted(
-        d for d in os.listdir(base)
-        if os.path.isdir(os.path.join(base, d)) and _OPTUNA_DIR_RE.match(d)
-    )
-
     records = []
-    for exp_dir in exp_dirs:
-        match = _OPTUNA_DIR_RE.match(exp_dir)
-        if match is None:
-            continue
+    base_path = Path(base)
 
-        iteration = int(match.group("iteration"))
-        run_number = int(match.group("run"))
-        exp_path = os.path.join(base, exp_dir)
-        run_config_path = os.path.join(exp_path, "run_config.yaml")
-        if not os.path.isfile(run_config_path):
-            continue
+    flat_experiment_dirs = sorted(
+        path for path in base_path.iterdir()
+        if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
+    )
+    for experiment_dir in flat_experiment_dirs:
+        _append_optuna_experiment_records(
+            records=records,
+            experiment_dir=experiment_dir,
+            experiment_name=experiment_dir.name,
+            optuna_bucket="flat",
+            optuna_theme="flat",
+            trial_number=None,
+            summary=None,
+            trial_dir=None,
+        )
 
-        with open(run_config_path, "r") as f:
-            exp_config = yaml.safe_load(f)
-        run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
-
-        rgb_dir = os.path.join(exp_path, "Camera", "rgb")
-        ann_dir = os.path.join(exp_path, "Camera", "object_detection")
-        num_frames = int(run_config.get("run", {}).get("num_frames", 0))
-        orig_w = int(run_config.get("render", {}).get("width", 960))
-        orig_h = int(run_config.get("render", {}).get("height", 544))
-
-        for i in range(num_frames):
-            img_path = os.path.join(rgb_dir, f"{i}.png")
-            if not os.path.isfile(img_path):
+    regular_theme_dirs = sorted(
+        path for path in base_path.iterdir()
+        if path.is_dir() and path.name not in {"worst"} and not _OPTUNA_DIR_RE.match(path.name)
+    )
+    for theme_dir in regular_theme_dirs:
+        for trial_dir in sorted(
+            path for path in theme_dir.iterdir()
+            if path.is_dir() and _OPTUNA_TRIAL_DIR_RE.match(path.name)
+        ):
+            trial_match = _OPTUNA_TRIAL_DIR_RE.match(trial_dir.name)
+            if trial_match is None:
                 continue
-            ann_path = os.path.join(ann_dir, f"{i}.txt")
+            trial_number = int(trial_match.group("trial"))
+            outputs_root = trial_dir / "outputs"
+            if not outputs_root.is_dir():
+                continue
+            for experiment_dir in sorted(
+                path for path in outputs_root.iterdir()
+                if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
+            ):
+                _append_optuna_experiment_records(
+                    records=records,
+                    experiment_dir=experiment_dir,
+                    experiment_name=experiment_dir.name,
+                    optuna_bucket="regular",
+                    optuna_theme=theme_dir.name,
+                    trial_number=trial_number,
+                    summary=None,
+                    trial_dir=trial_dir,
+                )
 
-            anns = []
-            if os.path.isfile(ann_path):
-                with open(ann_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) < 8:
-                            continue
-                        if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
-                            continue
-                        x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
-                        anns.append({
-                            "category_id": 11,
-                            "bbox": [x1, y1, x2 - x1, y2 - y1],
-                        })
-
-            records.append({
-                "image_id": i,
-                "path": img_path,
-                "width": orig_w,
-                "height": orig_h,
-                "subset": "optuna",
-                "anns": anns,
-                "run_config": run_config,
-                "run_number": run_number,
-                "iteration": iteration,
-                "experiment": exp_dir,
-            })
+    worst_root = base_path / "worst"
+    if worst_root.is_dir():
+        for theme_dir in sorted(path for path in worst_root.iterdir() if path.is_dir()):
+            for run_dir in sorted(
+                path for path in theme_dir.iterdir()
+                if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
+            ):
+                experiment_dir = run_dir / "outputs" / run_dir.name
+                if not experiment_dir.is_dir():
+                    continue
+                _append_optuna_experiment_records(
+                    records=records,
+                    experiment_dir=experiment_dir,
+                    experiment_name=run_dir.name,
+                    optuna_bucket="worst",
+                    optuna_theme=theme_dir.name,
+                    trial_number=None,
+                    summary=_load_optuna_summary(run_dir / "summary.json"),
+                    trial_dir=None,
+                )
 
     num_samples = optuna_cfg.get("num_samples")
     if num_samples is not None:
