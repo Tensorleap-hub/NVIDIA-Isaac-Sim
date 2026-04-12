@@ -8,6 +8,7 @@ run, so later themed runs automatically inherit the latest promoted baseline.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
@@ -37,15 +38,23 @@ def main() -> None:
     config_paths = [Path(item).resolve() for item in args.configs]
 
     for round_index in range(args.rounds):
-        for config_path in config_paths:
-            print(
-                f"[theme-rounds] round {round_index + 1}/{args.rounds} "
-                f"running {config_path}"
+        for config_index, config_path in enumerate(config_paths):
+            theme_name = config_path.stem.replace("project_config_", "")
+            meta_label = (
+                f"theme={theme_name} "
+                f"theme_step={config_index + 1}/{len(config_paths)} "
+                f"theme_round={round_index + 1}/{args.rounds}"
             )
+            print(
+                f"[theme-rounds] {meta_label} config={config_path}"
+            )
+            env = os.environ.copy()
+            env["SIM_CAL_LOOP_META_LABEL"] = meta_label
             subprocess.run(
                 [str(retry_script), "--config", str(config_path)],
                 cwd=repo_root,
                 check=True,
+                env=env,
             )
 
 

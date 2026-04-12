@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -56,6 +57,7 @@ class SimulationCalibrationController:
         self.seed_config_dir = Path(config.seed_config_dir)
         self.state_store = StateStore(self.workspace_dir / "state.json")
         self.ui = WorkflowUI(log_path=self.workspace_dir / "main_loop_screen.log")
+        self.meta_label = os.environ.get("SIM_CAL_LOOP_META_LABEL", "").strip()
 
         seed_items = load_yaml_configs(self.seed_config_dir)
         if not seed_items:
@@ -115,7 +117,7 @@ class SimulationCalibrationController:
     def run(self) -> None:
         """Run the full calibration loop from real-cache setup through completion."""
         self.ui.start()
-        self.ui.set_status(max_iterations=self.config.max_iterations)
+        self.ui.set_status(max_iterations=self.config.max_iterations, note=self._compose_note(""))
         real_embeddings = self._prepare_real_embeddings()
         self.runner.set_real_embeddings(real_embeddings)
 
@@ -136,10 +138,13 @@ class SimulationCalibrationController:
                 iteration_index=iteration_index + 1,
                 total_runs=len(current_rows),
                 completed_runs=0,
-                note=f"materializing {len(current_rows)} YAMLs",
+                note=self._compose_note(f"materializing {len(current_rows)} YAMLs"),
             )
             artifacts = self._materialize_and_execute_iteration(iteration_index, current_rows)
-            self.ui.set_status(phase="optimize", note="computing embeddings and Optuna suggestions")
+            self.ui.set_status(
+                phase="optimize",
+                note=self._compose_note("computing embeddings and Optuna suggestions"),
+            )
             suggestions, iteration_summary, objective_values = self._run_optimizer_iteration(artifacts)
             for artifact, objective_value in zip(artifacts, objective_values, strict=True):
                 artifact.objective_value = objective_value
@@ -158,7 +163,7 @@ class SimulationCalibrationController:
                 iteration_best=iteration_summary["iteration_best"],
                 iteration_mean=iteration_summary["iteration_mean"],
                 iteration_median=iteration_summary["iteration_median"],
-                note="iteration complete",
+                note=self._compose_note("iteration complete"),
             )
 
             state["iterations"].append(
@@ -179,12 +184,15 @@ class SimulationCalibrationController:
             self._export_best_runs_to_s3(state)
             current_rows = next_rows
 
-        self.ui.set_status(phase="complete", note="workflow finished")
+        self.ui.set_status(phase="complete", note=self._compose_note("workflow finished"))
         self.ui.stop()
 
     def _prepare_real_embeddings(self) -> np.ndarray:
         """Load or compute the fixed reference embeddings for the real dataset."""
-        self.ui.set_status(phase="real-cache", note="loading subset-3 reference embeddings")
+        self.ui.set_status(
+            phase="real-cache",
+            note=self._compose_note("loading subset-3 reference embeddings"),
+        )
         real_image_paths = select_real_image_paths(
             self.config.real_dataset_root,
             self.config.real_annotations_file,
@@ -212,6 +220,14 @@ class SimulationCalibrationController:
             cache_path=cache_path,
             manifest=manifest,
         )
+
+    def _compose_note(self, note: str) -> str:
+        """Prefix workflow notes with the optional theme-round label."""
+        if not self.meta_label:
+            return note
+        if not note:
+            return self.meta_label
+        return f"{self.meta_label} | {note}"
 
     def _load_iteration_rows(self, state: dict[str, Any], start_iteration: int) -> list[dict[str, Any]]:
         """Choose the current batch source: seeds on iteration 0, suggestions otherwise."""
