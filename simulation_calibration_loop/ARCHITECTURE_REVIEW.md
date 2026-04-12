@@ -69,6 +69,23 @@ That means:
 
 The current workflow therefore assumes a flat seed directory and stable relative inheritance paths.
 
+### Suggested follow-up: keep camera color out of Optuna until the seed family is type-consistent
+
+The current shared mean/std base config sets
+[`camera.color_mean`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/palletjack_sdg/sdg_config_mean_std.yaml#L67)
+to `null`, while many first-order experiment files use a 3-vector value for the same field.
+
+Because the workflow infers Optuna bounds directly from the seed YAML family, mixing `null` and
+list values for the same path is a poor fit for the current flattening and bounds-inference code.
+The safer first step is to seed only `image_augmentation.*` experiments, because those fields are
+already consistently numeric / list-valued in the shared base config.
+
+Recommended follow-up before exposing `camera.color_*` to Optuna:
+
+1. normalize the seed family so `camera.color_mean` always resolves to a 3-vector
+2. normalize `camera.color_std` the same way
+3. then add dedicated camera-color seed experiments and include those paths in the Optuna seed set
+
 
 ## Flow
 

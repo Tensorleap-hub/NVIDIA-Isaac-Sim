@@ -110,7 +110,7 @@ Important fields:
 
 You can configure it in two ways:
 
-- `themes`: higher-level parameter groups such as `camera`, `noise`, `objects`, `lighting`, `materials`, and `environment`
+- `themes`: higher-level parameter groups such as `camera`, `camera-color`, `noise`, `objects`, `lighting`, `materials`, and `environment`
 - `include`: explicit path additions
 - `exclude`: explicit removals
 
@@ -139,6 +139,7 @@ Available themes:
 
 - `environment`
 - `camera`
+- `camera-color`
 - `noise`
 - `objects`
 - `lighting`
