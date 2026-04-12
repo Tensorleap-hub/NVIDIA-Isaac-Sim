@@ -13,8 +13,8 @@ render:
   height: 544
 
 output:
-  # auto: keep KITTI layout for the default RGB+OD case, switch to BasicWriter
-  # when extra modalities are enabled or RGB is disabled.
+  # auto: use BasicWriter with the requested modality flags.
+  # set writer: kitti only if you explicitly want the KITTI layout.
   writer: auto            # auto | kitti | basic
   rgb: true
   od: true

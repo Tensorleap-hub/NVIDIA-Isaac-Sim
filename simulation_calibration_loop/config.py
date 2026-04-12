@@ -138,6 +138,7 @@ class WorkflowConfig:
     project_name: str
     workspace_dir: str
     s3_best_runs_prefix: str | None
+    promoted_baseline_dir: str | None
     baseline_state_path: str | None
     seed_config_dir: str
     real_dataset_root: str
@@ -193,6 +194,7 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         project_name=raw["project_name"],
         workspace_dir=str(Path(raw["workspace_dir"]).expanduser()),
         s3_best_runs_prefix=str(raw["s3_best_runs_prefix"]).rstrip("/") if raw.get("s3_best_runs_prefix") else None,
+        promoted_baseline_dir=str(Path(raw["promoted_baseline_dir"]).expanduser()) if raw.get("promoted_baseline_dir") else None,
         baseline_state_path=str(Path(raw["baseline_state_path"]).expanduser()) if raw.get("baseline_state_path") else None,
         synthetic_rgb_base_dir=str(Path(raw["synthetic_rgb_base_dir"]).expanduser()) if raw.get("synthetic_rgb_base_dir") else None,
         seed_config_dir=str(Path(raw["seed_config_dir"]).expanduser()),
@@ -210,6 +212,10 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     workflow.search_space = _expand_search_space(workflow.search_space)
 
     workflow.workspace_dir = str(workflow.resolve_path(workflow.workspace_dir, relative_to_config=config_path))
+    if workflow.promoted_baseline_dir is not None:
+        workflow.promoted_baseline_dir = str(
+            workflow.resolve_path(workflow.promoted_baseline_dir, relative_to_config=config_path)
+        )
     if workflow.synthetic_rgb_base_dir is not None:
         workflow.synthetic_rgb_base_dir = str(
             workflow.resolve_path(workflow.synthetic_rgb_base_dir, relative_to_config=config_path)
