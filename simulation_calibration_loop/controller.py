@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import datetime
 import json
 import os
 from pathlib import Path
@@ -631,7 +632,7 @@ class SimulationCalibrationController:
         )
 
     def _export_best_runs_to_s3(self, state: dict[str, Any]) -> None:
-        """Stage and sync the current top trials to S3 when export is enabled."""
+        """Stage and upload the current top trials to a timestamped S3 snapshot."""
         if self.s3_best_runs_prefix is None or not state["iterations"]:
             return
 
@@ -648,6 +649,9 @@ class SimulationCalibrationController:
         ]
         if not selected_artifacts:
             return
+
+        snapshot_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        snapshot_prefix = f"{self.s3_best_runs_prefix.rstrip('/')}/{snapshot_timestamp}/"
 
         with tempfile.TemporaryDirectory(prefix=f"{self.config.project_name}_s3_") as temp_dir:
             stage_root = Path(temp_dir)
@@ -684,16 +688,17 @@ class SimulationCalibrationController:
             manifest = {
                 "project_name": self.config.project_name,
                 "top_n_best_trials": self.config.top_n_best_trials,
-                "s3_prefix": self.s3_best_runs_prefix,
+                "s3_prefix": snapshot_prefix,
+                "snapshot_timestamp": snapshot_timestamp,
                 "best_trials": manifest_runs,
             }
             (stage_root / "best_runs_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
 
             self.ui.append_log(
-                f"[s3] syncing top {len(selected_artifacts)} runs to {self.s3_best_runs_prefix}"
+                f"[s3] uploading top {len(selected_artifacts)} runs to {snapshot_prefix}"
             )
-            self._sync_directory_to_s3(stage_root, self.s3_best_runs_prefix)
-            self.ui.append_log(f"[s3] sync complete: {self.s3_best_runs_prefix}")
+            self._sync_directory_to_s3(stage_root, snapshot_prefix)
+            self.ui.append_log(f"[s3] upload complete: {snapshot_prefix}")
 
     def _collect_completed_artifacts(self, state: dict[str, Any]) -> list[RunArtifact]:
         """Rehydrate all completed run artifacts from the persisted state ledger."""
@@ -732,14 +737,13 @@ class SimulationCalibrationController:
         return artifacts
 
     def _sync_directory_to_s3(self, source_dir: Path, s3_prefix: str) -> None:
-        """Sync a staged directory to S3 with the AWS CLI."""
+        """Upload a staged directory to S3 with the AWS CLI."""
         command = [
             "aws",
             "s3",
             "sync",
             str(source_dir),
             s3_prefix,
-            "--delete",
             "--only-show-errors",
         ]
         process = subprocess.run(
