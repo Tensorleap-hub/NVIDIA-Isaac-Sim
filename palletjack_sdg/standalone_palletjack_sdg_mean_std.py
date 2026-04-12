@@ -184,28 +184,13 @@ def resolve_output_cfg():
 def initialize_writer(output_directory, output_cfg):
     """Create the requested writer and return (writer, rgb_enabled, writer_name)."""
     writer_mode = str(output_cfg.get("writer", "auto")).lower()
-    wants_extra_modalities = any(
-        (
-            output_cfg.get("depth", False),
-            output_cfg.get("semantic_segmentation", False),
-            output_cfg.get("instance_segmentation", False),
-        )
-    )
-    wants_basic_writer = (
-        writer_mode == "basic"
-        or wants_extra_modalities
-        or not output_cfg.get("rgb", True)
-        or not output_cfg.get("od", True)
-    )
-
     if writer_mode not in {"auto", "kitti", "basic"}:
         raise ValueError(
             f"Unsupported output.writer={output_cfg['writer']!r}. Expected auto, kitti, or basic."
         )
 
     if writer_mode == "kitti" and (
-        wants_extra_modalities
-        or not output_cfg.get("rgb", True)
+        not output_cfg.get("rgb", True)
         or not output_cfg.get("od", True)
     ):
         raise ValueError(
@@ -213,7 +198,7 @@ def initialize_writer(output_directory, output_cfg):
             "Use output.writer=basic for custom modality combinations."
         )
 
-    if writer_mode == "kitti" or (writer_mode == "auto" and not wants_basic_writer):
+    if writer_mode == "kitti":
         writer = rep.WriterRegistry.get("KittiWriter")
         writer.initialize(output_dir=output_directory, omit_semantic_type=True)
         return writer, True, "KittiWriter"
