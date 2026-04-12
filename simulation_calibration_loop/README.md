@@ -135,6 +135,10 @@ search_space:
 
 All non-selected Isaac fields remain fixed from the base template YAML used for materialization.
 
+The `objects` theme now includes both coarse object controls and a set of micro configuration
+parameters, such as distractor group diversity/occurrence and palletjack position, rotation,
+scale, and color statistics.
+
 Available themes:
 
 - `environment`
