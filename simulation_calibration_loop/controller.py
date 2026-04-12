@@ -36,6 +36,7 @@ from .parameter_schema import (
     load_yaml_configs,
     materialize_config,
     save_yaml_config,
+    validate_configs_against_schema,
 )
 from .ui import WorkflowUI
 
@@ -67,6 +68,7 @@ class SimulationCalibrationController:
         )
         if not self.schema:
             raise ValueError("Search-space filtering removed all Isaac parameters; update search_space.include/exclude")
+        validate_configs_against_schema([item[1] for item in seed_items], self.schema)
         self.base_template = self._load_base_template(seed_items)
         # Seed rows are external observations, not Optuna-issued trials. They are
         # imported into the study with `add_trial(...)` on the first iteration.
@@ -462,7 +464,19 @@ class SimulationCalibrationController:
         if not yaml_path.exists():
             raise ValueError(f"Baseline yaml does not exist: {yaml_path}")
         self.ui.append_log(f"[baseline] using best base trial {best_trial_id} from {yaml_path}")
-        return deepcopy(yaml.safe_load(yaml_path.read_text()))
+        seed_template = deepcopy(seed_items[0][1])
+        baseline_template = yaml.safe_load(yaml_path.read_text())
+        return self._merge_dicts(seed_template, baseline_template)
+
+    def _merge_dicts(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        """Recursively overlay one nested config onto another."""
+        merged = deepcopy(base)
+        for key, value in override.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = self._merge_dicts(merged[key], value)
+            else:
+                merged[key] = deepcopy(value)
+        return merged
 
     def _trial_number_from_trial_id(self, trial_id: str) -> int:
         """Parse the workflow's `trial_<n>` identifier format."""

@@ -169,6 +169,25 @@ def materialize_config(base_config: dict[str, Any], params: dict[str, Any], spec
     return config
 
 
+def validate_configs_against_schema(
+    configs: list[dict[str, Any]],
+    specs: list[ParameterSpec],
+) -> None:
+    """Ensure every flattened spec can be read from every seed config.
+
+    This catches schema/config drift early and reports the first missing path
+    with a clearer error than the raw KeyError raised during flattening.
+    """
+    for config_index, config in enumerate(configs):
+        for spec in specs:
+            try:
+                _get_by_path(config, spec.path)
+            except KeyError as exc:
+                raise ValueError(
+                    f"Seed config {config_index} is missing required path '{spec.path}'"
+                ) from exc
+
+
 def filter_parameter_specs(
     specs: list[ParameterSpec],
     *,
