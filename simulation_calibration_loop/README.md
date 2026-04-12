@@ -87,6 +87,7 @@ Important fields:
 - `max_iterations`: number of optimization iterations
 - `iteration_batch_size`: number of Isaac YAMLs to evaluate per iteration
 - `top_n_best_trials`: how many best Optuna trials to track and export
+- `promoted_baseline_dir`: optional shared directory where the workflow writes the current best YAML as `best.yaml`
 - `baseline_state_path`: optional state file used to load the best base YAML as the default template
 - `s3_best_runs_prefix`: optional S3 prefix for syncing the current top trials after each completed iteration
 
@@ -135,6 +136,10 @@ search_space:
 
 All non-selected Isaac fields remain fixed from the base template YAML used for materialization.
 
+When `promoted_baseline_dir` is set, the workflow prefers `best.yaml` from that
+directory over `baseline_state_path`. This makes it possible to run themed
+studies in sequence while sharing one promoted global baseline.
+
 Available themes:
 
 - `environment`
@@ -165,6 +170,29 @@ Each iteration directory contains:
 
 If `s3_best_runs_prefix` is set, the workflow also stages the current top `top_n_best_trials`
 runs and syncs them to that S3 prefix after each completed iteration.
+
+If `promoted_baseline_dir` is set, the workflow also writes:
+
+- `best.yaml`: the best completed YAML seen so far in this workspace
+- `best.json`: metadata about the promoted run and objective value
+
+
+## Theme Rounds
+
+Use `run_theme_rounds.py` to cycle through multiple themed workflow configs.
+Each config should share the same `promoted_baseline_dir`, so later runs pick
+up the best YAML promoted by earlier runs.
+
+Example:
+
+```bash
+bash simulation_calibration_loop/run_with_loop_venv.sh \
+  simulation_calibration_loop/run_theme_rounds.py \
+  --rounds 2 \
+  --config simulation_calibration_loop/project_config_camera.yaml \
+  --config simulation_calibration_loop/project_config_noise.yaml \
+  --config simulation_calibration_loop/project_config_lighting.yaml
+```
 
 
 ## Progress UI

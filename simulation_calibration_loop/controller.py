@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 from typing import Any
 
 import numpy as np
@@ -49,6 +50,7 @@ class SimulationCalibrationController:
         self.config = config
         self.workspace_dir = Path(config.workspace_dir)
         self.s3_best_runs_prefix = config.s3_best_runs_prefix.rstrip("/") if config.s3_best_runs_prefix else None
+        self.promoted_baseline_dir = Path(config.promoted_baseline_dir) if config.promoted_baseline_dir else None
         self.baseline_state_path = Path(config.baseline_state_path) if config.baseline_state_path else None
         self.synthetic_rgb_base_dir = Path(config.synthetic_rgb_base_dir) if config.synthetic_rgb_base_dir else None
         self.seed_config_dir = Path(config.seed_config_dir)
@@ -120,6 +122,7 @@ class SimulationCalibrationController:
         state = self.state_store.load()
         start_iteration = len(state["iterations"])
         self._replay_completed_iterations(state)
+        self._promote_global_baseline(state)
         self._export_best_runs_to_s3(state)
         initial_distance = "-"
         if state["iterations"]:
@@ -172,6 +175,7 @@ class SimulationCalibrationController:
                 }
             )
             self.state_store.save(state)
+            self._promote_global_baseline(state)
             self._export_best_runs_to_s3(state)
             current_rows = next_rows
 
@@ -255,6 +259,7 @@ class SimulationCalibrationController:
         rows: list[dict[str, Any]],
     ) -> list[RunArtifact]:
         """Materialize one batch of YAMLs, run Isaac, and cache synthetic embeddings."""
+        iteration_started_at = time.perf_counter()
         iteration_dir = self.workspace_dir / f"iteration_{iteration_index:03d}"
         yaml_dir = iteration_dir / "yamls"
         outputs_dir = iteration_dir / "outputs"
@@ -264,6 +269,8 @@ class SimulationCalibrationController:
         prepare_output_dir(cache_dir, clean=False)
 
         artifacts: list[RunArtifact] = []
+        reused_seed_runs = 0
+        generated_runs = 0
         for run_index, row_record in enumerate(rows):
             run_id = f"iter{iteration_index:03d}_run{run_index:03d}"
             yaml_path = yaml_dir / f"{run_id}.yaml"
@@ -288,6 +295,8 @@ class SimulationCalibrationController:
             image_paths = discover_generated_images(local_rgb_dir)
             if not image_paths:
                 image_paths = self._copy_synthetic_rgb_from_base(output_dir, run_id)
+            if image_paths:
+                reused_seed_runs += 1
             if not image_paths:
                 run_isaac_generation(
                     isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
@@ -299,7 +308,9 @@ class SimulationCalibrationController:
                     num_frames_override=self.config.isaac.num_frames_override,
                     log_callback=self.ui.append_log,
                 )
-                image_paths = discover_generated_images(local_rgb_dir)
+                image_paths = discover_generated_images(output_dir)
+                if image_paths:
+                    generated_runs += 1
             if not image_paths:
                 raise ValueError(f"No generated images discovered under {output_dir}")
             self._write_run_manifest(output_dir, run_id, run_fingerprint, yaml_path)
@@ -487,6 +498,13 @@ class SimulationCalibrationController:
 
     def _load_base_template(self, seed_items: list[tuple[Path, dict[str, Any]]]) -> dict[str, Any]:
         """Pick the nested YAML template used for materializing future suggestions."""
+        promoted_yaml_path = self._get_promoted_baseline_yaml_path()
+        if promoted_yaml_path is not None:
+            self.ui.append_log(f"[baseline] using promoted baseline from {promoted_yaml_path}")
+            seed_template = deepcopy(seed_items[0][1])
+            baseline_template = yaml.safe_load(promoted_yaml_path.read_text())
+            return self._merge_dicts(seed_template, baseline_template)
+
         if self.baseline_state_path is None:
             return deepcopy(seed_items[0][1])
 
@@ -517,6 +535,15 @@ class SimulationCalibrationController:
         baseline_template = yaml.safe_load(yaml_path.read_text())
         return self._merge_dicts(seed_template, baseline_template)
 
+    def _get_promoted_baseline_yaml_path(self) -> Path | None:
+        """Return the promoted baseline YAML when configured and already created."""
+        if self.promoted_baseline_dir is None:
+            return None
+        candidate = self.promoted_baseline_dir / "best.yaml"
+        if candidate.exists():
+            return candidate
+        return None
+
     def _merge_dicts(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         """Recursively overlay one nested config onto another."""
         merged = deepcopy(base)
@@ -544,6 +571,48 @@ class SimulationCalibrationController:
                 if artifact.get("optuna_trial_number") == trial_number:
                     return artifact
         return None
+
+    def _promote_global_baseline(self, state: dict[str, Any]) -> None:
+        """Persist the current best completed YAML as a shared promoted baseline."""
+        if self.promoted_baseline_dir is None or not state["iterations"]:
+            return
+
+        artifacts = [
+            artifact for artifact in self._collect_completed_artifacts(state)
+            if artifact.objective_value is not None
+        ]
+        if not artifacts:
+            return
+
+        best_artifact = min(artifacts, key=lambda item: item.objective_value)
+        assert best_artifact.objective_value is not None
+
+        self.promoted_baseline_dir.mkdir(parents=True, exist_ok=True)
+        promoted_yaml_path = self.promoted_baseline_dir / "best.yaml"
+        promoted_metadata_path = self.promoted_baseline_dir / "best.json"
+        existing_objective = None
+        if promoted_metadata_path.exists():
+            metadata = json.loads(promoted_metadata_path.read_text())
+            if metadata.get("objective_value") is not None:
+                existing_objective = float(metadata["objective_value"])
+        if existing_objective is not None and existing_objective <= best_artifact.objective_value:
+            return
+
+        shutil.copy2(best_artifact.yaml_path, promoted_yaml_path)
+        promoted_metadata = {
+            "project_name": self.config.project_name,
+            "run_id": best_artifact.run_id,
+            "objective_value": best_artifact.objective_value,
+            "yaml_path": str(best_artifact.yaml_path),
+            "workspace_dir": str(self.workspace_dir),
+            "updated_from_state": str(self.state_store.state_path),
+        }
+        promoted_metadata_path.write_text(json.dumps(promoted_metadata, indent=2, sort_keys=True))
+        self.ui.append_log(
+            "[baseline] promoted "
+            f"{best_artifact.run_id} ({best_artifact.objective_value:.6f}) "
+            f"to {promoted_yaml_path}"
+        )
 
     def _export_best_runs_to_s3(self, state: dict[str, Any]) -> None:
         """Stage and sync the current top trials to S3 when export is enabled."""
@@ -635,8 +704,15 @@ class SimulationCalibrationController:
                             if item.get("objective_value") is not None
                             else None
                         ),
-                    )
                 )
+            )
+        if iteration_index == 0:
+            elapsed_seconds = time.perf_counter() - iteration_started_at
+            self.ui.append_log(
+                "[seed-timing] "
+                f"iteration_000 image prep took {elapsed_seconds:.1f}s "
+                f"(reused={reused_seed_runs}, generated={generated_runs}, total_runs={len(rows)})"
+            )
         return artifacts
 
     def _sync_directory_to_s3(self, source_dir: Path, s3_prefix: str) -> None:
