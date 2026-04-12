@@ -15,7 +15,7 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_load_model,
 )
 
-from rtdetr_warehouse import (
+from tensorleap_intgration_code import (
     data_type_metadata,
     gt_boxes_encoder,
     gt_encoder,
@@ -33,7 +33,7 @@ from rtdetr_warehouse import (
     yolo_pred_bb_decoder,
     yolo_total_loss,
 )
-from rtdetr_warehouse.config import CONFIG, abs_path_from_root
+from tensorleap_intgration_code.config import CONFIG, abs_path_from_root
 
 prediction_type0 = PredictionTypeHandler(name="output0",  labels=[str(i) for i in range(84)],  channel_dim=1)
 prediction_type1 = PredictionTypeHandler(name="output1",  labels=[str(i) for i in range(144)], channel_dim=1)

@@ -3,7 +3,7 @@ from typing import List
 import numpy as np
 import torch
 
-from rtdetr_warehouse.config import CLASS_NAMES, CONFIG
+from tensorleap_intgration_code.config import CLASS_NAMES, CONFIG
 
 
 def label_names() -> List[str]:

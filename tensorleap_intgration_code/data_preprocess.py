@@ -18,7 +18,7 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
 )
 
-from rtdetr_warehouse.config import COCO_ID_TO_IDX, CONFIG
+from tensorleap_intgration_code.config import COCO_ID_TO_IDX, CONFIG
 
 IMAGE_SIZE = int(CONFIG["image_size"])
 MAX_DETS = int(CONFIG["max_num_of_objects"])
@@ -308,6 +308,8 @@ def _load_extended_records() -> list:
         d for d in os.listdir(base)
         if os.path.isdir(os.path.join(base, d)) and d.isdigit()
     )
+    if not run_dirs:
+        raise FileNotFoundError(f"no run_dirs found in {base}, make sure all run folder names are numbers")
     if allowed_runs is not None:
         allowed_runs = set(allowed_runs)
         available_runs = {int(d) for d in run_dirs}

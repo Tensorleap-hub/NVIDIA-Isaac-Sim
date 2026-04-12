@@ -64,7 +64,7 @@ synth_data:
 
 extended_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/extended"
-  additional: false          # set to false to exclude extended data entirely
+  additional: true          # set to false to exclude extended data entirely
   extended_numbers:      # null = include all; list of ints to include specific run folders e.g. [0, 1]
   num_samples:              # null = no limit; per-run cap (same semantics as synth_data.num_samples)
 

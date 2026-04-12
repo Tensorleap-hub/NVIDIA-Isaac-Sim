@@ -6,7 +6,7 @@ from code_loader.contract.visualizer_classes import LeapImageWithBBox
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_custom_visualizer
 from code_loader.visualizers.default_visualizers import LeapImage
 
-from rtdetr_warehouse.common import format_rtdetr_predictions, label_names, prediction_rows, xyxy2xywh
+from tensorleap_intgration_code.common import format_rtdetr_predictions, label_names, prediction_rows, xyxy2xywh
 
 
 def _image_to_uint8(image: np.ndarray) -> np.ndarray:

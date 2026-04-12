@@ -5,8 +5,8 @@ from code_loader.contract.datasetclasses import ConfusionMatrixElement
 from code_loader.contract.enums import ConfusionMatrixValue, MetricDirection
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_custom_metric
 
-from rtdetr_warehouse.common import format_rtdetr_predictions, label_names, prediction_rows, xywh2xyxy
-from rtdetr_warehouse.config import CONFIG
+from tensorleap_intgration_code.common import format_rtdetr_predictions, label_names, prediction_rows, xywh2xyxy
+from tensorleap_intgration_code.config import CONFIG
 
 
 # ---------------------------------------------------------------------------

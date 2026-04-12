@@ -1,8 +1,12 @@
+meta:
+  timestamp: '2026-04-10T06:51:31.461628Z'
+  config_file: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_cam_noise_light/iteration_001/yamls/iter001_run004.yaml
+  git_commit: 2de9fbe59ad845da9c839c742de25c3235bdbf4f
 run:
   headless: true
   num_frames: 128
   distractors: warehouse
-  data_dir: /placeholder
+  data_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_cam_noise_light/iteration_001/outputs/iter001_run004
 render:
   width: 960
   height: 544
@@ -32,22 +36,22 @@ camera:
   position_std:
   - 6.320521777572962
   - 9.051780297259821
-  camera_height_mean: 1.1951
-  camera_height_std: 0.5277
+  camera_height_mean: 2.6183338366072864
+  camera_height_std: 0.24346511015968986
   look_at:
   - 0.0
   - 0.0
   - 0.0
-  camera_tilt_mean: -1.0
-  camera_tilt_std: 2.0549
+  camera_tilt_mean: null
+  camera_tilt_std: 5.445398843556558
   camera_yaw_mean: 180.0
-  camera_yaw_std: 44.8976
+  camera_yaw_std: 38.68276176914312
   camera_roll_mean: 0.0
-  camera_roll_std: 0.0
+  camera_roll_std: 5.0
   focal_length_mean: null
   focal_length_std: 0.0
-  fov_mean: 99.0
-  fov_std: 8.6799
+  fov_mean: 103.0
+  fov_std: 8.625704538293801
   horizontal_aperture: 20.955
   focus_distance: null
   f_stop: null
@@ -63,14 +67,14 @@ camera:
   jpeg_quality_mean: 97.5
   jpeg_quality_std: 1.443376
   dataset_noise:
-    enabled: false
-    mode: jpeg
-    sigma_mean: 6.3486
-    sigma_std: 1.211
+    enabled: true
+    mode: gaussian_jpeg
+    sigma_mean: 9.697444554773003
+    sigma_std: 1.266807513020847
     jpeg_quality_mean: 25
     jpeg_quality_std: 9
-    shot_scale_mean: 29.0
-    shot_scale_std: 1.0
+    shot_scale_mean: 27.0
+    shot_scale_std: 3.0
     seed: -1
 image_augmentation:
   enabled: false
@@ -146,7 +150,7 @@ distractor_randomization:
   scale_mean: 1.25
   scale_std: 0.144338
 distractors:
-  clutter_level: 0.665
+  clutter_level: 1.034674636709013
   groups:
     CardBox:
       assets:
@@ -157,7 +161,7 @@ distractors:
       - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_291.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1454.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1513.usd
-      diversity: 5
+      diversity: 4
       occurrence: 2
     BarelPlastic:
       assets:
@@ -167,8 +171,8 @@ distractors:
       - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_03.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_C_02.usd
-      diversity: 3
-      occurrence: 3
+      diversity: 2
+      occurrence: 2
     BottlePlastic:
       assets:
       - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd
@@ -184,7 +188,7 @@ distractors:
       - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_05.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_C_02.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd
-      diversity: 4
+      diversity: 2
       occurrence: 2
     TrafficSigns:
       assets:
@@ -202,23 +206,23 @@ distractors:
       - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd
       - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd
       diversity: 1
-      occurrence: 4
+      occurrence: 2
     PushCart:
       assets:
       - /Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd
       diversity: 1
-      occurrence: 3
+      occurrence: 1
 lighting:
   color_mean:
   - 0.5
   - 0.5
   - 0.5
   color_std:
-  - 0.2887
-  - 0.2887
-  - 0.2887
-  intensity_mean: 109293.0
-  intensity_std: 473691.0
+  - 0.288675
+  - 0.288675
+  - 0.288675
+  intensity_mean: 134778.0
+  intensity_std: 489278.0
   visibility_choices:
   - true
 materials:
@@ -227,9 +231,8 @@ materials:
   metallic_choices:
   - 0
   - 1
-  emissive_intensity_mean: 125.0
-  emissive_intensity_std: 119.8972
+  emissive_intensity_mean: 435.0
+  emissive_intensity_std: 127.40288374751454
   textures:
-  - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
   - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
-extends: ../../../sdg_config_mean_std.yaml
+  - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg

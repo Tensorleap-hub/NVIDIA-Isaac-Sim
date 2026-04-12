@@ -9,6 +9,7 @@ Defaults:
 """
 
 import argparse
+import copy
 import csv
 import math
 import os
@@ -100,14 +101,15 @@ def set_if_present(target, key, value):
     return True
 
 
-def build_config(row, extends_path):
-    cfg = {
-        "extends": extends_path,
-        "run": {
-            "num_frames": int(float(row["n_samples"])),
-            "data_dir": "/placeholder",
-        },
-    }
+def build_config(row, extends_path, base_cfg=None):
+    cfg = copy.deepcopy(base_cfg) if base_cfg is not None else {}
+    cfg.pop("meta", None)
+    cfg["extends"] = extends_path
+
+    run = copy.deepcopy(cfg.get("run") or {})
+    run["num_frames"] = int(float(row["n_samples"]))
+    run["data_dir"] = "/placeholder"
+    cfg["run"] = run
     has_override = False
 
     distractors_mode = opt_str(row, "synth_distractors")
@@ -115,7 +117,7 @@ def build_config(row, extends_path):
         cfg["run"]["distractors"] = distractors_mode
         has_override = True
 
-    render = {}
+    render = copy.deepcopy(cfg.get("render") or {})
     has_override |= set_if_present(render, "width", opt_int(row, "synth_render_width"))
     has_override |= set_if_present(render, "height", opt_int(row, "synth_render_height"))
     if render:
@@ -126,7 +128,7 @@ def build_config(row, extends_path):
         cfg["environment"] = {"name": env_name}
         has_override = True
 
-    camera = {}
+    camera = copy.deepcopy(cfg.get("camera") or {})
     has_override |= set_if_present(camera, "camera_type", opt_str(row, "synth_camera_type"))
     has_override |= set_if_present(
         camera,
@@ -189,7 +191,7 @@ def build_config(row, extends_path):
     has_override |= set_if_present(camera, "jpeg_quality_mean", opt_float(row, "synth_jpeg_quality_mean"))
     has_override |= set_if_present(camera, "jpeg_quality_std", opt_float(row, "synth_jpeg_quality_std"))
 
-    dataset_noise = {}
+    dataset_noise = copy.deepcopy(camera.get("dataset_noise") or {})
     has_override |= set_if_present(
         dataset_noise,
         "enabled",
@@ -237,7 +239,7 @@ def build_config(row, extends_path):
     if camera:
         cfg["camera"] = camera
 
-    image_augmentation = {}
+    image_augmentation = copy.deepcopy(cfg.get("image_augmentation") or {})
     has_override |= set_if_present(
         image_augmentation,
         "enabled",
@@ -294,7 +296,7 @@ def build_config(row, extends_path):
     if image_augmentation:
         cfg["image_augmentation"] = image_augmentation
 
-    palletjacks = {}
+    palletjacks = copy.deepcopy(cfg.get("palletjacks") or {})
     has_override |= set_if_present(
         palletjacks,
         "count_per_model",
@@ -339,7 +341,7 @@ def build_config(row, extends_path):
     if palletjacks:
         cfg["palletjacks"] = palletjacks
 
-    distractor_randomization = {}
+    distractor_randomization = copy.deepcopy(cfg.get("distractor_randomization") or {})
     has_override |= set_if_present(
         distractor_randomization,
         "position_mean",
@@ -389,16 +391,16 @@ def build_config(row, extends_path):
     if distractor_randomization:
         cfg["distractor_randomization"] = distractor_randomization
 
-    distractors = {}
+    distractors = copy.deepcopy(cfg.get("distractors") or {})
     has_override |= set_if_present(
         distractors,
         "clutter_level",
         opt_float(row, "synth_clutter_level"),
     )
 
-    groups = {}
+    groups = copy.deepcopy(distractors.get("groups") or {})
     for group_name in DISTRACTOR_GROUPS:
-        group_cfg = {}
+        group_cfg = copy.deepcopy(groups.get(group_name) or {})
         has_group_value = False
         has_group_value |= set_if_present(
             group_cfg,
@@ -418,7 +420,7 @@ def build_config(row, extends_path):
     if distractors:
         cfg["distractors"] = distractors
 
-    lighting = {}
+    lighting = copy.deepcopy(cfg.get("lighting") or {})
     has_override |= set_if_present(
         lighting,
         "color_mean",
@@ -450,7 +452,7 @@ def build_config(row, extends_path):
     if lighting:
         cfg["lighting"] = lighting
 
-    materials = {}
+    materials = copy.deepcopy(cfg.get("materials") or {})
     has_override |= set_if_present(
         materials,
         "roughness_mean",
@@ -478,7 +480,7 @@ def build_config(row, extends_path):
     if materials:
         cfg["materials"] = materials
 
-    if not has_override:
+    if not has_override and base_cfg is None:
         distribution_id = (row.get("distribution_id") or "<unknown>").strip() or "<unknown>"
         raise ValueError(
             f"Row {distribution_id} does not contain any usable "
@@ -535,9 +537,16 @@ def main():
     with open(csv_path, newline="") as handle:
         rows = list(csv.DictReader(handle))
 
+    base_cfg = None
+    base_yaml_path = os.path.join(os.path.dirname(csv_path), "base.yaml")
+    if os.path.isfile(base_yaml_path):
+        with open(base_yaml_path, "r") as handle:
+            base_cfg = yaml.safe_load(handle) or {}
+        print(f"Using fallback base config from {base_yaml_path}")
+
     for row in rows:
         distribution_id = (row.get("distribution_id") or "").strip()
-        cfg = build_config(row, extends_path)
+        cfg = build_config(row, extends_path, base_cfg=base_cfg)
         out_path = os.path.join(out_dir, f"{distribution_id}.yaml")
         with open(out_path, "w") as handle:
             yaml.dump(cfg, handle, default_flow_style=False, sort_keys=False, allow_unicode=True)

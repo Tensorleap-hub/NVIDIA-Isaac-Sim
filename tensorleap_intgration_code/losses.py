@@ -11,7 +11,7 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 from rtdetr_native.criterion import RTDETRCriterionv2
 from rtdetr_native.matcher import HungarianMatcher
 
-from rtdetr_warehouse.config import CONFIG
+from tensorleap_intgration_code.config import CONFIG
 
 
 def _loss_cfg() -> Dict:

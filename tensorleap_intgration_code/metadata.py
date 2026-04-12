@@ -5,7 +5,7 @@ from code_loader.contract.datasetclasses import PreprocessResponse
 from code_loader.contract.enums import DatasetMetadataType
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_metadata
 
-from rtdetr_warehouse.config import CONFIG, CLASS_NAMES, COCO_ID_TO_IDX
+from tensorleap_intgration_code.config import CONFIG, CLASS_NAMES, COCO_ID_TO_IDX
 
 
 def _safe_stat(values: np.ndarray, reducer) -> float:
