@@ -72,6 +72,13 @@ bash simulation_calibration_loop/run_main_loop_with_retry.sh \
   --config simulation_calibration_loop/project_config_camera.yaml
 ```
 
+To run an ordered sequence of themed configs for multiple rounds:
+
+```bash
+python simulation_calibration_loop/run_theme_rounds.py \
+  --round-config simulation_calibration_loop/theme_rounds.yaml
+```
+
 
 ## Config
 
