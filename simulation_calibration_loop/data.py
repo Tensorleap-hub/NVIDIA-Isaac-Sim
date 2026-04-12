@@ -30,6 +30,7 @@ class RunArtifact:
     """Captures one evaluated synthetic run and its reusable artifacts."""
 
     run_id: str
+    run_fingerprint: str
     yaml_path: Path
     output_dir: Path
     log_path: Path

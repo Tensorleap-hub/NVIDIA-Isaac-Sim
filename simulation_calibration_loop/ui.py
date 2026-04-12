@@ -48,7 +48,7 @@ class WorkflowUI:
         self._log_path = Path(log_path) if log_path is not None else None
         if self._log_path is not None:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
-            self._log_path.write_text("")
+            self._log_path.touch(exist_ok=True)
 
     def start(self) -> None:
         """Start the interactive render loop when stdout is a TTY."""
@@ -91,7 +91,6 @@ class WorkflowUI:
         """Record one log line without flooding non-interactive stdout."""
         with self._lock:
             self.snapshot.recent_logs.append(line)
-        self._write_line(f"[isaac] {line}")
 
     def _render_loop(self) -> None:
         """Redraw the interactive dashboard until the workflow stops."""

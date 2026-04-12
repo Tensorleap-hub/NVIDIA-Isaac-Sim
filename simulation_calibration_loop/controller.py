@@ -223,6 +223,7 @@ class SimulationCalibrationController:
             artifacts = [
                 RunArtifact(
                     run_id=item["run_id"],
+                    run_fingerprint=item.get("run_fingerprint", "legacy"),
                     yaml_path=Path(item["yaml_path"]),
                     output_dir=Path(item["output_dir"]),
                     log_path=Path(item["log_path"]),
@@ -264,11 +265,12 @@ class SimulationCalibrationController:
         for run_index, row_record in enumerate(rows):
             run_id = f"iter{iteration_index:03d}_run{run_index:03d}"
             yaml_path = yaml_dir / f"{run_id}.yaml"
-            output_dir = outputs_dir / run_id
-            log_path = output_dir / "isaac.log"
-            embedding_path = cache_dir / f"{run_id}_{self.config.dino.model_name}.npy"
             params_row = row_record["params"]
             config_dict = materialize_config(self.base_template, params_row, self.schema)
+            run_fingerprint = self._make_run_fingerprint(config_dict)
+            output_dir = outputs_dir / f"{run_id}__{run_fingerprint[:12]}"
+            log_path = output_dir / "isaac.log"
+            embedding_path = cache_dir / f"{run_id}__{run_fingerprint[:12]}_{self.config.dino.model_name}.npy"
             # Keep the generated YAML self-contained so Isaac writes into the
             # iteration-specific output directory even if the base template had a
             # different `run.data_dir`.
@@ -277,8 +279,7 @@ class SimulationCalibrationController:
             save_yaml_config(yaml_path, config_dict)
 
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
-            if not output_dir.exists():
-                output_dir.mkdir(parents=True, exist_ok=True)
+            self._prepare_run_output_dir(output_dir, run_id, run_fingerprint)
             local_rgb_dir = output_dir / "Camera" / "rgb"
             # Only RGB images should feed DINOv2. Embedding the full output tree
             # would mix in depth, semantic, or instance renders.
@@ -299,11 +300,13 @@ class SimulationCalibrationController:
                 image_paths = discover_generated_images(local_rgb_dir)
             if not image_paths:
                 raise ValueError(f"No generated images discovered under {output_dir}")
+            self._write_run_manifest(output_dir, run_id, run_fingerprint, yaml_path)
             manifest = {
                 "model_name": self.config.dino.model_name,
                 "repo": self.config.dino.repo,
                 "image_paths": [str(path) for path in image_paths],
                 "yaml_path": str(yaml_path),
+                "run_fingerprint": run_fingerprint,
             }
             self.embedder.embed_paths(
                 image_paths,
@@ -314,6 +317,7 @@ class SimulationCalibrationController:
             artifacts.append(
                 RunArtifact(
                     run_id=run_id,
+                    run_fingerprint=run_fingerprint,
                     yaml_path=yaml_path,
                     output_dir=output_dir,
                     log_path=log_path,
@@ -399,6 +403,7 @@ class SimulationCalibrationController:
         """Convert a runtime artifact into a JSON-serializable checkpoint record."""
         return {
             "run_id": artifact.run_id,
+            "run_fingerprint": artifact.run_fingerprint,
             "yaml_path": str(artifact.yaml_path),
             "output_dir": str(artifact.output_dir),
             "log_path": str(artifact.log_path),
@@ -433,6 +438,50 @@ class SimulationCalibrationController:
         target_rgb_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source_rgb_dir, target_rgb_dir)
         return discover_generated_images(target_rgb_dir)
+
+    def _make_run_fingerprint(self, config_dict: dict[str, Any]) -> str:
+        """Hash the effective Isaac config and execution knobs for one run."""
+        fingerprint_payload = deepcopy(config_dict)
+        run_section = fingerprint_payload.get("run")
+        if isinstance(run_section, dict):
+            run_section.pop("data_dir", None)
+        serialized_config = yaml.safe_dump(fingerprint_payload, sort_keys=True)
+        return make_cache_key(
+            [
+                serialized_config,
+                str(self.config.isaac.script_path),
+                str(self.config.isaac.headless),
+                str(self.config.isaac.num_frames_override),
+            ]
+        )
+
+    def _prepare_run_output_dir(self, output_dir: Path, run_id: str, run_fingerprint: str) -> None:
+        """Ensure existing outputs are only reused when they match this exact run."""
+        manifest_path = output_dir / "run_manifest.json"
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+            return
+
+        if not manifest_path.exists():
+            shutil.rmtree(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.ui.append_log(f"[reuse] cleared legacy output without manifest for {run_id}")
+            return
+
+        manifest = json.loads(manifest_path.read_text())
+        if manifest.get("run_fingerprint") != run_fingerprint or manifest.get("run_id") != run_id:
+            shutil.rmtree(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.ui.append_log(f"[reuse] cleared stale output for {run_id}")
+
+    def _write_run_manifest(self, output_dir: Path, run_id: str, run_fingerprint: str, yaml_path: Path) -> None:
+        """Record the trial identity that produced a reusable output directory."""
+        manifest = {
+            "run_id": run_id,
+            "run_fingerprint": run_fingerprint,
+            "yaml_path": str(yaml_path),
+        }
+        (output_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
 
     def _load_base_template(self, seed_items: list[tuple[Path, dict[str, Any]]]) -> dict[str, Any]:
         """Pick the nested YAML template used for materializing future suggestions."""
@@ -555,6 +604,7 @@ class SimulationCalibrationController:
                 artifacts.append(
                     RunArtifact(
                         run_id=item["run_id"],
+                        run_fingerprint=item.get("run_fingerprint", "legacy"),
                         yaml_path=Path(item["yaml_path"]),
                         output_dir=Path(item["output_dir"]),
                         log_path=Path(item["log_path"]),
