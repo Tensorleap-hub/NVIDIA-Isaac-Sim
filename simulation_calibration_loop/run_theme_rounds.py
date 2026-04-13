@@ -76,6 +76,11 @@ def main() -> None:
     )
 
     for round_index in range(rounds):
+        first_round_workspace = _derive_round_workspace_dir(
+            config_paths[0],
+            round_index=round_index,
+            workspace_root=workspace_root,
+        )
         for config_index, config_path in enumerate(config_paths):
             theme_name = config_path.stem.replace("project_config_", "")
             meta_label = (
@@ -88,6 +93,7 @@ def main() -> None:
                 destination_dir=generated_config_dir,
                 round_index=round_index,
                 workspace_root=workspace_root,
+                synthetic_rgb_base_dir=first_round_workspace / "iteration_000" / "outputs",
             )
             print(
                 f"[theme-rounds] {meta_label} config={derived_config_path}"
@@ -107,26 +113,46 @@ def _write_round_config(
     destination_dir: Path,
     round_index: int,
     workspace_root: Path | None,
+    synthetic_rgb_base_dir: Path | None,
 ) -> Path:
     """Write a derived config with a round-specific workspace and project name."""
     raw = yaml.safe_load(source_config_path.read_text()) or {}
     round_suffix = f"_r{round_index + 1:02d}"
     source_config_dir = source_config_path.parent
 
-    workspace_dir = Path(str(raw["workspace_dir"]))
-    workspace_name = f"{workspace_dir.name}{round_suffix}"
-    if workspace_root is None:
-        raw["workspace_dir"] = f"{workspace_dir}{round_suffix}"
-    else:
-        raw["workspace_dir"] = str((workspace_root / workspace_name).resolve())
+    workspace_path = _derive_round_workspace_dir(
+        source_config_path,
+        round_index=round_index,
+        workspace_root=workspace_root,
+    )
+    raw["workspace_dir"] = str(workspace_path)
 
     project_name = str(raw["project_name"])
     raw["project_name"] = f"{project_name}{round_suffix}"
+    if synthetic_rgb_base_dir is not None:
+        raw["synthetic_rgb_base_dir"] = str(synthetic_rgb_base_dir)
     _absolutize_workflow_paths(raw, source_config_dir)
 
     destination_path = destination_dir / f"{source_config_path.stem}{round_suffix}.yaml"
     destination_path.write_text(yaml.safe_dump(raw, sort_keys=False))
     return destination_path
+
+
+def _derive_round_workspace_dir(
+    source_config_path: Path,
+    round_index: int,
+    workspace_root: Path | None,
+) -> Path:
+    """Compute the derived workspace directory for one config/round pair."""
+    raw = yaml.safe_load(source_config_path.read_text()) or {}
+    workspace_dir = Path(str(raw["workspace_dir"]))
+    round_suffix = f"_r{round_index + 1:02d}"
+    workspace_name = f"{workspace_dir.name}{round_suffix}"
+    if workspace_root is None:
+        if workspace_dir.is_absolute():
+            return Path(f"{workspace_dir}{round_suffix}")
+        return (source_config_path.parent / f"{workspace_dir}{round_suffix}").resolve()
+    return (workspace_root / workspace_name).resolve()
 
 
 def _absolutize_workflow_paths(raw: dict, source_config_dir: Path) -> None:

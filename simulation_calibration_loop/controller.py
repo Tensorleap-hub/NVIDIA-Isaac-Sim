@@ -358,6 +358,14 @@ class SimulationCalibrationController:
                 )
             )
             self.ui.set_status(completed_runs=run_index + 1)
+        if iteration_index == 0:
+            elapsed_seconds = time.perf_counter() - iteration_started_at
+            self.ui.append_log(
+                "[seed-timing] "
+                f"iteration_000 image prep took {elapsed_seconds:.1f}s "
+                f"(reused={reused_seed_runs}, generated={generated_runs}, total_runs={len(rows)})"
+            )
+        return artifacts
         return artifacts
 
     def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str], list[float]]:
@@ -726,13 +734,6 @@ class SimulationCalibrationController:
                             else None
                         ),
                 )
-            )
-        if iteration_index == 0:
-            elapsed_seconds = time.perf_counter() - iteration_started_at
-            self.ui.append_log(
-                "[seed-timing] "
-                f"iteration_000 image prep took {elapsed_seconds:.1f}s "
-                f"(reused={reused_seed_runs}, generated={generated_runs}, total_runs={len(rows)})"
             )
         return artifacts
 
