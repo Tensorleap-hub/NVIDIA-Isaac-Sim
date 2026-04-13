@@ -272,7 +272,7 @@ class SimulationCalibrationController:
             PoolEntry(
                 entry_id=self._make_seed_pool_entry_id(path),
                 config=deepcopy(seed_config),
-                flattened_params=flatten_config(seed_config, self.full_schema),
+                flattened_params=self._flatten_pool_config(seed_config),
                 score=None,
                 created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 iteration_index=None,
@@ -356,7 +356,7 @@ class SimulationCalibrationController:
     ) -> PoolEntry:
         """Convert one completed artifact into a durable base-pool entry."""
         config_dict = yaml.safe_load(artifact.yaml_path.read_text())
-        flattened_params = flatten_config(config_dict, self.full_schema)
+        flattened_params = self._flatten_pool_config(config_dict)
         embedding_array = np.load(artifact.embedding_path)
         centroid = embedding_array.mean(axis=0).astype(float).tolist()
         entry_id = make_cache_key(
@@ -386,6 +386,11 @@ class SimulationCalibrationController:
                 "source_base_pool_entry_id": artifact.base_pool_entry_id,
             },
         )
+
+    def _flatten_pool_config(self, config_dict: dict[str, Any]) -> dict[str, Any]:
+        """Flatten one pool config using only paths that actually exist in that config."""
+        config_schema = infer_parameter_schema([config_dict])
+        return flatten_config(config_dict, config_schema)
 
     def _make_seed_pool_entry_id(self, path: Path) -> str:
         """Generate a stable pool id for a seed YAML."""
