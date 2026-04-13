@@ -408,6 +408,10 @@ class SimulationCalibrationController:
     def _load_iteration_rows(self, state: dict[str, Any], start_iteration: int) -> list[dict[str, Any]]:
         """Choose the current batch source: seeds on iteration 0, suggestions otherwise."""
         if start_iteration == 0:
+            if self.base_pool.enabled and self.base_pool.has_scored_entries():
+                pool_rows = self._build_iteration_zero_rows_from_pool(target_count=len(self.seed_rows))
+                if pool_rows:
+                    return pool_rows
             return self._attach_base_configs_to_rows(
                 self.seed_rows,
                 iteration_index=0,
@@ -418,6 +422,26 @@ class SimulationCalibrationController:
             iteration_index=start_iteration,
             use_seed_defaults=False,
         )
+
+    def _build_iteration_zero_rows_from_pool(self, target_count: int) -> list[dict[str, Any]]:
+        """Use sampled scored pool entries as the direct iteration-0 candidates."""
+        sampled_entries = self.base_pool.sample_entries(target_count)
+        rows = []
+        for index, entry in enumerate(sampled_entries):
+            rows.append(
+                {
+                    "suggestion_id": f"pool_bootstrap_{index}",
+                    "optuna_trial_number": None,
+                    "params": flatten_config(entry.config, self.schema),
+                    "base_config": deepcopy(entry.config),
+                    "base_pool_entry_id": entry.entry_id,
+                    "base_pool_lineage": entry.stage_lineage,
+                    "direct_pool_replay": True,
+                    "pool_artifact_path": entry.artifact_path,
+                    "pool_embedding_path": entry.embedding_path,
+                }
+            )
+        return rows
 
     def _replay_completed_iterations(self, state: dict[str, Any]) -> None:
         """Rebuild the in-memory Optuna study by replaying saved completed iterations."""
@@ -497,6 +521,12 @@ class SimulationCalibrationController:
             # Only RGB images should feed DINOv2. Embedding the full output tree
             # would mix in depth, semantic, or instance renders.
             image_paths = discover_generated_images(local_rgb_dir)
+            if not image_paths:
+                image_paths, embedding_reused = self._copy_synthetic_artifacts_from_pool_replay(
+                    output_dir=output_dir,
+                    embedding_path=embedding_path,
+                    row_record=row_record,
+                )
             if not image_paths:
                 image_paths, embedding_reused = self._copy_synthetic_artifacts_from_base(
                     output_dir=output_dir,
@@ -652,6 +682,42 @@ class SimulationCalibrationController:
             "base_pool_entry_id": artifact.base_pool_entry_id,
             "base_pool_lineage": artifact.base_pool_lineage,
         }
+
+    def _copy_synthetic_artifacts_from_pool_replay(
+        self,
+        *,
+        output_dir: Path,
+        embedding_path: Path,
+        row_record: dict[str, Any],
+    ) -> tuple[list[Path], bool]:
+        """Reuse artifacts directly from a replayed pool entry when available."""
+        if not row_record.get("direct_pool_replay"):
+            return [], False
+
+        artifact_path_value = row_record.get("pool_artifact_path")
+        embedding_path_value = row_record.get("pool_embedding_path")
+        if not artifact_path_value or not embedding_path_value:
+            return [], False
+
+        source_output_dir = Path(artifact_path_value)
+        source_embedding_path = Path(embedding_path_value)
+        source_manifest_path = source_embedding_path.with_suffix(".manifest.json")
+        source_rgb_dir = source_output_dir / "Camera" / "rgb"
+        if not source_output_dir.exists() or not source_rgb_dir.exists():
+            return [], False
+        if not source_embedding_path.exists() or not source_manifest_path.exists():
+            return [], False
+
+        shutil.copytree(source_output_dir, output_dir, dirs_exist_ok=True)
+        shutil.copy2(source_embedding_path, embedding_path)
+        shutil.copy2(source_manifest_path, embedding_path.with_suffix(".manifest.json"))
+        image_paths = discover_generated_images(output_dir / "Camera" / "rgb")
+        if not image_paths:
+            return [], False
+        self.ui.append_log(
+            f"[reuse] copied direct pool replay artifacts for {row_record.get('base_pool_entry_id', 'unknown')}"
+        )
+        return image_paths, True
 
     def _get_best_objective_string(self) -> str:
         """Return the best completed objective value currently known to Optuna."""
