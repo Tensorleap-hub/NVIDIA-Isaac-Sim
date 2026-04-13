@@ -21,6 +21,7 @@ from calibration_optuna import DEFAULT_CONFIG
 from calibration_optuna.data_utils import infer_bounds_and_types_from_metadata
 from calibration_optuna.experiment_runner import ExperimentRunner
 
+from .base_pool import BasePoolManager, PoolEntry
 from .config import WorkflowConfig
 from .data import (
     DINOv2Embedder,
@@ -56,6 +57,11 @@ class SimulationCalibrationController:
         self.baseline_state_path = Path(config.baseline_state_path) if config.baseline_state_path else None
         self.synthetic_rgb_base_dir = Path(config.synthetic_rgb_base_dir) if config.synthetic_rgb_base_dir else None
         self.seed_config_dir = Path(config.seed_config_dir)
+        self.base_pool_state_path = (
+            Path(config.base_pool.state_path)
+            if config.base_pool.state_path is not None
+            else self.workspace_dir / "base_pool.json"
+        )
         self.state_store = StateStore(self.workspace_dir / "state.json")
         self.ui = WorkflowUI(log_path=self.workspace_dir / "main_loop_screen.log")
         self.meta_label = os.environ.get("SIM_CAL_LOOP_META_LABEL", "").strip()
@@ -66,6 +72,7 @@ class SimulationCalibrationController:
 
         self.seed_configs = seed_items
         inferred_schema = infer_parameter_schema([item[1] for item in seed_items])
+        self.full_schema = inferred_schema
         self.schema = filter_parameter_specs(
             inferred_schema,
             include=config.search_space.include,
@@ -84,6 +91,14 @@ class SimulationCalibrationController:
                 "params": flatten_config(item[1], self.schema),
             }
             for index, item in enumerate(seed_items)
+        ]
+        self.seed_base_records = [
+            {
+                "pool_entry_id": self._make_seed_pool_entry_id(path),
+                "config": deepcopy(seed_config),
+                "yaml_path": str(path),
+            }
+            for path, seed_config in seed_items
         ]
         # calibration_optuna expects grouped parameter names even though this
         # workflow currently optimizes a single synthetic family.
@@ -114,6 +129,19 @@ class SimulationCalibrationController:
             image_size=config.dino.image_size,
             resize_size=config.dino.resize_size,
         )
+        self.base_pool = BasePoolManager(
+            state_path=self.base_pool_state_path,
+            enabled=config.base_pool.enabled,
+            max_size=config.base_pool.max_size,
+            elite_size=config.base_pool.elite_size,
+            recent_size=config.base_pool.recent_size,
+            score_weight=config.base_pool.score_weight,
+            diversity_weight=config.base_pool.diversity_weight,
+            recency_weight=config.base_pool.recency_weight,
+            near_duplicate_threshold=config.base_pool.near_duplicate_threshold,
+            random_seed=config.random_seed,
+        )
+        self._bootstrap_base_pool(seed_items)
 
     def run(self) -> None:
         """Run the full calibration loop from real-cache setup through completion."""
@@ -125,6 +153,7 @@ class SimulationCalibrationController:
         state = self.state_store.load()
         start_iteration = len(state["iterations"])
         self._replay_completed_iterations(state)
+        self._sync_base_pool_from_state(state)
         self._promote_global_baseline(state)
         self._export_best_runs_to_s3(state)
         initial_distance = "-"
@@ -149,10 +178,15 @@ class SimulationCalibrationController:
             suggestions, iteration_summary, objective_values = self._run_optimizer_iteration(artifacts)
             for artifact, objective_value in zip(artifacts, objective_values, strict=True):
                 artifact.objective_value = objective_value
+            self._admit_artifacts_to_base_pool(artifacts, iteration_index)
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
             # Suggestions returned here are Optuna-issued trials. Their trial
             # numbers are persisted and completed with `tell(...)` next round.
-            next_rows = suggestions
+            next_rows = self._attach_base_configs_to_rows(
+                suggestions,
+                iteration_index=iteration_index + 1,
+                use_seed_defaults=False,
+            )
             best_trial_id = best_trials[0][0] if best_trials else "-"
             best_objective = self._get_best_objective_string()
             if initial_distance == "-":
@@ -172,7 +206,7 @@ class SimulationCalibrationController:
                     "iteration_index": iteration_index,
                     "input_rows": current_rows,
                     "artifacts": [self._serialize_artifact(item) for item in artifacts],
-                    "suggestions": suggestions,
+                    "suggestions": next_rows,
                     "iteration_summary": iteration_summary,
                     "best_trials": [
                         {"trial_id": trial_id, "params": params}
@@ -230,11 +264,155 @@ class SimulationCalibrationController:
             return self.meta_label
         return f"{self.meta_label} | {note}"
 
+    def _bootstrap_base_pool(self, seed_items: list[tuple[Path, dict[str, Any]]]) -> None:
+        """Seed a new pool with the configured base YAML family."""
+        if not self.base_pool.enabled:
+            return
+        seed_entries = [
+            PoolEntry(
+                entry_id=self._make_seed_pool_entry_id(path),
+                config=deepcopy(seed_config),
+                flattened_params=flatten_config(seed_config, self.full_schema),
+                score=None,
+                created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                iteration_index=None,
+                theme_label="seed",
+                stage_lineage=f"seed_config={path.name}",
+                artifact_path=None,
+                yaml_path=str(path),
+                embedding_path=None,
+                diversity_metadata={
+                    "backend": "parameter_space",
+                    "is_seed": True,
+                },
+            )
+            for path, seed_config in seed_items
+        ]
+        self.base_pool.ensure_bootstrap_entries(seed_entries)
+
+    def _sync_base_pool_from_state(self, state: dict[str, Any]) -> None:
+        """Rebuild scored pool entries from checkpointed iterations when needed."""
+        if not self.base_pool.enabled or not state["iterations"] or self.base_pool.has_scored_entries():
+            return
+        artifacts = [
+            artifact
+            for artifact in self._collect_completed_artifacts(state)
+            if artifact.objective_value is not None
+        ]
+        self._admit_artifacts_to_base_pool(artifacts, iteration_index=None)
+
+    def _attach_base_configs_to_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        iteration_index: int,
+        use_seed_defaults: bool,
+    ) -> list[dict[str, Any]]:
+        """Attach row-specific base configs from the pool without changing Optuna params."""
+        attached_rows = [deepcopy(row) for row in rows]
+        if not self.base_pool.enabled:
+            return attached_rows
+
+        if use_seed_defaults and not self.base_pool.has_scored_entries():
+            for row, seed_record in zip(attached_rows, self.seed_base_records, strict=True):
+                row["base_config"] = deepcopy(seed_record["config"])
+                row["base_pool_entry_id"] = seed_record["pool_entry_id"]
+                row["base_pool_lineage"] = f"bootstrap_seed:{Path(seed_record['yaml_path']).name}"
+            return attached_rows
+
+        rows_needing_base = [row for row in attached_rows if "base_config" not in row]
+        sampled_entries = self.base_pool.sample_entries(len(rows_needing_base))
+        for row, entry in zip(rows_needing_base, sampled_entries, strict=False):
+            row["base_config"] = deepcopy(entry.config)
+            row["base_pool_entry_id"] = entry.entry_id
+            row["base_pool_lineage"] = entry.stage_lineage
+        for row in attached_rows:
+            row.setdefault("base_config", deepcopy(self.base_template))
+            row.setdefault("base_pool_entry_id", None)
+            row.setdefault("base_pool_lineage", "fallback:best_yaml")
+        return attached_rows
+
+    def _admit_artifacts_to_base_pool(
+        self,
+        artifacts: list[RunArtifact],
+        iteration_index: int | None,
+    ) -> None:
+        """Admit successful artifacts into the persistent base pool."""
+        if not self.base_pool.enabled:
+            return
+        new_entries = []
+        for artifact in artifacts:
+            if artifact.objective_value is None:
+                continue
+            new_entries.append(self._build_pool_entry_from_artifact(artifact, iteration_index))
+        if not new_entries:
+            return
+        self.base_pool.admit_entries(new_entries)
+
+    def _build_pool_entry_from_artifact(
+        self,
+        artifact: RunArtifact,
+        iteration_index: int | None,
+    ) -> PoolEntry:
+        """Convert one completed artifact into a durable base-pool entry."""
+        config_dict = yaml.safe_load(artifact.yaml_path.read_text())
+        flattened_params = flatten_config(config_dict, self.full_schema)
+        embedding_array = np.load(artifact.embedding_path)
+        centroid = embedding_array.mean(axis=0).astype(float).tolist()
+        entry_id = make_cache_key(
+            [
+                str(artifact.yaml_path.resolve()),
+                artifact.run_id,
+                artifact.run_fingerprint,
+            ]
+        )
+        return PoolEntry(
+            entry_id=entry_id,
+            config=config_dict,
+            flattened_params=flattened_params,
+            score=artifact.objective_value,
+            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            iteration_index=iteration_index,
+            theme_label=self._current_theme_label(),
+            stage_lineage=self.meta_label or f"iteration={iteration_index}",
+            artifact_path=str(artifact.output_dir),
+            yaml_path=str(artifact.yaml_path),
+            embedding_path=str(artifact.embedding_path),
+            source_pool_entry_id=artifact.base_pool_entry_id,
+            diversity_metadata={
+                "backend": "embedding_centroid",
+                "embedding_centroid": centroid,
+                "fallback_backend": "parameter_space",
+                "source_base_pool_entry_id": artifact.base_pool_entry_id,
+            },
+        )
+
+    def _make_seed_pool_entry_id(self, path: Path) -> str:
+        """Generate a stable pool id for a seed YAML."""
+        return f"seed::{make_cache_key([str(path.resolve())])}"
+
+    def _current_theme_label(self) -> str:
+        """Extract the current theme name from the metadata label when available."""
+        if not self.meta_label:
+            return "default"
+        for token in self.meta_label.split():
+            if token.startswith("theme="):
+                return token.split("=", 1)[1]
+        return self.meta_label
+
     def _load_iteration_rows(self, state: dict[str, Any], start_iteration: int) -> list[dict[str, Any]]:
         """Choose the current batch source: seeds on iteration 0, suggestions otherwise."""
         if start_iteration == 0:
-            return self.seed_rows
-        return state["iterations"][-1]["suggestions"]
+            return self._attach_base_configs_to_rows(
+                self.seed_rows,
+                iteration_index=0,
+                use_seed_defaults=True,
+            )
+        return self._attach_base_configs_to_rows(
+            state["iterations"][-1]["suggestions"],
+            iteration_index=start_iteration,
+            use_seed_defaults=False,
+        )
 
     def _replay_completed_iterations(self, state: dict[str, Any]) -> None:
         """Rebuild the in-memory Optuna study by replaying saved completed iterations."""
@@ -255,6 +433,8 @@ class SimulationCalibrationController:
                     flattened_params=item["flattened_params"],
                     optuna_trial_number=item.get("optuna_trial_number"),
                     objective_value=item.get("objective_value"),
+                    base_pool_entry_id=item.get("base_pool_entry_id"),
+                    base_pool_lineage=item.get("base_pool_lineage"),
                 )
                 for item in iteration["artifacts"]
             ]
@@ -292,7 +472,8 @@ class SimulationCalibrationController:
             run_id = f"iter{iteration_index:03d}_run{run_index:03d}"
             yaml_path = yaml_dir / f"{run_id}.yaml"
             params_row = row_record["params"]
-            config_dict = materialize_config(self.base_template, params_row, self.schema)
+            base_config = row_record.get("base_config", self.base_template)
+            config_dict = materialize_config(base_config, params_row, self.schema)
             run_fingerprint = self._make_run_fingerprint(config_dict)
             output_dir = outputs_dir / f"{run_id}__{run_fingerprint[:12]}"
             log_path = output_dir / "isaac.log"
@@ -307,11 +488,18 @@ class SimulationCalibrationController:
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
             self._prepare_run_output_dir(output_dir, run_id, run_fingerprint)
             local_rgb_dir = output_dir / "Camera" / "rgb"
+            embedding_reused = False
             # Only RGB images should feed DINOv2. Embedding the full output tree
             # would mix in depth, semantic, or instance renders.
             image_paths = discover_generated_images(local_rgb_dir)
             if not image_paths:
-                image_paths = self._copy_synthetic_rgb_from_base(output_dir, run_id)
+                image_paths, embedding_reused = self._copy_synthetic_artifacts_from_base(
+                    output_dir=output_dir,
+                    embedding_path=embedding_path,
+                    run_id=run_id,
+                    run_fingerprint=run_fingerprint,
+                    yaml_path=yaml_path,
+                )
             if image_paths:
                 reused_seed_runs += 1
             if not image_paths:
@@ -338,12 +526,17 @@ class SimulationCalibrationController:
                 "yaml_path": str(yaml_path),
                 "run_fingerprint": run_fingerprint,
             }
-            self.embedder.embed_paths(
-                image_paths,
-                batch_size=self.config.dino.batch_size,
-                cache_path=embedding_path,
-                manifest=manifest,
-            )
+            if embedding_reused:
+                embedding_manifest_path = embedding_path.with_suffix(".manifest.json")
+                if not embedding_path.exists() or not embedding_manifest_path.exists():
+                    raise ValueError(f"Reused embedding artifacts are incomplete for {run_id}")
+            else:
+                self.embedder.embed_paths(
+                    image_paths,
+                    batch_size=self.config.dino.batch_size,
+                    cache_path=embedding_path,
+                    manifest=manifest,
+                )
             artifacts.append(
                 RunArtifact(
                     run_id=run_id,
@@ -355,6 +548,8 @@ class SimulationCalibrationController:
                     image_count=len(image_paths),
                     flattened_params=params_row,
                     optuna_trial_number=row_record.get("optuna_trial_number"),
+                    base_pool_entry_id=row_record.get("base_pool_entry_id"),
+                    base_pool_lineage=row_record.get("base_pool_lineage"),
                 )
             )
             self.ui.set_status(completed_runs=run_index + 1)
@@ -365,7 +560,6 @@ class SimulationCalibrationController:
                 f"iteration_000 image prep took {elapsed_seconds:.1f}s "
                 f"(reused={reused_seed_runs}, generated={generated_runs}, total_runs={len(rows)})"
             )
-        return artifacts
         return artifacts
 
     def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str], list[float]]:
@@ -450,6 +644,8 @@ class SimulationCalibrationController:
             "flattened_params": artifact.flattened_params,
             "optuna_trial_number": artifact.optuna_trial_number,
             "objective_value": artifact.objective_value,
+            "base_pool_entry_id": artifact.base_pool_entry_id,
+            "base_pool_lineage": artifact.base_pool_lineage,
         }
 
     def _get_best_objective_string(self) -> str:
@@ -460,22 +656,103 @@ class SimulationCalibrationController:
         best_value = min(trial.values[0] for trial in completed_trials)
         return f"{best_value:.6f}"
 
-    def _copy_synthetic_rgb_from_base(self, output_dir: Path, run_id: str) -> list[Path]:
-        """Populate an iteration output from pre-generated RGBs when configured."""
+    def _copy_synthetic_artifacts_from_base(
+        self,
+        *,
+        output_dir: Path,
+        embedding_path: Path,
+        run_id: str,
+        run_fingerprint: str,
+        yaml_path: Path,
+    ) -> tuple[list[Path], bool]:
+        """Reuse a prior synthetic artifact bundle when it matches this exact run."""
         if self.synthetic_rgb_base_dir is None:
-            return []
+            return [], False
 
-        source_rgb_dir = self.synthetic_rgb_base_dir / run_id / "Camera" / "rgb"
+        source_output_dir = self._find_reusable_source_output_dir(run_id, run_fingerprint)
+        if source_output_dir is None:
+            return [], False
+
+        source_rgb_dir = source_output_dir / "Camera" / "rgb"
         if not source_rgb_dir.exists():
-            return []
+            return [], False
 
         target_rgb_dir = output_dir / "Camera" / "rgb"
-        if target_rgb_dir.exists():
-            return discover_generated_images(target_rgb_dir)
+        if not target_rgb_dir.exists():
+            target_rgb_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source_rgb_dir, target_rgb_dir)
 
-        target_rgb_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(source_rgb_dir, target_rgb_dir)
-        return discover_generated_images(target_rgb_dir)
+        image_paths = discover_generated_images(target_rgb_dir)
+        if not image_paths:
+            return [], False
+
+        expected_manifest = {
+            "model_name": self.config.dino.model_name,
+            "repo": self.config.dino.repo,
+            "image_paths": [str(path) for path in image_paths],
+            "yaml_path": str(yaml_path),
+            "run_fingerprint": run_fingerprint,
+        }
+        source_embedding_path = self._find_reusable_source_embedding_path(source_output_dir)
+        if source_embedding_path is None:
+            return image_paths, False
+
+        source_manifest_path = source_embedding_path.with_suffix(".manifest.json")
+        if not source_manifest_path.exists():
+            return image_paths, False
+
+        source_manifest = json.loads(source_manifest_path.read_text())
+        if source_manifest.get("model_name") != self.config.dino.model_name:
+            return image_paths, False
+        if source_manifest.get("repo") != self.config.dino.repo:
+            return image_paths, False
+        if source_manifest.get("run_fingerprint") != run_fingerprint:
+            return image_paths, False
+        if len(source_manifest.get("image_paths", [])) != len(image_paths):
+            return image_paths, False
+
+        shutil.copy2(source_embedding_path, embedding_path)
+        embedding_path.with_suffix(".manifest.json").write_text(json.dumps(expected_manifest, indent=2, sort_keys=True))
+        self.ui.append_log(f"[reuse] copied matching embedding cache for {run_id}")
+        return image_paths, True
+
+    def _find_reusable_source_output_dir(self, run_id: str, run_fingerprint: str) -> Path | None:
+        """Resolve a reusable output directory from the configured synthetic base."""
+        assert self.synthetic_rgb_base_dir is not None
+        fingerprint_prefix = run_fingerprint[:12]
+        candidate_paths = [
+            self.synthetic_rgb_base_dir / f"{run_id}__{fingerprint_prefix}",
+            self.synthetic_rgb_base_dir / run_id,
+        ]
+        candidate_paths.extend(sorted(self.synthetic_rgb_base_dir.glob(f"{run_id}__*")))
+        for candidate in candidate_paths:
+            manifest_path = candidate / "run_manifest.json"
+            if not manifest_path.exists():
+                continue
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("run_id") != run_id:
+                continue
+            if manifest.get("run_fingerprint") != run_fingerprint:
+                continue
+            return candidate
+        return None
+
+    def _find_reusable_source_embedding_path(self, source_output_dir: Path) -> Path | None:
+        """Resolve a reusable embedding file from a prior iteration cache."""
+        cache_dir = source_output_dir.parent.parent / "cache"
+        if not cache_dir.exists():
+            return None
+
+        preferred_name = f"{source_output_dir.name}_{self.config.dino.model_name}.npy"
+        preferred_path = cache_dir / preferred_name
+        if preferred_path.exists():
+            return preferred_path
+
+        run_prefix = f"{source_output_dir.name}_"
+        matching = sorted(cache_dir.glob(f"{run_prefix}*.npy"))
+        if matching:
+            return matching[0]
+        return None
 
     def _make_run_fingerprint(self, config_dict: dict[str, Any]) -> str:
         """Hash the effective Isaac config and execution knobs for one run."""
@@ -733,8 +1010,10 @@ class SimulationCalibrationController:
                             if item.get("objective_value") is not None
                             else None
                         ),
+                        base_pool_entry_id=item.get("base_pool_entry_id"),
+                        base_pool_lineage=item.get("base_pool_lineage"),
+                    )
                 )
-            )
         return artifacts
 
     def _sync_directory_to_s3(self, source_dir: Path, s3_prefix: str) -> None:

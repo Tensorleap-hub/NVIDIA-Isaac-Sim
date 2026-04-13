@@ -89,6 +89,7 @@ Important fields:
 - `project_name`: Optuna experiment name
 - `workspace_dir`: output workspace for state, cache, YAMLs, outputs
 - `seed_config_dir`: seed Isaac YAMLs used as the initial search domain
+- `synthetic_rgb_base_dir`: optional reusable synthetic artifact root; when present, the workflow can reuse matching RGB outputs and compatible DINO embedding caches from a prior iteration tree
 - `real_dataset_root`: local warehouse dataset root
 - `real_annotations_file`: subset-3 annotations
 - `max_iterations`: number of optimization iterations
@@ -96,6 +97,7 @@ Important fields:
 - `top_n_best_trials`: how many best Optuna trials to track and export
 - `promoted_baseline_dir`: optional shared directory where the workflow writes the current best YAML as `best.yaml`
 - `baseline_state_path`: optional state file used to load the best base YAML as the default template
+- `base_pool`: optional persistent pool of scored base candidates for staged theme optimization
 - `s3_best_runs_prefix`: optional S3 prefix for syncing the current top trials after each completed iteration
 
 ### DINO config
@@ -151,6 +153,30 @@ When `promoted_baseline_dir` is set, the workflow prefers `best.yaml` from that
 directory over `baseline_state_path`. This makes it possible to run themed
 studies in sequence while sharing one promoted global baseline.
 
+### Base pool
+
+`base_pool` keeps more than one reusable starting point for later theme stages.
+When enabled, each future row is materialized from a sampled pool member instead
+of always overlaying onto one rolling best YAML.
+
+Fields:
+
+- `base_pool.enabled`: turn the pool on or off
+- `base_pool.state_path`: optional JSON state path; defaults to `workspace_dir/base_pool.json`
+- `base_pool.max_size`: hard pool cap
+- `base_pool.elite_size`: how many top-scoring entries are always preserved
+- `base_pool.recent_size`: how many recent challengers are preserved
+- `base_pool.score_weight`: sampling bias toward better scores
+- `base_pool.diversity_weight`: sampling bias toward diverse entries
+- `base_pool.recency_weight`: sampling bias toward recent entries
+- `base_pool.near_duplicate_threshold`: duplicate-prune threshold before the pool is trimmed
+
+When `synthetic_rgb_base_dir` is set, the workflow treats it as a reusable
+artifact tree rather than an RGB-only shortcut. If it finds a prior run with a
+matching `run_manifest.json` and a compatible DINO embedding cache, it copies
+both the RGBs and the embedding `.npy` into the current iteration workspace and
+skips recomputing DINO.
+
 Available themes:
 
 - `environment`
@@ -167,6 +193,7 @@ Available themes:
 The main workflow writes into `workspace_dir`:
 
 - `state.json`: durable iteration ledger
+- `base_pool.json`: durable base-pool state when `base_pool.enabled` is true and no explicit `state_path` is provided
 - `main_loop_screen.log`: combined UI and Isaac run log
 - `cache/real/*.npy`: cached real DINO embeddings
 - `iteration_000/`
@@ -187,12 +214,21 @@ If `promoted_baseline_dir` is set, the workflow also writes:
 - `best.yaml`: the best completed YAML seen so far in this workspace
 - `best.json`: metadata about the promoted run and objective value
 
+If `base_pool.enabled` is set, the workflow also writes:
+
+- `base_pool.json`: scored and diversified base candidates, unless `base_pool.state_path` points elsewhere
+
 
 ## Theme Rounds
 
 Use `run_theme_rounds.py` to cycle through multiple themed workflow configs.
 Each config should share the same `promoted_baseline_dir`, so later runs pick
 up the best YAML promoted by earlier runs.
+
+If `base_pool.enabled` is true and `base_pool.state_path` is omitted,
+`run_theme_rounds.py` automatically points all derived configs at one shared
+`base_pool.json` under the promoted baseline directory so later theme steps can
+sample from the same persistent pool.
 
 Example:
 

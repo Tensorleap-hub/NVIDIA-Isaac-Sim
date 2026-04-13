@@ -47,6 +47,21 @@ class SearchSpaceConfig:
     exclude: list[str] = field(default_factory=list)
 
 
+@dataclass
+class BasePoolConfig:
+    """Persistent candidate-pool settings for staged theme optimization."""
+
+    enabled: bool = False
+    state_path: str | None = None
+    max_size: int = 50
+    elite_size: int = 10
+    recent_size: int = 10
+    score_weight: float = 0.6
+    diversity_weight: float = 0.3
+    recency_weight: float = 0.1
+    near_duplicate_threshold: float = 0.08
+
+
 SEARCH_SPACE_THEMES: dict[str, list[str]] = {
     "environment": [
         "environment.name",
@@ -152,6 +167,7 @@ class WorkflowConfig:
     dino: DINOv2Config = field(default_factory=DINOv2Config)
     isaac: IsaacConfig = field(default_factory=IsaacConfig)
     search_space: SearchSpaceConfig = field(default_factory=SearchSpaceConfig)
+    base_pool: BasePoolConfig = field(default_factory=BasePoolConfig)
 
     def resolve_path(self, candidate: str, *, relative_to_config: Path) -> Path:
         """Resolve a config path relative to the YAML file when needed."""
@@ -208,6 +224,7 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         dino=_load_section(raw.get("dino"), DINOv2Config),
         isaac=_load_section(raw.get("isaac"), IsaacConfig),
         search_space=_load_section(raw.get("search_space"), SearchSpaceConfig),
+        base_pool=_load_section(raw.get("base_pool"), BasePoolConfig),
     )
     workflow.search_space = _expand_search_space(workflow.search_space)
 
@@ -223,6 +240,10 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     if workflow.baseline_state_path is not None:
         workflow.baseline_state_path = str(
             workflow.resolve_path(workflow.baseline_state_path, relative_to_config=config_path)
+        )
+    if workflow.base_pool.state_path is not None:
+        workflow.base_pool.state_path = str(
+            workflow.resolve_path(workflow.base_pool.state_path, relative_to_config=config_path)
         )
     workflow.seed_config_dir = str(workflow.resolve_path(workflow.seed_config_dir, relative_to_config=config_path))
     workflow.real_dataset_root = str(workflow.resolve_path(workflow.real_dataset_root, relative_to_config=config_path))
