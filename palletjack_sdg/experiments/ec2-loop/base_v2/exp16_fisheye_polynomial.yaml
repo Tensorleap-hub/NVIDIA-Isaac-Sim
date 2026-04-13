@@ -1,0 +1,31 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp16_fisheye_polynomial
+
+environment:
+  name: warehouse
+
+distractors:
+  clutter_level: 1.0
+
+camera:
+  camera_type: fisheyePolynomial
+  fisheye_max_fov: 175
+  camera_height_mean: 1.7
+  camera_height_std: 0.2
+  camera_tilt_mean: -10.0
+  camera_tilt_std: 3.0
+
+palletjacks:
+  count_per_model: 2
+
+lighting:
+  intensity_mean: 100000.0
+  intensity_std: 220000.0
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg

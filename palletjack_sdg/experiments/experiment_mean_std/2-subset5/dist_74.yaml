@@ -1,0 +1,94 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+  distractors: warehouse
+environment:
+  name: warehouse_multiple_shelves
+camera:
+  camera_type: pinhole
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 5.4528
+  - 3.9304
+  camera_tilt_mean: -19.0
+  camera_tilt_std: 1.9813
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 34.4637
+  camera_roll_mean: 0.0
+  camera_roll_std: 2.0
+  focal_length_std: 0.0
+  fov_mean: 53.0
+  fov_std: 4.2896
+  jpeg_quality_mean: 97.5
+  jpeg_quality_std: 1.4434
+  dataset_noise:
+    enabled: true
+    mode: gaussian
+    sigma_mean: 6.4644
+    sigma_std: 0.9956
+    jpeg_quality_mean: 33.0
+    jpeg_quality_std: 4.0
+    shot_scale_mean: 56.0
+    shot_scale_std: 3.0
+    seed: -1
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0
+  brightness_gain_std: 0.0
+  contrast_gain_mean: 1.0
+  contrast_gain_std: 0.0
+  gamma_mean: 1.0
+  gamma_std: 0.0
+distractor_randomization:
+  scale_mean: 1.25
+  scale_std: 0.1443
+distractors:
+  clutter_level: 4.3892
+  groups:
+    CardBox:
+      diversity: 4
+      occurrence: 5
+    BarelPlastic:
+      diversity: 2
+      occurrence: 5
+    BottlePlastic:
+      diversity: 3
+      occurrence: 6
+    CratePlastic:
+      diversity: 4
+      occurrence: 5
+    TrafficSigns:
+      diversity: 2
+      occurrence: 2
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 1
+      occurrence: 4
+    PushCart:
+      diversity: 1
+      occurrence: 2
+lighting:
+  color_mean:
+  - 0.5
+  - 0.5
+  - 0.5
+  color_std:
+  - 0.2887
+  - 0.2887
+  - 0.2887
+  intensity_mean: 116460.0
+  intensity_std: 378796.0
+materials:
+  roughness_mean: 0.2292
+  roughness_std: 0.2641
+  emissive_intensity_mean: 402.0
+  emissive_intensity_std: 145.8406
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg

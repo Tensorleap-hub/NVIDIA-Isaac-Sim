@@ -1,0 +1,49 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp17_max_clutter_three_textures
+
+environment:
+  name: warehouse_multiple_shelves
+
+distractors:
+  clutter_level: 5.0
+  groups:
+    CardBox:
+      diversity: 6
+      occurrence: 6
+    BarelPlastic:
+      diversity: 5
+      occurrence: 5
+    BottlePlastic:
+      diversity: 5
+      occurrence: 6
+    CratePlastic:
+      diversity: 5
+      occurrence: 5
+    RackPile:
+      diversity: 3
+      occurrence: 4
+    PushCart:
+      diversity: 2
+      occurrence: 3
+
+camera:
+  camera_height_mean: 1.8
+  camera_height_std: 0.3
+  camera_tilt_mean: -17.0
+  camera_tilt_std: 4.0
+  fov_mean: 84.0
+  fov_std: 7.0
+
+palletjacks:
+  count_per_model: 2
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_rubber_woven_charcoal.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  emissive_intensity_mean: 25.0
+  emissive_intensity_std: 10.0

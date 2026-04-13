@@ -1,0 +1,12 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/noise_shot_extreme
+
+camera:
+  dataset_noise:
+    enabled: true
+    mode: shot
+    shot_scale_mean: 8.0
+    shot_scale_std: 0.0
+

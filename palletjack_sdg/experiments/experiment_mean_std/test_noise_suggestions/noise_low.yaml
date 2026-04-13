@@ -1,0 +1,9 @@
+extends: base.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/test_noise/noise_extreme
+camera:
+  dataset_noise:
+    enabled: true
+    mode: gaussian_jpeg
+    sigma_mean: 1.0
+    sigma_std: 0.05

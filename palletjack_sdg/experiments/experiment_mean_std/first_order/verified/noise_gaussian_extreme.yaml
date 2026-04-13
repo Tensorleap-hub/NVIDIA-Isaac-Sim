@@ -1,0 +1,12 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/noise_gaussian_extreme
+
+camera:
+  dataset_noise:
+    enabled: true
+    mode: gaussian
+    sigma_mean: 35.0
+    sigma_std: 0.0
+

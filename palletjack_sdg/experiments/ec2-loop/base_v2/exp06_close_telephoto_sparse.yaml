@@ -1,0 +1,35 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp06_close_telephoto_sparse
+
+environment:
+  name: warehouse
+
+distractors:
+  clutter_level: 0.3
+
+camera:
+  position_std: [1.6, 2.4]
+  camera_height_mean: 1.4
+  camera_height_std: 0.15
+  camera_tilt_mean: -18.0
+  camera_tilt_std: 3.0
+  fov_mean: 38.0
+  fov_std: 3.0
+
+palletjacks:
+  count_per_model: 1
+  position_std: [1.5, 2.0, 0.0]
+
+lighting:
+  intensity_mean: 110000.0
+  intensity_std: 120000.0
+  visibility_choices: [true]
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+

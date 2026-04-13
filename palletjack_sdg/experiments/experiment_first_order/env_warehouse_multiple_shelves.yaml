@@ -1,0 +1,7 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/env_warehouse_multiple_shelves"
+
+environment:
+  name: "warehouse_multiple_shelves"

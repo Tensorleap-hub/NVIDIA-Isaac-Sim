@@ -59,10 +59,13 @@ cd "$ISAAC_SIM_PATH"
 for EXP_CONFIG in "${CONFIGS[@]}"; do
     EXP_NAME="$(basename "$EXP_CONFIG" .yaml)"
     OUTPUT_DIR="$BASE_OUTPUT/$EXP_NAME"
+    mkdir -p "$OUTPUT_DIR"
+    LOG_FILE="$OUTPUT_DIR/run.log"
     echo "--- Running $EXP_NAME ---"
+    echo "    Log: $LOG_FILE"
     EXTRA_ARGS=""
     [ -n "$N_SAMPLES_OVERRIDE" ] && EXTRA_ARGS="--num_frames $N_SAMPLES_OVERRIDE"
-    ./python.sh "$SCRIPT" --config "$EXP_CONFIG" --headless True --data_dir "$OUTPUT_DIR" $EXTRA_ARGS
+    ./python.sh "$SCRIPT" --config "$EXP_CONFIG" --headless True --data_dir "$OUTPUT_DIR" $EXTRA_ARGS 2>&1 | tee "$LOG_FILE"
 done
 
 echo ""

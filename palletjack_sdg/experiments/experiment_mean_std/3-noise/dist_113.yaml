@@ -1,0 +1,18 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: warehouse_with_forklifts
+camera:
+  camera_height_mean: 2.3877
+  camera_height_std: 1.0217
+  dataset_noise:
+    enabled: false
+    mode: gaussian
+    sigma_mean: 0.5155
+    sigma_std: 1.2681
+    jpeg_quality_mean: 33.0
+    jpeg_quality_std: 7.0
+    shot_scale_mean: 25.0
+    shot_scale_std: 0.0

@@ -1,0 +1,40 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp01_clean_overhead_low_noise
+
+environment:
+  name: warehouse
+
+distractors:
+  clutter_level: 0.0
+
+camera:
+  camera_height_mean: 3.8
+  camera_height_std: 0.25
+  camera_tilt_mean: null
+  camera_tilt_std: 0.0
+  fov_mean: 72.0
+  fov_std: 4.0
+  motion_blur_strength_mean: 0.0
+  motion_blur_strength_std: 0.0
+  dataset_noise:
+    enabled: false
+
+palletjacks:
+  count_per_model: 1
+  position_std: [2.0, 3.0, 0.0]
+
+lighting:
+  intensity_mean: 150000.0
+  intensity_std: 80000.0
+  visibility_choices: [true]
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
+  roughness_mean: 0.2
+  roughness_std: 0.08
+

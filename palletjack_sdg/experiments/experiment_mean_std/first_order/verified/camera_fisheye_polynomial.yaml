@@ -1,0 +1,8 @@
+extends: shared/baseline.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/camera_fisheye_polynomial
+
+camera:
+  camera_type: fisheyePolynomial
+  fisheye_max_fov: 185

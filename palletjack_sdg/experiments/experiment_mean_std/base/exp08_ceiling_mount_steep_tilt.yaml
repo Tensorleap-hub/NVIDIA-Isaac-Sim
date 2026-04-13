@@ -1,0 +1,45 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/exp08
+environment:
+  name: warehouse_multiple_shelves
+distractors:
+  clutter_level: 0.5
+camera:
+  camera_height_mean: 4.5
+  camera_height_std: 0.57735
+  camera_tilt_mean: -55.0
+  camera_tilt_std: 8.660254
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 103.923048
+  camera_roll_mean: 0.0
+  camera_roll_std: 1.154701
+  fov_mean: 48.0
+  fov_std: 5.773503
+  color_mean:
+  - 0.925
+  - 0.95
+  - 1.075
+  color_std:
+  - 0.043301
+  - 0.028868
+  - 0.043301
+  noise_std_mean: 1.25
+  noise_std_std: 0.433013
+  motion_blur_strength_mean: 0.0
+  motion_blur_strength_std: 0.0
+lighting:
+  intensity_mean: 120000.0
+  intensity_std: 250000.0
+materials:
+  metallic_choices:
+  - 0
+  - 1
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
+  roughness_mean: 0.15
+  roughness_std: 0.086603
+  emissive_intensity_mean: 100.0
+  emissive_intensity_std: 57.735027

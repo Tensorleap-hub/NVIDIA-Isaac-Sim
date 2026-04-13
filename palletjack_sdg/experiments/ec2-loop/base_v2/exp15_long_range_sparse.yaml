@@ -1,0 +1,35 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp15_long_range_sparse
+
+environment:
+  name: full_warehouse
+
+distractors:
+  clutter_level: 0.2
+
+camera:
+  position_std: [6.0, 9.0]
+  camera_height_mean: 3.0
+  camera_height_std: 0.5
+  camera_tilt_mean: -10.0
+  camera_tilt_std: 2.0
+  fov_mean: 42.0
+  fov_std: 3.0
+
+palletjacks:
+  count_per_model: 1
+  position_std: [2.0, 3.0, 0.0]
+
+lighting:
+  intensity_mean: 140000.0
+  intensity_std: 120000.0
+  visibility_choices: [true]
+
+materials:
+  textures:
+    - /Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg
+    - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
+

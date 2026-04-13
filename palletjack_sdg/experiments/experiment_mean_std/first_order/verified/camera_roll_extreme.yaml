@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/camera_roll_extreme
+camera:
+  camera_roll_mean: 0.0
+  camera_roll_std: 11.547005

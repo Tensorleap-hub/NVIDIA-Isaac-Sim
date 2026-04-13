@@ -1,0 +1,10 @@
+workflow_config: ./project_config.yaml
+workspace_dir: ./small_loop_workspace
+experiment_name: isaac_small_loop_test
+initial_yaml: ../palletjack_sdg/experiments/ec2-loop/base_v2/exp20_reference_mixed_deployment.yaml
+bounds_seed_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
+iterations: 3
+num_frames_override: 10
+real_samples: 16
+seed: 42
+mmd_max_samples: 100

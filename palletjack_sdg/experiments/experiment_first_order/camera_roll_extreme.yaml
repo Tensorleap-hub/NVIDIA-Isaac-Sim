@@ -1,0 +1,8 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/camera_roll_extreme"
+
+camera:
+  camera_roll_min: -20.0
+  camera_roll_max: 20.0

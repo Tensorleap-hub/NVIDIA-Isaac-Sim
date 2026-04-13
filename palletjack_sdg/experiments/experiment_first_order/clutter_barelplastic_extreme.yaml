@@ -1,0 +1,9 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/clutter_barelplastic_extreme"
+
+distractors:
+  groups:
+    BarelPlastic:
+      occurrence: 8

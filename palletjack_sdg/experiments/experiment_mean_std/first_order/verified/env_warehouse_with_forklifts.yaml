@@ -1,0 +1,5 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/env_warehouse_with_forklifts
+environment:
+  name: warehouse_with_forklifts

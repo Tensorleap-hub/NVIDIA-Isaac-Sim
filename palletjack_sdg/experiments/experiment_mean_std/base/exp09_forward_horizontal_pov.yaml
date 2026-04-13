@@ -1,0 +1,43 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/exp09
+environment:
+  name: warehouse_with_forklifts
+distractors:
+  clutter_level: 1.0
+camera:
+  camera_height_mean: 1.0
+  camera_height_std: 0.23094
+  camera_tilt_mean: -1.5
+  camera_tilt_std: 3.752777
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 103.923048
+  camera_roll_mean: 0.0
+  camera_roll_std: 3.464102
+  fov_mean: 70.0
+  fov_std: 5.773503
+  color_mean:
+  - 0.97
+  - 0.915
+  - 0.8
+  color_std:
+  - 0.086603
+  - 0.077942
+  - 0.057735
+  noise_std_mean: 3.25
+  noise_std_std: 1.010363
+  motion_blur_strength_mean: 2.5
+  motion_blur_strength_std: 0.866025
+lighting:
+  intensity_mean: 85000.0
+  intensity_std: 500000.0
+materials:
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+  roughness_mean: 0.7
+  roughness_std: 0.173205
+  emissive_intensity_mean: 50.0
+  emissive_intensity_std: 28.867513

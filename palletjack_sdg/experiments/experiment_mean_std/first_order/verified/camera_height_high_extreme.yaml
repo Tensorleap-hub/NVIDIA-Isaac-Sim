@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/camera_height_high_extreme
+camera:
+  camera_height_mean: 3.8
+  camera_height_std: 0.11547

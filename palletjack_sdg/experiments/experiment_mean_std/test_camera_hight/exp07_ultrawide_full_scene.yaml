@@ -1,0 +1,16 @@
+extends: base.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/test_camera_height/ultrawide
+
+environment:
+  name: full_warehouse
+
+camera:
+  camera_height_mean: 2.0
+  camera_height_std: 0.35
+  camera_tilt_mean: -12.0
+  camera_tilt_std: 3.0
+  fov_mean: 112.0
+  fov_std: 8.0

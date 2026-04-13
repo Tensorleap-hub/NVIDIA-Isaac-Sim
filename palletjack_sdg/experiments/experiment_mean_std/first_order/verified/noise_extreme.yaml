@@ -1,0 +1,6 @@
+extends: shared/baseline.yaml
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/first_order/noise_extreme
+camera:
+  noise_std_mean: 10.0
+  noise_std_std: 1.154701

@@ -1,0 +1,7 @@
+extends: "shared/baseline.yaml"
+
+run:
+  data_dir: "/isaac-sim/palletjack_sdg/palletjack_data/experiment_first_order/lighting_intensity_high"
+
+lighting:
+  intensity_mean: 180000.0

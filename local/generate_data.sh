@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # This is the path where Isaac Sim is installed which contains the python.sh script
-ISAAC_SIM_PATH="<ENTER_FULL_PATH_TO_ISAAC_SIM_HERE>"
+ISAAC_SIM_PATH="/home/ubuntu/IsaacSim"
 
 ## Go to location of the SDG script
 cd ../palletjack_sdg
@@ -17,10 +17,10 @@ cd $ISAAC_SIM_PATH
 
 echo "Starting Data Generation"
 
-./python.sh $SCRIPT_PATH --config $CONFIG_PATH --height 544 --width 960 --num_frames 2000 --distractors warehouse --data_dir $OUTPUT_WAREHOUSE
+./python.sh $SCRIPT_PATH --config $CONFIG_PATH --height 544 --width 960 --num_frames 20 --distractors warehouse --data_dir $OUTPUT_WAREHOUSE
 
-./python.sh $SCRIPT_PATH --config $CONFIG_PATH --height 544 --width 960 --num_frames 2000 --distractors additional --data_dir $OUTPUT_ADDITIONAL
+./python.sh $SCRIPT_PATH --config $CONFIG_PATH --height 544 --width 960 --num_frames 20 --distractors additional --data_dir $OUTPUT_ADDITIONAL
 
-./python.sh $SCRIPT_PATH --config $CONFIG_PATH --height 544 --width 960 --num_frames 1000 --distractors None --data_dir $OUTPUT_NO_DISTRACTORS
+./python.sh $SCRIPT_PATH --config $CONFIG_PATH --height 544 --width 960 --num_frames 20 --distractors None --data_dir $OUTPUT_NO_DISTRACTORS
 
 

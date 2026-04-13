@@ -4,16 +4,17 @@ Usage:
     python generate_configs.py --csv <path-to-csv> --out-dir <output-directory>
 
 Defaults:
-    --csv     next to the script (looks for any *raw_outputs.csv nearby)
-    --out-dir directory named after the CSV file (without extension), next to the CSV
+    --csv     next to the script (looks for any *.csv nearby)
+    --out-dir directory of the CSV file
 """
 import argparse
 import csv
+import math
 import os
 import yaml
 
 TEXTURE_PREFIX = "/Isaac/Materials/Textures/Patterns/"
-TEXTURE_KEYS = [f"metadata.synth_metadata_synth_texture_{i}" for i in range(1, 13)]
+TEXTURE_KEYS = [f"metadata.synth_metadata_synth_texture_{i}" for i in range(1, 26)]
 
 
 def collect_textures(row):
@@ -27,27 +28,59 @@ def collect_textures(row):
 
 
 def build_config(row, extends_path):
-    def flt(k): return round(float(row[f"metadata.synth_metadata_synth_{k}"]), 4)
-    def intt(k): return int(float(row[f"metadata.synth_metadata_synth_{k}"]))
+    def flt(k):
+        return round(float(row[f"metadata.synth_metadata_synth_{k}"]), 4)
 
-    distractors = row["metadata.synth_metadata_synth_distractors"].strip()
+    def intt(k):
+        return int(float(row[f"metadata.synth_metadata_synth_{k}"]))
 
-    return {
+    def opt_flt(k):
+        """Return rounded float or None if column is missing/empty/NaN."""
+        val = row.get(f"metadata.synth_metadata_synth_{k}", "").strip()
+        if not val:
+            return None
+        try:
+            f = float(val)
+            return None if math.isnan(f) else round(f, 4)
+        except ValueError:
+            return None
+
+    # ── Camera ────────────────────────────────────────────────────────────────
+    camera = {
+        "camera_height_min":        flt("camera_height_min"),
+        "camera_height_max":        flt("camera_height_max"),
+        "fov_min":                  intt("fov_min"),
+        "fov_max":                  intt("fov_max"),
+        "noise_std_min":            flt("noise_std_min"),
+        "noise_std_max":            flt("noise_std_max"),
+        "motion_blur_strength_min": flt("motion_blur_min"),
+        "motion_blur_strength_max": flt("motion_blur_max"),
+    }
+
+    cam_type = row.get("metadata.synth_metadata_synth_camera_type", "").strip()
+    if cam_type:
+        camera["camera_type"] = cam_type
+
+    tilt_min = opt_flt("camera_tilt_min")
+    tilt_max = opt_flt("camera_tilt_max")
+    if tilt_min is not None and tilt_max is not None:
+        camera["camera_tilt_min"] = tilt_min
+        camera["camera_tilt_max"] = tilt_max
+
+    # ── Distractors ───────────────────────────────────────────────────────────
+    clutter_raw = row.get("metadata.synth_metadata_synth_clutter_level", "").strip()
+    clutter_level = round(max(0.0, float(clutter_raw)), 4) if clutter_raw else 1.0
+
+    # ── Assemble config ───────────────────────────────────────────────────────
+    cfg = {
         "extends": extends_path,
         "run": {
             "num_frames": int(row["n_samples"]),
-            "distractors": distractors,
-            "data_dir": "/placeholder",   # overridden by run_experiments.sh
+            "data_dir":   "/placeholder",   # overridden by run_experiments.sh
         },
-        "camera": {
-            "camera_height_min": flt("camera_height_min"),
-            "camera_height_max": flt("camera_height_max"),
-            "fov_min": intt("fov_min"),
-            "fov_max": intt("fov_max"),
-            "noise_std_min": intt("noise_std_min"),
-            "noise_std_max": intt("noise_std_max"),
-            "motion_blur_strength_min": flt("motion_blur_min"),
-            "motion_blur_strength_max": flt("motion_blur_max"),
+        "camera": camera,
+        "distractors": {
+            "clutter_level": clutter_level,
         },
         "lighting": {
             "intensity_mean": flt("lighting_intensity_mean"),
@@ -56,12 +89,18 @@ def build_config(row, extends_path):
         "materials": {
             "roughness_min": flt("materials_roughness_min"),
             "roughness_max": flt("materials_roughness_max"),
-            "textures": collect_textures(row),
+            "textures":      collect_textures(row),
         },
         "palletjacks": {
             "count_per_model": intt("palletjack_count_per_model"),
         },
     }
+
+    env_name = row.get("metadata.synth_metadata_synth_env_name", "").strip()
+    if env_name:
+        cfg["environment"] = {"name": env_name}
+
+    return cfg
 
 
 def main():
@@ -78,7 +117,6 @@ def main():
 
     csv_path = args.csv
     if csv_path is None:
-        # Default: only CSV in the script's directory
         candidates = [f for f in os.listdir(script_dir) if f.endswith(".csv")]
         if len(candidates) == 1:
             csv_path = os.path.join(script_dir, candidates[0])
@@ -92,7 +130,6 @@ def main():
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
-    # Compute relative path from out_dir back to sdg_config.yaml
     sdg_config_abs = os.path.abspath(os.path.join(script_dir, "..", "sdg_config.yaml"))
     extends_path = os.path.relpath(sdg_config_abs, out_dir)
 

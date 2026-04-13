@@ -22,11 +22,14 @@
 # DEALINGS IN THE SOFTWARE.
 
 import os
+import io
 import math
 import random
 import argparse
 import yaml
 import datetime
+import numpy as np
+from PIL import Image
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # All run-level args default to None so we can detect explicit overrides.
@@ -39,8 +42,10 @@ parser.add_argument("--headless", type=lambda x: x.lower() == "true", default=No
 parser.add_argument("--height", type=int, default=None, help="Override: image height")
 parser.add_argument("--width", type=int, default=None, help="Override: image width")
 parser.add_argument("--num_frames", type=int, default=None, help="Override: number of frames")
-parser.add_argument("--distractors", type=str, default=None,
-                    help="Override: 'warehouse', 'additional', or 'None'")
+parser.add_argument("--environment", type=str, default=None,
+                    help="Override: environment name (warehouse | full_warehouse | warehouse_multiple_shelves | warehouse_with_forklifts)")
+parser.add_argument("--clutter_level", type=float, default=None,
+                    help="Override: distractor clutter level multiplier (0 = no distractors)")
 parser.add_argument("--data_dir", type=str, default=None, help="Override: output directory")
 
 args, unknown_args = parser.parse_known_args()
@@ -55,24 +60,36 @@ def _deep_merge(base, override):
             result[k] = v
     return result
 
-with open(args.config, "r") as f:
-    raw_cfg = yaml.safe_load(f)
+def _load_cfg(config_path):
+    with open(config_path, "r") as f:
+        raw_cfg = yaml.safe_load(f)
 
-if "extends" in raw_cfg:
-    base_path = os.path.join(os.path.dirname(os.path.abspath(args.config)), raw_cfg.pop("extends"))
-    with open(base_path, "r") as f:
-        base_cfg = yaml.safe_load(f)
-    CFG = _deep_merge(base_cfg, raw_cfg)
-else:
-    CFG = raw_cfg
+    if "extends" not in raw_cfg:
+        return raw_cfg
+
+    base_path = os.path.join(
+        os.path.dirname(os.path.abspath(config_path)),
+        raw_cfg.pop("extends"),
+    )
+    base_cfg = _load_cfg(base_path)
+    return _deep_merge(base_cfg, raw_cfg)
+
+CFG = _load_cfg(args.config)
 
 # ── Merge CLI overrides (CLI wins over YAML) ──────────────────────────────────
-if args.headless   is not None: CFG["run"]["headless"]    = args.headless
-if args.height     is not None: CFG["render"]["height"]   = args.height
-if args.width      is not None: CFG["render"]["width"]    = args.width
-if args.num_frames is not None: CFG["run"]["num_frames"]  = args.num_frames
-if args.distractors is not None: CFG["run"]["distractors"] = args.distractors
-if args.data_dir   is not None: CFG["run"]["data_dir"]    = args.data_dir
+if args.headless      is not None: CFG["run"]["headless"]                    = args.headless
+if args.height        is not None: CFG["render"]["height"]                   = args.height
+if args.width         is not None: CFG["render"]["width"]                    = args.width
+if args.num_frames    is not None: CFG["run"]["num_frames"]                  = args.num_frames
+if args.environment   is not None: CFG["environment"]["name"]                = args.environment
+if args.clutter_level is not None: CFG["distractors"]["clutter_level"]       = args.clutter_level
+if args.data_dir      is not None: CFG["run"]["data_dir"]                    = args.data_dir
+
+# Backward compat: old experiment YAMLs set run.distractors = "None" / None / "additional"
+# "None" / null  → no distractors; "warehouse" / "additional" → use default groups
+_distractor_setting = CFG.get("run", {}).get("distractors")
+if _distractor_setting in (None, "None", "none"):
+    CFG["distractors"]["clutter_level"] = 0
 
 # ── Launch simulation ─────────────────────────────────────────────────────────
 from omni.isaac.kit import SimulationApp
@@ -132,18 +149,254 @@ def update_semantics(stage, keep_semantics=[]):
                             prim.RemoveAPI(Semantics.SemanticsAPI, instance_name)
 
 
-def full_distractors_list(distractor_type):
-    if distractor_type == "warehouse":
-        return [prefix_with_isaac_asset_server(p) for p in CFG["distractors_warehouse"]["assets"]]
-    elif distractor_type == "additional":
-        return [prefix_with_isaac_asset_server(p) for p in CFG["distractors_additional"]["assets"]]
-    else:
-        print("No distractors being added to the current scene for SDG")
-        return []
-
-
 def full_textures_list():
     return [prefix_with_isaac_asset_server(p) for p in CFG["materials"]["textures"]]
+
+
+def get_dataset_noise_cfg(cam_cfg):
+    """Resolve per-image dataset-noise config from explicit or legacy fields."""
+    ds_cfg = (cam_cfg.get("dataset_noise") or {}).copy()
+    if ds_cfg:
+        ds_cfg.setdefault("enabled", False)
+        ds_cfg.setdefault("mode", "gaussian")
+        ds_cfg.setdefault("sigma_min", 0.0)
+        ds_cfg.setdefault("sigma_max", 0.0)
+        ds_cfg.setdefault("jpeg_quality_min", 95)
+        ds_cfg.setdefault("jpeg_quality_max", 100)
+        ds_cfg.setdefault("shot_scale_min", 100.0)
+        ds_cfg.setdefault("shot_scale_max", 100.0)
+        ds_cfg.setdefault("seed", -1)
+        if (
+            ds_cfg.get("enabled")
+            or float(ds_cfg.get("sigma_min", 0.0)) > 0.0
+            or float(ds_cfg.get("sigma_max", 0.0)) > 0.0
+        ):
+            return ds_cfg
+
+    legacy_min = cam_cfg.get("noise_std_min", 0.0)
+    legacy_max = cam_cfg.get("noise_std_max", 0.0)
+    return {
+        "enabled": (legacy_min is not None and float(legacy_min) > 0.0)
+        or (legacy_max is not None and float(legacy_max) > 0.0),
+        "mode": "gaussian",
+        "sigma_min": 0.0 if legacy_min is None else float(legacy_min),
+        "sigma_max": 0.0 if legacy_max is None else float(legacy_max),
+        "jpeg_quality_min": 95,
+        "jpeg_quality_max": 100,
+        "shot_scale_min": 100.0,
+        "shot_scale_max": 100.0,
+        "seed": -1,
+    }
+
+
+def resolve_image_augmentation_cfg(cam_cfg):
+    """Resolve post-write image augmentation config, including legacy camera color."""
+    aug_cfg = (CFG.get("image_augmentation") or {}).copy()
+    aug_cfg.setdefault("enabled", False)
+    aug_cfg.setdefault("brightness_gain_min", 1.0)
+    aug_cfg.setdefault("brightness_gain_max", 1.0)
+    aug_cfg.setdefault("contrast_gain_min", 1.0)
+    aug_cfg.setdefault("contrast_gain_max", 1.0)
+    aug_cfg.setdefault("gamma_min", 1.0)
+    aug_cfg.setdefault("gamma_max", 1.0)
+
+    if "color_gain_min" not in aug_cfg or "color_gain_max" not in aug_cfg:
+        color_min = cam_cfg.get("color_min")
+        color_max = cam_cfg.get("color_max")
+        if color_min is not None and color_max is not None:
+            aug_cfg.setdefault("color_gain_min", list(color_min))
+            aug_cfg.setdefault("color_gain_max", list(color_max))
+    aug_cfg.setdefault("color_gain_min", [1.0, 1.0, 1.0])
+    aug_cfg.setdefault("color_gain_max", [1.0, 1.0, 1.0])
+
+    neutral = (
+        aug_cfg["brightness_gain_min"] == 1.0
+        and aug_cfg["brightness_gain_max"] == 1.0
+        and aug_cfg["contrast_gain_min"] == 1.0
+        and aug_cfg["contrast_gain_max"] == 1.0
+        and aug_cfg["gamma_min"] == 1.0
+        and aug_cfg["gamma_max"] == 1.0
+        and list(aug_cfg["color_gain_min"]) == [1.0, 1.0, 1.0]
+        and list(aug_cfg["color_gain_max"]) == [1.0, 1.0, 1.0]
+    )
+    if not neutral:
+        aug_cfg["enabled"] = True
+    return aug_cfg
+
+
+def sample_uniform_scalar(lo, hi):
+    return random.uniform(float(lo), float(hi))
+
+
+def sample_uniform_vector(lo, hi):
+    return tuple(sample_uniform_scalar(a, b) for a, b in zip(lo, hi))
+
+
+def sample_image_augmentation_params(aug_cfg):
+    return {
+        "brightness_gain": sample_uniform_scalar(
+            aug_cfg["brightness_gain_min"], aug_cfg["brightness_gain_max"]
+        ),
+        "contrast_gain": sample_uniform_scalar(
+            aug_cfg["contrast_gain_min"], aug_cfg["contrast_gain_max"]
+        ),
+        "gamma": sample_uniform_scalar(aug_cfg["gamma_min"], aug_cfg["gamma_max"]),
+        "color_gain": sample_uniform_vector(
+            aug_cfg["color_gain_min"], aug_cfg["color_gain_max"]
+        ),
+    }
+
+
+def apply_image_augmentation(image_data, aug_params):
+    data = image_data.astype(np.float32)
+    color_gain = np.asarray(aug_params["color_gain"], dtype=np.float32).reshape(1, 1, 3)
+    data *= color_gain
+    data *= float(aug_params["brightness_gain"])
+    data = (data - 127.5) * float(aug_params["contrast_gain"]) + 127.5
+    gamma = max(1e-6, float(aug_params["gamma"]))
+    data = 255.0 * np.power(np.clip(data, 0.0, 255.0) / 255.0, gamma)
+    return np.clip(data, 0.0, 255.0)
+
+
+def apply_jpeg_artifacts(image_data, quality):
+    quality = int(max(1, min(100, round(quality))))
+    with io.BytesIO() as buffer:
+        Image.fromarray(image_data.astype(np.uint8), mode="RGB").save(
+            buffer, format="JPEG", quality=quality
+        )
+        buffer.seek(0)
+        with Image.open(buffer) as img:
+            return np.asarray(img.convert("RGB"), dtype=np.float32)
+
+
+def apply_shot_noise(image_data, shot_scale, rng):
+    shot_scale = max(1e-6, float(shot_scale))
+    normalized = np.clip(image_data, 0.0, 255.0) / 255.0
+    photons = np.clip(normalized * shot_scale, 0.0, None)
+    noisy = rng.poisson(photons).astype(np.float32) / shot_scale
+    return np.clip(noisy * 255.0, 0.0, 255.0)
+
+
+def find_rgb_image_paths(output_dir):
+    candidate_dirs = [
+        os.path.join(output_dir, "Camera", "rgb"),
+        os.path.join(output_dir, "image_2"),
+        os.path.join(output_dir, "images"),
+    ]
+    extensions = (".png", ".jpg", ".jpeg")
+
+    for candidate_dir in candidate_dirs:
+        if os.path.isdir(candidate_dir):
+            image_paths = sorted(
+                os.path.join(candidate_dir, name)
+                for name in os.listdir(candidate_dir)
+                if name.lower().endswith(extensions)
+            )
+            if image_paths:
+                return candidate_dir, image_paths
+
+    image_paths = []
+    for root, _, files in os.walk(output_dir):
+        for name in files:
+            if name.lower().endswith(extensions):
+                image_paths.append(os.path.join(root, name))
+    image_paths.sort()
+    return (os.path.dirname(image_paths[0]), image_paths) if image_paths else (None, [])
+
+
+def apply_post_write_effects_to_saved_rgb(output_dir, noise_cfg, aug_cfg):
+    """Apply image augmentation, per-image noise, and optional JPEG artifacts."""
+    if not noise_cfg.get("enabled", False) and not aug_cfg.get("enabled", False):
+        print("Image augmentation and dataset noise disabled — skipping RGB augmentation")
+        return
+
+    image_dir, image_paths = find_rgb_image_paths(output_dir)
+    if not image_paths:
+        print(f"No RGB image directory found under {output_dir}; skipping RGB augmentation")
+        return
+
+    sigma_min = max(0.0, float(noise_cfg.get("sigma_min", 0.0)))
+    sigma_max = max(sigma_min, float(noise_cfg.get("sigma_max", sigma_min)))
+    jpeg_quality_min = int(noise_cfg.get("jpeg_quality_min", 95))
+    jpeg_quality_max = int(noise_cfg.get("jpeg_quality_max", 100))
+    shot_scale_min = max(1e-6, float(noise_cfg.get("shot_scale_min", 100.0)))
+    shot_scale_max = max(shot_scale_min, float(noise_cfg.get("shot_scale_max", shot_scale_min)))
+    mode = str(noise_cfg.get("mode", "gaussian"))
+    seed = int(noise_cfg.get("seed", -1))
+    rng = np.random.default_rng(None if seed < 0 else seed)
+
+    print(
+        f"Applying post-write effects to {len(image_paths)} image(s) in {image_dir}: "
+        f"aug_enabled={aug_cfg.get('enabled', False)}, noise_mode={mode}"
+    )
+
+    for image_path in image_paths:
+        with Image.open(image_path) as img:
+            data = np.asarray(img.convert("RGB"), dtype=np.float32)
+        if aug_cfg.get("enabled", False):
+            data = apply_image_augmentation(data, sample_image_augmentation_params(aug_cfg))
+        if mode in ("gaussian", "gaussian_jpeg") and noise_cfg.get("enabled", False):
+            sigma = float(rng.uniform(sigma_min, sigma_max))
+            if sigma > 0:
+                data = np.clip(data + rng.normal(0.0, sigma, size=data.shape), 0.0, 255.0)
+        if mode in ("shot", "shot_jpeg") and noise_cfg.get("enabled", False):
+            shot_scale = float(rng.uniform(shot_scale_min, shot_scale_max))
+            data = apply_shot_noise(data, shot_scale, rng)
+        if mode in ("jpeg", "gaussian_jpeg") and noise_cfg.get("enabled", False):
+            quality = int(rng.integers(min(jpeg_quality_min, jpeg_quality_max), max(jpeg_quality_min, jpeg_quality_max) + 1))
+            data = apply_jpeg_artifacts(np.clip(data, 0.0, 255.0), quality)
+        if mode == "shot_jpeg" and noise_cfg.get("enabled", False):
+            quality = int(rng.integers(min(jpeg_quality_min, jpeg_quality_max), max(jpeg_quality_min, jpeg_quality_max) + 1))
+            data = apply_jpeg_artifacts(np.clip(data, 0.0, 255.0), quality)
+        Image.fromarray(np.clip(data, 0.0, 255.0).astype(np.uint8), mode="RGB").save(image_path)
+
+
+def sample_camera_color_uniform(cam_cfg):
+    color_min = cam_cfg.get("color_min")
+    color_max = cam_cfg.get("color_max")
+    if color_min is None or color_max is None:
+        return None
+
+    sampled = tuple(
+        max(0.0, random.uniform(float(lo), float(hi)))
+        for lo, hi in zip(color_min, color_max)
+    )
+    return sampled
+
+
+def apply_camera_color_gain(camera_item, color_gain):
+    if color_gain is None:
+        return
+
+    rep.modify.attribute(
+        "omni:sensor:core:colorCorrectionWhiteBalance",
+        color_gain,
+        attribute_type="float3",
+        input_prims=camera_item,
+    )
+    print(f"Camera color gain: {color_gain}")
+
+
+def normalize_projection_type(camera_type):
+    if camera_type == "fisheyeEquidistant":
+        return "fisheyePolynomial"
+    if camera_type == "fisheyePolynomial":
+        return "fisheyePolynomial"
+    return camera_type or "pinhole"
+
+
+def is_fisheye_projection(camera_type):
+    return normalize_projection_type(camera_type) != "pinhole"
+
+
+def get_fisheye_max_fov(cam_cfg):
+    if cam_cfg.get("fisheye_max_fov") is not None:
+        return float(cam_cfg["fisheye_max_fov"])
+    if cam_cfg.get("fov_max") is not None:
+        return float(cam_cfg["fov_max"])
+    if cam_cfg.get("fov_min") is not None:
+        return float(cam_cfg["fov_min"])
+    return 200.0
 
 
 def add_palletjacks():
@@ -155,10 +408,37 @@ def add_palletjacks():
     return rep.create.group(rep_obj_list)
 
 
-def add_distractors(distractor_type):
-    full_distractors = full_distractors_list(distractor_type)
-    distractors = [rep.create.from_usd(p, count=1) for p in full_distractors]
-    return rep.create.group(distractors)
+def add_distractors():
+    """Spawn distractor groups according to diversity, occurrence, and clutter_level.
+
+    For each group:
+      - randomly pick `diversity` variants from the asset pool
+      - spawn `max(1, round(occurrence × clutter_level))` instances of each variant
+    Returns a rep group, or None if clutter_level is 0.
+    """
+    dist_cfg = CFG["distractors"]
+    clutter = dist_cfg.get("clutter_level", 1.0)
+    if clutter <= 0:
+        print("clutter_level=0 — no distractors added")
+        return None
+
+    all_prims = []
+    for group_name, group_cfg in dist_cfg.get("groups", {}).items():
+        pool = group_cfg.get("assets", [])
+        if not pool:
+            continue
+        diversity  = min(group_cfg.get("diversity", len(pool)), len(pool))
+        count      = max(1, round(group_cfg.get("occurrence", 1) * clutter))
+        selected   = random.sample(pool, diversity)
+        for asset in selected:
+            all_prims.append(
+                rep.create.from_usd(prefix_with_isaac_asset_server(asset), count=count)
+            )
+        print(f"  {group_name}: {diversity} variant(s) × {count} instance(s)")
+
+    if not all_prims:
+        return None
+    return rep.create.group(all_prims)
 
 
 def run_orchestrator():
@@ -198,8 +478,10 @@ def write_run_config(output_dir):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    env_url = prefix_with_isaac_asset_server(CFG["environment"]["env_url"])
-    print(f"Loading Stage {env_url}")
+    env_name = CFG["environment"]["name"]
+    env_rel  = CFG["environment_urls"][env_name]
+    env_url  = prefix_with_isaac_asset_server(env_rel)
+    print(f"Loading Stage {env_name} → {env_url}")
     open_stage(env_url)
     stage = get_current_stage()
 
@@ -211,9 +493,7 @@ def main():
     textures = full_textures_list()
     rep_palletjack_group = add_palletjacks()
 
-    distractor_type = CFG["run"]["distractors"]
-    if distractor_type != "None":
-        rep_distractor_group = add_distractors(distractor_type)
+    rep_distractor_group = add_distractors()
 
     update_semantics(stage=stage, keep_semantics=["palletjack"])
 
@@ -221,7 +501,7 @@ def main():
     cam_cfg = CFG["camera"]
 
     # --- Per-run post-processing values (sampled once) ---
-    noise_std = random.uniform(cam_cfg["noise_std_min"], cam_cfg["noise_std_max"])
+    dataset_noise_cfg = get_dataset_noise_cfg(cam_cfg)
     motion_blur = random.uniform(
         cam_cfg["motion_blur_strength_min"], cam_cfg["motion_blur_strength_max"]
     )
@@ -231,14 +511,12 @@ def main():
     if motion_blur > 0:
         settings.set("/rtx/post/motionblur/enabled", True)
         settings.set("/rtx/post/motionblur/maxBlurDiameterFraction", float(motion_blur))
-    if noise_std > 0:
-        settings.set("/rtx/post/tonemap/noiseStrength", float(noise_std))
-
-    # --- Focal length range (derived from focal_length_min/max or fov_min/max) ---
+    # --- Focal length range (pinhole only) ---
     aperture = cam_cfg.get("horizontal_aperture") or 20.955
+    projection_type = normalize_projection_type(cam_cfg.get("camera_type", "pinhole"))
     fl_min = cam_cfg.get("focal_length_min")
     fl_max = cam_cfg.get("focal_length_max")
-    if fl_min is None and cam_cfg.get("fov_min") is not None:
+    if not is_fisheye_projection(projection_type) and fl_min is None and cam_cfg.get("fov_min") is not None:
         # FOV (degrees) → focal length: fl = aperture / (2 * tan(fov/2))
         fl_min = aperture / (2 * math.tan(math.radians(cam_cfg["fov_max"]) / 2))
         fl_max = aperture / (2 * math.tan(math.radians(cam_cfg["fov_min"]) / 2))
@@ -246,13 +524,15 @@ def main():
     # --- Camera creation ---
     cam_kwargs = {
         "clipping_range": tuple(cam_cfg["clipping_range"]),
-        "projection_type": cam_cfg.get("camera_type", "pinhole"),
+        "projection_type": projection_type,
     }
     if cam_cfg.get("focus_distance") is not None:
         cam_kwargs["focus_distance"] = cam_cfg["focus_distance"]
     if cam_cfg.get("f_stop") is not None:
         cam_kwargs["f_stop"] = cam_cfg["f_stop"]
     cam_kwargs["horizontal_aperture"] = aperture
+    if is_fisheye_projection(projection_type):
+        cam_kwargs["fisheye_max_fov"] = get_fisheye_max_fov(cam_cfg)
     cam = rep.create.camera(**cam_kwargs)
 
     # ── Replicator pipeline ───────────────────────────────────────────────────
@@ -268,15 +548,19 @@ def main():
             pos_max = tuple(cam_cfg["position_max"]) + (cam_cfg["camera_height_max"],)
             pose_kwargs = {"position": rep.distribution.uniform(pos_min, pos_max)}
             if cam_cfg.get("camera_tilt_min") is not None:
+                yaw_min  = cam_cfg.get("camera_yaw_min",  0.0)
+                yaw_max  = cam_cfg.get("camera_yaw_max",  360.0)
+                roll_min = cam_cfg.get("camera_roll_min", 0.0)
+                roll_max = cam_cfg.get("camera_roll_max", 0.0)
                 pose_kwargs["rotation"] = rep.distribution.uniform(
-                    (cam_cfg["camera_tilt_min"], 0.0,   0.0),
-                    (cam_cfg["camera_tilt_max"], 0.0, 360.0),
+                    (cam_cfg["camera_tilt_min"], roll_min, yaw_min),
+                    (cam_cfg["camera_tilt_max"], roll_max, yaw_max),
                 )
             else:
                 pose_kwargs["look_at"] = tuple(cam_cfg["look_at"])
             rep.modify.pose(**pose_kwargs)
 
-            if fl_min is not None:
+            if not is_fisheye_projection(projection_type) and fl_min is not None:
                 rep.modify.attribute("focalLength", rep.distribution.uniform(fl_min, fl_max))
 
         with rep.get.prims(path_pattern="SteerAxles"):
@@ -303,7 +587,7 @@ def main():
                 ),
             )
 
-        if distractor_type != "None":
+        if rep_distractor_group is not None:
             with rep_distractor_group:
                 rep.modify.pose(
                     position=rep.distribution.uniform(
@@ -370,6 +654,11 @@ def main():
 
     run_orchestrator()
     simulation_app.update()
+    apply_post_write_effects_to_saved_rgb(
+        output_directory,
+        dataset_noise_cfg,
+        resolve_image_augmentation_cfg(cam_cfg),
+    )
 
     # ── Dump resolved config alongside the data ───────────────────────────────
     write_run_config(output_directory)
