@@ -75,5 +75,6 @@ optuna_data:
 
 optuna_tests_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/optuna_tests"
-  additional: false          # set to false to exclude optuna test datasets entirely
+  additional: true          # set to false to exclude optuna test datasets entirely
+  tests: noise                  # null = include all; list like [camera] to include only test_camera
   num_samples:              # null = no limit; per-run cap after deterministic shuffle

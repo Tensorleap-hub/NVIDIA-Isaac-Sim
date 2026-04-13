@@ -683,9 +683,16 @@ def _load_optuna_test_records() -> list:
 
     base_path = Path(base)
     records = []
+    allowed_tests = optuna_tests_cfg.get("tests")
+    if isinstance(allowed_tests, str):
+        allowed_tests = [allowed_tests]
+    allowed_tests = set(allowed_tests) if allowed_tests is not None else None
 
     for test_dir in sorted(path for path in base_path.iterdir() if path.is_dir()):
         test_name = test_dir.name
+        test_suffix = test_name[len("test_"):] if test_name.startswith("test_") else test_name
+        if allowed_tests is not None and test_suffix not in allowed_tests:
+            continue
         for run_dir in sorted(path for path in test_dir.iterdir() if path.is_dir()):
             _append_optuna_test_run_records(
                 records=records,
