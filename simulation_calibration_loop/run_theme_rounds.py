@@ -111,6 +111,7 @@ def _write_round_config(
     """Write a derived config with a round-specific workspace and project name."""
     raw = yaml.safe_load(source_config_path.read_text()) or {}
     round_suffix = f"_r{round_index + 1:02d}"
+    source_config_dir = source_config_path.parent
 
     workspace_dir = Path(str(raw["workspace_dir"]))
     workspace_name = f"{workspace_dir.name}{round_suffix}"
@@ -121,6 +122,7 @@ def _write_round_config(
 
     project_name = str(raw["project_name"])
     raw["project_name"] = f"{project_name}{round_suffix}"
+    _absolutize_workflow_paths(raw, source_config_dir)
 
     base_pool = raw.get("base_pool") or {}
     if base_pool.get("enabled") and not base_pool.get("state_path"):
@@ -134,6 +136,33 @@ def _write_round_config(
     destination_path = destination_dir / f"{source_config_path.stem}{round_suffix}.yaml"
     destination_path.write_text(yaml.safe_dump(raw, sort_keys=False))
     return destination_path
+
+
+def _absolutize_workflow_paths(raw: dict, source_config_dir: Path) -> None:
+    """Freeze path-like config fields so derived configs resolve identically."""
+    for key in (
+        "promoted_baseline_dir",
+        "baseline_state_path",
+        "synthetic_rgb_base_dir",
+        "seed_config_dir",
+        "real_dataset_root",
+        "real_annotations_file",
+    ):
+        value = raw.get(key)
+        if value:
+            raw[key] = str(_resolve_config_path(value, source_config_dir))
+
+    isaac_cfg = raw.get("isaac")
+    if isinstance(isaac_cfg, dict) and isaac_cfg.get("script_path"):
+        isaac_cfg["script_path"] = str(_resolve_config_path(isaac_cfg["script_path"], source_config_dir))
+
+
+def _resolve_config_path(value: str, source_config_dir: Path) -> Path:
+    """Resolve one possibly-relative workflow path against the original config dir."""
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    return (source_config_dir / path).resolve()
 
 
 if __name__ == "__main__":

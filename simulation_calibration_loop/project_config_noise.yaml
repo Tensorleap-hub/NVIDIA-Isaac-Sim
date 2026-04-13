@@ -2,7 +2,7 @@ project_name: dinov2_subset3_optuna_loop_noise
 workspace_dir: ./workspace_noise
 promoted_baseline_dir: ./promoted_baseline_theme_rounds
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/noise/
-seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
+seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
 max_iterations: 10
