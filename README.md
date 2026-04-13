@@ -75,6 +75,10 @@ python palletjack_sdg/experiments/generate_configs_mean_std.py \
 
 ## Simulation Calibration Loop
 
+see [`simulation_calibration_loop/README.md`](...)
+and
+[`simulation_calibration_loop/ARCHITECTURE_REVIEW.md`](...)
+
 The simulation calibration loop uses:
 
 - DINOv2 as the feature extractor
