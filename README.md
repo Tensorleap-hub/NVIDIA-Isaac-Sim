@@ -22,6 +22,14 @@ Detailed loop documentation lives in `simulation_calibration_loop/README.md`.
 - I started testing targeted cases such as very high and very low camera setups and noise suggestions under `palletjack_sdg/experiments/experiment_mean_std/`.
 - The standalone simulation calibration loop with DINOv2 embeddings does seem to converge: roughly from an initial distance around `0.6` to a current best around `0.35`, with more iterations still running.
 
+## AWS / Infra
+
+Saved best runs are in `s3://nvidia-isaac-bucket/`, and the loop runs are mainly under `s3://nvidia-isaac-bucket/optuna-ec2/`.
+
+There is an instance ready to use called `nvidia`. Start it, connect, and enjoy.
+
+Codex is installed there for my user, so have fun with it. Use it in `screen` so it will not disconnect when you do.
+
 ## Important Files
 
 - `leap_integration.py`: Tensorleap integration entrypoint
@@ -99,6 +107,9 @@ screen -dmS sim-rounds bash -lc 'cd /home/ubuntu/NVIDIA-Isaac-Sim && python simu
   --round-config simulation_calibration_loop/theme_rounds.yaml \
   --workspace-root /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/round_workspaces'
 ```
+### Known Issues
+
+- Embedding reuse through the historical pool is still not working the way I wanted. In practice, past embeddings are often rebuilt instead of being cleanly reused across iterations.
 
 Run a single config:
 
@@ -148,18 +159,6 @@ Each iteration directory contains:
 - `yamls/`: materialized SDG YAML files for that batch
 - `outputs/`: Isaac output folders and logs
 - `cache/`: cached synthetic embeddings
-
-### Known Issues
-
-- Embedding reuse through the historical pool is still not working the way I wanted. In practice, past embeddings are often rebuilt instead of being cleanly reused across iterations.
-
-## AWS / Infra
-
-Saved best runs are in `s3://nvidia-isaac-bucket/`, and the loop runs are mainly under `s3://nvidia-isaac-bucket/optuna-ec2/`.
-
-There is an instance ready to use called `nvidia`. Start it, connect, and enjoy.
-
-Codex is installed there for my user, so have fun with it. Use it in `screen` so it will not disconnect when you do.
 
 ## Training Notes
 
