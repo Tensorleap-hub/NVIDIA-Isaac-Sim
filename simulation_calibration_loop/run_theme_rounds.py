@@ -122,6 +122,15 @@ def _write_round_config(
     project_name = str(raw["project_name"])
     raw["project_name"] = f"{project_name}{round_suffix}"
 
+    base_pool = raw.get("base_pool") or {}
+    if base_pool.get("enabled") and not base_pool.get("state_path"):
+        promoted_baseline_dir = raw.get("promoted_baseline_dir")
+        if promoted_baseline_dir:
+            base_pool["state_path"] = str(Path(promoted_baseline_dir) / "base_pool.json")
+        elif workspace_root is not None:
+            base_pool["state_path"] = str((workspace_root / "base_pool.json").resolve())
+        raw["base_pool"] = base_pool
+
     destination_path = destination_dir / f"{source_config_path.stem}{round_suffix}.yaml"
     destination_path.write_text(yaml.safe_dump(raw, sort_keys=False))
     return destination_path

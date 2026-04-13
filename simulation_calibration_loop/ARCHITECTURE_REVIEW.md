@@ -108,7 +108,7 @@ So all real workflow logic starts inside the controller.
 ### Controller startup
 
 In
-[`SimulationCalibrationController.__init__()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py#L45),
+[`SimulationCalibrationController.__init__()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py),
 the controller performs the static setup:
 
 1. Load all seed YAMLs from `seed_config_dir`.
@@ -116,9 +116,11 @@ the controller performs the static setup:
 3. Infer the full flattening schema from the seed family.
 4. Filter that schema through `search_space.include` and `search_space.exclude`.
 5. Build the seed rows for iteration 0.
-6. Infer parameter bounds and types for Optuna from the seed metadata.
-7. Build the `ExperimentRunner`.
-8. Build the `DINOv2Embedder`.
+6. Build a full-schema view of the seed family for diversity metadata.
+7. Infer parameter bounds and types for Optuna from the seed metadata.
+8. Build the `ExperimentRunner`.
+9. Build the `DINOv2Embedder`.
+10. Build the optional `BasePoolManager` and bootstrap it from the seed YAML family when `base_pool.enabled` is true.
 
 At that point the controller knows:
 
@@ -126,45 +128,54 @@ At that point the controller knows:
 - how to flatten and reconstruct configs
 - what Optuna bounds to use
 - how to run Isaac and embed images
+- whether future theme stages should materialize from a sampled pool entry or from the legacy single baseline template
 
 
 ### Real reference setup
 
 At the start of
-[`run()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py#L111),
+[`run()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py),
 the controller:
 
 1. starts the UI
 2. computes or loads cached real embeddings via
-   [`_prepare_real_embeddings()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py#L179)
+   [`_prepare_real_embeddings()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py)
 3. sets those real embeddings into the Optuna runner
 4. loads `state.json`
 5. replays completed iterations into the in-memory study
+6. rehydrates the persistent base pool from checkpointed artifacts when the pool is enabled
+7. refreshes the promoted single best YAML and optional S3 snapshot state
 
 The real embeddings are the fixed target distribution for the whole loop.
 
 
 ### How one iteration works
 
-Each iteration has three phases: generate, optimize, persist.
+Each iteration still has three phases: generate, optimize, persist. The new pool
+logic wraps those phases but does not change the Optuna objective or the theme
+ordering.
 
 #### 1. Generate
 
 Generation happens in
-[`_materialize_and_execute_iteration()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py#L249).
+[`_materialize_and_execute_iteration()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py).
 
 For each current row:
 
 1. create a run id like `iter003_run002`
-2. materialize a nested Isaac YAML from the flat Optuna-style parameter row
-3. force `run.data_dir` to the iteration-specific output directory
-4. write the YAML under `iteration_xxx/yamls/`
-5. look for existing RGB files under `outputs/<run_id>/Camera/rgb`
-6. if needed, copy RGBs from a configured synthetic base directory
-7. if still needed, launch Isaac
-8. collect generated RGBs from `Camera/rgb`
-9. embed those RGB images with DINOv2
-10. create a `RunArtifact`
+2. choose the row's base config:
+   - seed/default config on the first iteration, or
+   - a sampled pool member when `base_pool.enabled` is true, or
+   - the legacy single baseline template when the pool is disabled
+3. materialize a nested Isaac YAML from the flat Optuna-style parameter row on top of that chosen base config
+4. force `run.data_dir` to the iteration-specific output directory
+5. write the YAML under `iteration_xxx/yamls/`
+6. look for existing RGB files under `outputs/<run_id>/Camera/rgb`
+7. if needed, try to reuse a matching artifact bundle from `synthetic_rgb_base_dir`
+8. if still needed, launch Isaac
+9. collect generated RGBs from `Camera/rgb`
+10. embed those RGB images with DINOv2, unless a matching embedding cache was also reused
+11. create a `RunArtifact`
 
 The `RunArtifact` stores:
 
@@ -176,11 +187,12 @@ The `RunArtifact` stores:
 - image count
 - flattened parameters
 - optional Optuna trial number
+- originating base-pool entry id and lineage when pool sampling was used
 
 #### 2. Optimize
 
 Optimization happens in
-[`_run_optimizer_iteration()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py#L329).
+[`_run_optimizer_iteration()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py).
 
 That method:
 
@@ -201,15 +213,18 @@ which is `mmd_rbf`.
 #### 3. Persist
 
 Back in
-[`run()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py#L128),
+[`run()`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/controller.py),
 the controller:
 
 1. writes objective values back into the run artifacts
-2. queries the current best trials from Optuna
-3. updates the UI
-4. appends a completed iteration record to `state.json`
-5. optionally exports the current top runs to S3
-6. uses the returned suggestions as the input rows for the next iteration
+2. admits successful artifacts into the persistent base pool when enabled
+3. queries the current best trials from Optuna
+4. samples pool members for the next batch of rows when enabled
+5. updates the UI
+6. appends a completed iteration record to `state.json`
+7. refreshes `best.yaml` / `best.json` as the backward-compatible single-best export
+8. optionally exports the current top runs to S3
+9. uses the returned suggestions as the input rows for the next iteration
 
 
 ### Seed trials vs Optuna-issued trials
@@ -227,6 +242,44 @@ Suggestions returned by Optuna are different:
 - when they come back from Isaac evaluation, they are completed with `tell(...)`
 
 That distinction is what makes the iterative ask/tell loop valid after the initial seed batch.
+
+
+### Baseline and pool behavior
+
+There are now two related but distinct baseline mechanisms:
+
+- `promoted_baseline_dir/best.yaml`
+  - this is still the single best completed YAML
+  - it remains the backward-compatible promoted artifact for existing workflows
+- `base_pool.json`
+  - this is the persistent bounded pool of reusable base candidates
+  - it stores more than one viable starting point for later theme stages
+
+The pool is intentionally not "top 50 by score". It keeps a mix of:
+
+- elites by objective value
+- diverse entries
+- recent challengers
+
+Weak near-duplicates are removed first during pruning. Diversity is computed
+from embedding centroids when available, with normalized flattened-parameter
+distance as a fallback.
+
+
+### Theme rounds
+
+[`run_theme_rounds.py`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/run_theme_rounds.py)
+still runs the themed configs in a fixed order for each round.
+
+The important change is persistence:
+
+- if `base_pool.enabled` is false, later themed runs continue to rely on the promoted `best.yaml`
+- if `base_pool.enabled` is true and `base_pool.state_path` is omitted, the derived theme configs all share one `base_pool.json` under `promoted_baseline_dir`
+
+That makes later theme stages a backward-compatible superset of the old
+behavior: they still see the same stable real-embedding target and the same
+theme ordering, but they can start from a bounded pool of prior strong and
+diverse bases instead of one rolling best YAML.
 
 
 ## Files
@@ -276,6 +329,7 @@ It is responsible for:
 - launching Isaac
 - streaming Isaac logs into per-run log files
 - loading and saving `state.json`
+- defining `RunArtifact`, including base-pool lineage fields
 
 
 ### `controller.py`
@@ -289,9 +343,11 @@ It is responsible for:
 - real embedding preparation
 - iteration materialization and generation
 - Optuna evaluation
+- persistent base-pool admission, pruning, and sampling integration
 - UI updates
 - resume/replay
 - checkpoint persistence
+- promoted single-best baseline refresh
 - optional S3 export
 
 If there is one file to review first for pipeline correctness, it is this one.

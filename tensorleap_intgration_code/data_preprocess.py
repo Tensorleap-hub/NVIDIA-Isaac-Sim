@@ -401,6 +401,7 @@ def _load_extended_records() -> list:
 
 _OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
 _OPTUNA_TRIAL_DIR_RE = re.compile(r"^trial_(?P<trial>\d+)$")
+_OPTUNA_FLAT_RGB_RE = re.compile(r"^rgb_(?P<frame>\d+)\.png$")
 
 
 def _parse_kitti_annotation_file(annotation_path: str) -> list[dict]:
@@ -420,6 +421,37 @@ def _parse_kitti_annotation_file(annotation_path: str) -> list[dict]:
                 "category_id": 11,
                 "bbox": [x1, y1, x2 - x1, y2 - y1],
             })
+    return anns
+
+
+def _parse_basic_writer_bbox_annotations(annotation_path: Path, label_path: Path) -> list[dict]:
+    anns = []
+    if not annotation_path.is_file() or not label_path.is_file():
+        return anns
+
+    with label_path.open("r") as f:
+        label_payload = json.load(f)
+    labels_by_id = label_payload if isinstance(label_payload, dict) else {}
+    boxes = np.load(annotation_path, allow_pickle=False)
+
+    for box in boxes:
+        semantic_id = int(box["semanticId"])
+        label_entry = labels_by_id.get(str(semantic_id), {})
+        class_name = str(label_entry.get("class", "")).lower()
+        if class_name not in _SYNTH_CLASS_TO_IDX:
+            continue
+
+        x1 = float(box["x_min"])
+        y1 = float(box["y_min"])
+        x2 = float(box["x_max"])
+        y2 = float(box["y_max"])
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        anns.append({
+            "category_id": 11,
+            "bbox": [x1, y1, x2 - x1, y2 - y1],
+        })
     return anns
 
 
@@ -470,15 +502,33 @@ def _append_optuna_experiment_records(
     rank_value = summary.get("rank")
     objective_value = summary.get("objective_value")
 
-    for i in range(num_frames):
-        img_path = rgb_dir / f"{i}.png"
-        if not img_path.is_file():
-            continue
-        ann_path = ann_dir / f"{i}.txt"
-        anns = _parse_kitti_annotation_file(str(ann_path))
+    frame_records: list[tuple[int, Path, list[dict]]] = []
+    if rgb_dir.is_dir():
+        for i in range(num_frames):
+            img_path = rgb_dir / f"{i}.png"
+            if not img_path.is_file():
+                continue
+            ann_path = ann_dir / f"{i}.txt"
+            frame_records.append((i, img_path, _parse_kitti_annotation_file(str(ann_path))))
+    else:
+        flat_rgb_paths = sorted(
+            path for path in experiment_dir.iterdir()
+            if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
+        )
+        for img_path in flat_rgb_paths:
+            frame_match = _OPTUNA_FLAT_RGB_RE.match(img_path.name)
+            if frame_match is None:
+                continue
+            frame_id = int(frame_match.group("frame"))
+            ann_path = experiment_dir / f"bounding_box_2d_tight_{frame_id:04d}.npy"
+            label_path = experiment_dir / f"bounding_box_2d_tight_labels_{frame_id:04d}.json"
+            frame_records.append(
+                (frame_id, img_path, _parse_basic_writer_bbox_annotations(ann_path, label_path))
+            )
 
+    for image_id, img_path, anns in frame_records:
         records.append({
-            "image_id": i,
+            "image_id": image_id,
             "path": str(img_path),
             "width": orig_w,
             "height": orig_h,
