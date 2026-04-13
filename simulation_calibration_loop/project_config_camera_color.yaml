@@ -1,6 +1,5 @@
 project_name: dinov2_subset3_optuna_loop_camera_color
 workspace_dir: ./workspace_camera_color
-baseline_state_path: ./workspace_run3/state.json
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/camera-color/
 synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_run3/iteration_000/outputs
 seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
