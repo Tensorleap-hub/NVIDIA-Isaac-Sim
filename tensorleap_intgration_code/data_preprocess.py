@@ -87,6 +87,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     synth_records = _load_synth_records()
     extended_records = _load_extended_records()
     optuna_records = _load_optuna_records()
+    optuna_test_records = _load_optuna_test_records()
 
     max_samples = CONFIG.get("max_samples")
     if max_samples is not None:
@@ -104,8 +105,16 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
             r["experiment"],
         )
     )
+    optuna_test_records.sort(
+        key=lambda r: (
+            str(r.get("optuna_test_name", "")),
+            str(r.get("run_name", "")),
+            r["experiment"],
+            r["image_id"],
+        )
+    )
 
-    additional_records = synth_records + extended_records + optuna_records
+    additional_records = synth_records + extended_records + optuna_records + optuna_test_records
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
@@ -120,6 +129,11 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
                 f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
                 f"iter{r['iteration']}_run{r['run_number']}_"
                 f"{r['experiment']}_frame{r['image_id']}"
+            )
+        elif r["subset"] == "optuna_tests":
+            sample_id = (
+                f"optuna_tests_{r.get('optuna_test_name', 'unknown')}_"
+                f"{r.get('run_name', 'unknown')}_{r['experiment']}_frame{r['image_id']}"
             )
         else:
             raise ValueError(f"Unsupported additional subset {r['subset']!r}")
@@ -648,6 +662,122 @@ def _load_optuna_records() -> list:
         records = sampled
 
     return records
+
+
+def _load_optuna_test_records() -> list:
+    """
+    Load frames from optuna_tests trees shaped like:
+      - test_{name}/{run_name}/rgb_XXXX.png
+      - test_{name}/{run_name}/.../rgb_XXXX.png
+
+    `run_config.yaml` is resolved from the frame directory first and then the
+    run root as a fallback.
+    """
+    optuna_tests_cfg = CONFIG.get("optuna_tests_data", {})
+    if not optuna_tests_cfg.get("additional", True):
+        return []
+
+    base = optuna_tests_cfg.get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    base_path = Path(base)
+    records = []
+
+    for test_dir in sorted(path for path in base_path.iterdir() if path.is_dir()):
+        test_name = test_dir.name
+        for run_dir in sorted(path for path in test_dir.iterdir() if path.is_dir()):
+            _append_optuna_test_run_records(
+                records=records,
+                test_name=test_name,
+                run_name=run_dir.name,
+                run_dir=run_dir,
+            )
+
+    num_samples = optuna_tests_cfg.get("num_samples")
+    if num_samples is not None:
+        by_run = {}
+        for record in records:
+            run_key = (record.get("optuna_test_name"), record.get("run_name"))
+            by_run.setdefault(run_key, []).append(record)
+        sampled = []
+        rng = random.Random(42)
+        for run_records in by_run.values():
+            if len(run_records) > num_samples:
+                rng.shuffle(run_records)
+                sampled.extend(run_records[:num_samples])
+            else:
+                sampled.extend(run_records)
+        records = sampled
+
+    return records
+
+
+def _append_optuna_test_run_records(
+    *,
+    records: list,
+    test_name: str,
+    run_name: str,
+    run_dir: Path,
+) -> None:
+    frame_dirs = _discover_optuna_test_frame_dirs(run_dir)
+    for frame_dir in frame_dirs:
+        run_config_path = frame_dir / "run_config.yaml"
+        if not run_config_path.is_file():
+            run_config_path = run_dir / "run_config.yaml"
+        if not run_config_path.is_file():
+            continue
+
+        with run_config_path.open("r") as f:
+            exp_config = yaml.safe_load(f)
+        run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+        orig_w = int(run_config.get("render", {}).get("width", 960))
+        orig_h = int(run_config.get("render", {}).get("height", 544))
+        relative_experiment = frame_dir.relative_to(run_dir)
+        experiment_name = run_name if str(relative_experiment) == "." else f"{run_name}__{relative_experiment.as_posix().replace('/', '__')}"
+
+        flat_rgb_paths = sorted(
+            path for path in frame_dir.iterdir()
+            if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
+        )
+        for img_path in flat_rgb_paths:
+            frame_match = _OPTUNA_FLAT_RGB_RE.match(img_path.name)
+            if frame_match is None:
+                continue
+            frame_id = int(frame_match.group("frame"))
+            ann_path = frame_dir / f"bounding_box_2d_tight_{frame_id:04d}.npy"
+            label_path = frame_dir / f"bounding_box_2d_tight_labels_{frame_id:04d}.json"
+            anns = _parse_basic_writer_bbox_annotations(ann_path, label_path)
+            records.append({
+                "image_id": frame_id,
+                "path": str(img_path),
+                "width": orig_w,
+                "height": orig_h,
+                "subset": "optuna_tests",
+                "anns": anns,
+                "run_config": run_config,
+                "run_number": -1,
+                "run_name": run_name,
+                "experiment": experiment_name,
+                "optuna_test_name": test_name,
+            })
+
+
+def _discover_optuna_test_frame_dirs(run_dir: Path) -> list[Path]:
+    direct_rgb_paths = sorted(
+        path for path in run_dir.iterdir()
+        if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
+    )
+    if direct_rgb_paths:
+        return [run_dir]
+
+    frame_dirs = sorted({
+        path.parent
+        for path in run_dir.rglob("rgb_*.png")
+        if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
+    })
+    return frame_dirs
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-extends: shared/baseline.yaml
+extends: base.yaml
 run:
   data_dir: /isaac-sim/palletjack_sdg/palletjack_data/experiment_mean_std/test_camera_height/camera_height_low_extreme
 

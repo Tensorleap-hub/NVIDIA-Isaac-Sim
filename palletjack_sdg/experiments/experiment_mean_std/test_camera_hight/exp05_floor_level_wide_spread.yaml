@@ -1,4 +1,4 @@
-extends: ../../../sdg_config_mean_std.yaml
+extends: base.yaml
 
 run:
   num_frames: 128
