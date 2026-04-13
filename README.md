@@ -1,26 +1,79 @@
 # Synthetic Data Generation Training Workflow
 
-This repository contains two connected workflows for warehouse synthetic data:
+This repository contains two related warehouse synthetic-data workflows:
 
-- Isaac Sim synthetic data generation for palletjack detection - to be used with Tensorleap recommendations
+- Isaac Sim synthetic data generation for palletjack detection, used with Tensorleap recommendations
 - an outer simulation calibration loop that uses DINOv2 embeddings and Optuna to search for better SDG parameter settings against real LOCO images
 
-The current SDG runner is [`palletjack_sdg/standalone_palletjack_sdg_mean_std.py`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/palletjack_sdg/standalone_palletjack_sdg_mean_std.py), and the base config it consumes is [`palletjack_sdg/sdg_config_mean_std.yaml`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/palletjack_sdg/sdg_config_mean_std.yaml).
+The current SDG runner is `palletjack_sdg/standalone_palletjack_sdg_mean_std.py`, and the base config it consumes is `palletjack_sdg/sdg_config_mean_std.yaml`.
 
+## Overview
 
-## Guides
-- Simulation calibration loop details: [simulation_calibration_loop/README.md](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/README.md)
+Use this repository in one of two ways:
 
-## AWS 
-Saved best runs are in  `s3://nvidia-isaac-bucket/` paricularly the runs from the loop are in
-[`https://nvidia-isaac-bucket.s3.us-east-1.amazonaws.com/optuna-ec2/`]
+- Tensorleap workflow: generate data, evaluate it in Tensorleap, export suggestions, convert the CSV into new YAMLs, and generate again
+- Simulation calibration loop: optimize Isaac SDG parameters directly against real LOCO images with DINOv2 + Optuna
 
-There is a instance ready to be used call `nvidia` just, start, connect and enjoy!
-Codex is installed with my user there so have fun with it ! Use it in screen so it won't disconnect when you do.
+Detailed loop documentation lives in `simulation_calibration_loop/README.md`.
 
-## Repository Workflow
+## Current Status
 
-The main calibration workflow is:
+- The Tensorleap loop did not fully converge in my earlier runs. It looked like the suggestions kept expanding the distribution again and again. I may have moved to the EC2 loop too early and not verified every stage.
+- I started testing targeted cases such as very high and very low camera setups and noise suggestions under `palletjack_sdg/experiments/experiment_mean_std/`.
+- The standalone simulation calibration loop with DINOv2 embeddings does seem to converge: roughly from an initial distance around `0.6` to a current best around `0.35`, with more iterations still running.
+
+## Important Files
+
+- `leap_integration.py`: Tensorleap integration entrypoint
+- `simulation_calibration_loop/README.md`: detailed calibration-loop guide
+- `simulation_calibration_loop/project_config.yaml`: default loop config
+- `simulation_calibration_loop/theme_rounds.yaml`: ordered theme-round schedule
+- `simulation_calibration_loop/run_main_loop_with_retry.sh`: retry wrapper for one loop config
+- `simulation_calibration_loop/run_with_loop_venv.sh`: run loop scripts inside the dedicated loop venv
+- `simulation_calibration_loop/run_theme_rounds.py`: themed multi-config loop runner
+- `palletjack_sdg/standalone_palletjack_sdg_mean_std.py`: Isaac Sim SDG runner
+- `palletjack_sdg/sdg_config_mean_std.yaml`: base mean/std SDG config
+- `palletjack_sdg/experiments/generate_configs_mean_std.py`: generate YAMLs from Tensorleap CSV suggestions
+
+## Tensorleap Workflow
+
+The palletjack SDG config expresses randomized parameters as normal-distribution mean/std pairs.
+
+Useful locations:
+
+- `palletjack_sdg/experiments/experiment_mean_std/base_v2`: current base experiment family
+- `palletjack_sdg/experiments/experiment_mean_std/`: generated experiments, suggestion folders, and ad hoc tests
+
+Typical flow:
+
+1. Generate data on EC2.
+2. Upload the generated data to `s3://nvidia-isaac-bucket/` and download it locally if needed.
+3. Evaluate the run in Tensorleap and export a suggestions CSV.
+4. Convert the CSV into new Isaac YAMLs.
+5. Push changes, pull them on EC2, and generate again.
+
+Example generation command:
+
+```bash
+screen -dmS noise bash -lc 'cd /home/ubuntu/NVIDIA-Isaac-Sim/palletjack_sdg && bash run_experiments_mean_std.sh experiments/experiment_mean_std/base_v2 64'
+```
+
+Example YAML generation command:
+
+```bash
+python palletjack_sdg/experiments/generate_configs_mean_std.py \
+  --csv palletjack_sdg/experiments/EXP-NAME/SUGGESTIONS_CSV.csv
+```
+
+## Simulation Calibration Loop
+
+The simulation calibration loop uses:
+
+- DINOv2 as the feature extractor
+- real LOCO subset-3 images as the reference distribution
+- `calibration_optuna` as the suggestion engine
+
+The main workflow is:
 
 1. Start from one or more seed Isaac YAML configs.
 2. Flatten selected SDG parameters into an Optuna search space.
@@ -28,74 +81,26 @@ The main calibration workflow is:
 4. Materialize candidate parameter rows back into Isaac YAML files.
 5. Run Isaac Sim to generate synthetic images with the palletjack SDG script.
 6. Compute DINOv2 embeddings for the synthetic outputs.
-7. Score synthetic vs. real distance with `calibration_optuna`.
+7. Score synthetic-vs-real distance with `calibration_optuna`.
 8. Ask Optuna for the next batch of SDG parameter suggestions.
-9. Repeat for `N` iterations while tracking the current best YAMLs.
+9. Repeat for `N` iterations while tracking the best YAMLs.
 
+The YAMLs in `simulation_calibration_loop/` define themed experiments. I split them into relatively orthogonal optimization stages.
 
-## Important Files
+Two things are supposed to happen between runs:
 
-- [`run_dinov2_optuna_loop.py`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/run_dinov2_optuna_loop.py): main Python entrypoint for the outer loop
-- [`simulation_calibration_loop/project_config.yaml`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/project_config.yaml): default loop config
-- [`simulation_calibration_loop/run_main_loop.sh`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/run_main_loop.sh): convenience wrapper for the loop
-- [`simulation_calibration_loop/run_with_loop_venv.sh`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/run_with_loop_venv.sh): run any loop script inside the dedicated loop venv
-- [`palletjack_sdg/standalone_palletjack_sdg_mean_std.py`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/palletjack_sdg/standalone_palletjack_sdg_mean_std.py): Isaac Sim SDG runner
-- [`palletjack_sdg/sdg_config_mean_std.yaml`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/palletjack_sdg/sdg_config_mean_std.yaml): base mean/std SDG config
-- [`palletjack_sdg/experiments/generate_configs_mean_std.py`](...) generate yaml from tensorleap csv 
+- the best base configuration is propagated forward, because not all parameters are optimized in each run
+- curated initial configurations are carried forward into later Optuna runs through the base pool
 
-
-## Tensorleap Flow with Palletjack SDG
-
-The palletjack SDG config expresses randomized parameters as normal distribution mean/std pairs instead.
-
-Under `palletjack_sdg/experiments` you can find the yamls used for generating data. 
-`palletjack_sdg/experiments/experiment_mean_std/base_v2` stores the most recent base configuration to start the process
-
-Flow with Tensorleap:
-1. Create data in ec2 using
-```bash
-screen -dmS noise bash -lc 'bash run_experiments_mean_std.sh experiments/experiment_mean_std/basev2 64'
-```
-2. move the data to s3 bucket `s3://nvidia-isaac-bucket/` and download to local
-3. Evaluate in Tensorleap and get csv - place csv in new folder under the experiments
-4. Build yamls from the csv using 
-```bash
-python palletjack_sdg/experiments/generate_configs_mean_std.py 
-       --csv palletjack_sdg/experiments/EXP-NAME/SUGGESTIONS_CSV.csv
-```
-5. push data --> pull in ec2
-6. Create data and repeat
-
-
-## Simulation Calibration Loop
-See more elaborate [`simulation_calibration_loop/README.md`](...)
-The loop uses:
-
-- DINOv2 as the feature extractor
-- real LOCO subset-3 images as the reference distribution
-- `calibration_optuna` as the suggestion engine - updated a bit from the version in the engine
-
-Yamls in the folder `simulation_calibration_loop` configure a base experiment.
-
-### Main Run Commands
-
-Run the loop workflow:
-In this workflow the yamls are run one by one - starting from a configured base state, 
-I divided them to thematic orthogonal optimizations. 
-Two key things happen between runs:
-1. Best Base configuration os propagated (as not all params are optimized in each run)
-2. The initial configurations, used as the base for each optuna run, are curated and added after each iteration.
-Todo: they are soppose the reuse the past embeddings in the pool, but this does not work and they are rebuilding them each iteration. This should be fixed. 
+Run all theme rounds:
 
 ```bash
-screen -S sim-rounds -dm bash -lc \
-'cd /home/ubuntu/NVIDIA-Isaac-Sim && python simulation_calibration_loop/run_theme_rounds.py \
- --round-config simulation_calibration_loop/theme_rounds.yaml \
- --workspace-root /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/round_workspaces'
+screen -dmS sim-rounds bash -lc 'cd /home/ubuntu/NVIDIA-Isaac-Sim && python simulation_calibration_loop/run_theme_rounds.py \
+  --round-config simulation_calibration_loop/theme_rounds.yaml \
+  --workspace-root /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/round_workspaces'
 ```
 
-### Run each config separately:
-Each config can be run by itself:
+Run a single config:
 
 ```bash
 bash simulation_calibration_loop/run_main_loop_with_retry.sh \
@@ -104,7 +109,7 @@ bash simulation_calibration_loop/run_main_loop_with_retry.sh \
 
 ### Key Config Fields
 
-The main loop config is [`simulation_calibration_loop/project_config.yaml`](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/simulation_calibration_loop/project_config.yaml).
+The main loop config is `simulation_calibration_loop/project_config.yaml`.
 
 Important fields:
 
@@ -115,7 +120,7 @@ Important fields:
 - `real_annotations_file`: LOCO annotations file
 - `max_iterations`: number of optimization iterations
 - `iteration_batch_size`: number of SDG configs evaluated per iteration
-- `top_n_best_trials`: how many best trials to keep/export
+- `top_n_best_trials`: how many best trials to keep or export
 - `isaac.script_path`: Isaac SDG runner, currently `../palletjack_sdg/standalone_palletjack_sdg_mean_std.py`
 - `search_space`: parameter themes and include/exclude controls for optimization
 
@@ -144,10 +149,21 @@ Each iteration directory contains:
 - `outputs/`: Isaac output folders and logs
 - `cache/`: cached synthetic embeddings
 
+### Known Issues
+
+- Embedding reuse through the historical pool is still not working the way I wanted. In practice, past embeddings are often rebuilt instead of being cleanly reused across iterations.
+
+## AWS / Infra
+
+Saved best runs are in `s3://nvidia-isaac-bucket/`, and the loop runs are mainly under `s3://nvidia-isaac-bucket/optuna-ec2/`.
+
+There is an instance ready to use called `nvidia`. Start it, connect, and enjoy.
+
+Codex is installed there for my user, so have fun with it. Use it in `screen` so it will not disconnect when you do.
 
 ## Training Notes
 
-The repository still includes the original local and cloud guides for training on generated data, including TAO-based workflows. For those steps, start from:
+The repository still includes the original local and cloud guides for training on generated data, including TAO-based workflows. Start from:
 
-- [local/README.md](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/local/README.md)
-- [cloud/README.md](/Users/orram/Tensorleap/synthetic_data_generation_training_workflow/cloud/README.md)
+- `local/README.md`
+- `cloud/README.md`
