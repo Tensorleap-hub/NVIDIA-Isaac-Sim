@@ -90,7 +90,7 @@ def run_optuna_loop(
         "optimization_metrics": ["mmd_rbf"],
         "mmd_max_samples": MMD_MAX_SAMPLES,
         "optimizer": {
-            "n_startup_trials": 60,
+            "n_startup_trials": 10,
             "multivariate": True,
         },
     }

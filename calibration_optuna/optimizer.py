@@ -94,8 +94,10 @@ class OptunaOptimizer:
         # Ensure experiment directory exists
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create or load Optuna study with SQLite persistence
-        #storage = f"sqlite:///{self.study_path}"
+        journal_path = self.experiment_dir / "optuna_journal.log"
+        storage = optuna.storages.JournalStorage(
+            optuna.storages.JournalFileBackend(str(journal_path))
+        )
         study_name = config.get('experiment_name', 'optuna_study')
 
         # Get optimizer config
@@ -116,7 +118,7 @@ class OptunaOptimizer:
         # Multi-objective optimization with configurable metrics
         self.study = optuna.create_study(
             study_name=study_name,
-            storage=None,
+            storage=storage,
             load_if_exists=True,
             directions=['minimize'] * n_objectives,  # minimize all metrics
             sampler=optuna.samplers.TPESampler(

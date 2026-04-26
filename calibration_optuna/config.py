@@ -26,7 +26,7 @@ DEFAULT_CONFIG: Dict = {
     'convergence_threshold': 0.05,
     'early_stop_patience': 3,
     'optimizer': {
-        'n_startup_trials': 60,
+        'n_startup_trials': 10,
         'multivariate': True,
     },
     'max_top_n_suggestions': 100,
