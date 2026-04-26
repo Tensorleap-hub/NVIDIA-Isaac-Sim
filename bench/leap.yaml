@@ -1,8 +1,8 @@
 projectId: 69edf8584978d3af7e703c6c
-secretId:
-entryFile: "leap_integration.py"
-pythonVersion: py310
+secretId: ""
+entryFile: leap_integration.py
 include:
-  - leap_integration.py
-  - benchmark_integration/
-
+    - leap_integration.py
+    - benchmark_integration/
+    - requirements.txt
+pythonVersion: py310
