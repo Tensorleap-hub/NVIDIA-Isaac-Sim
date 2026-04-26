@@ -3,6 +3,5 @@ secretId: ""
 entryFile: leap_integration.py
 include:
     - leap_integration.py
-    - benchmark_integration/
     - requirements.txt
 pythonVersion: py310
