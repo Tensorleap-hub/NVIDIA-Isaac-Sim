@@ -1,0 +1,10 @@
+{
+  "blur_sigma": 1.5,
+  "noise_std": 0.12,
+  "brightness_shift": 0.08,
+  "color_shift_r": 0.06,
+  "color_shift_g": -0.04,
+  "color_shift_b": 0.02,
+  "clutter_count": 7,
+  "background_id": 1
+}
