@@ -1,0 +1,1 @@
+f490d4b896b3fb92a341b36c4602f3d70b70e7c4f725636ead45dbadcd69a387  dinov2_vitb14_reg.onnx
