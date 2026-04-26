@@ -45,18 +45,13 @@ Continuous + discrete + categorical mix intentional — mirrors the real SDG sea
 Generated once from θ\* with M distinct RNG seeds. Proposed M = 500. Images written to `bench/data/real/` and not regenerated during benchmarking.
 
 ### 4.3 Evaluator
-- **Model:** `dinov2_vitb14_reg` preferred (matches `simulation_calibration_loop/project_config.yaml`), but any `dinov2_vitb14` variant is acceptable if the reg variant causes export issues.
+- **Model:** `dinov2_vits14` (ViT-S/14, 384-dim embeddings). Using the TL-verified ONNX from `onnx2keras/dinov2/dino-2-test.onnx`; hash committed to `bench/convergence/dinov2_onnx_hash.txt`.
 - **Preprocessing:** resize 256, center-crop 224, DINOv2-standard normalization.
-- **Export:** traced/exported to ONNX at a frozen version; both loops load this ONNX file.
+- **Export:** ONNX frozen at a fixed version; both loops load `dinov2_vits14.onnx`.
 - **Distance metric:** MMD over embeddings, `mmd_max_samples = 1000` (matching production config). Per-trial: generate N\_trial = 128 synthetic images (matches `num_frames` in the real seed configs), embed, compute MMD against cached real embeddings.
 
-> [!important] Prerequisite task (separate agent)
-> Export DINOv2 to ONNX and verify it loads successfully in Tensorleap before the benchmark can run on the TL side. Steps:
-> 1. Export `dinov2_vitb14_reg` (or fallback variant) to ONNX using `torch.onnx.export` with a representative input.
-> 2. Verify ONNX output parity against the PyTorch model (same input → embeddings within 1e-5).
-> 3. Upload the ONNX to TL and confirm it parses without errors.
-> 4. Commit the `.onnx` file + an integrity hash to `bench/convergence/`.
-> This is a blocker for Condition B (TL side) but not for Condition A (local Optuna loop).
+> [!note] ONNX model status
+> `dinov2_vits14.onnx` is TL-verified (tested with Tensorleap). The file is gitignored; regenerate with `export_dinov2.py` or copy from `onnx2keras/dinov2/dino-2-test.onnx`. The ONNX has fixed batch=1; `evaluator.py` handles this transparently.
 
 ### 4.4 Initial conditions
 - Same seed configs: a fixed set of 8 starting θ vectors, distributed across the search space (one per roughly stratified region). Same file, same order, used by both loops.
@@ -118,7 +113,7 @@ Thresholds `ε_θ`, `ε_obj` are set after one pilot Optuna run so they're calib
 
 ## 9. Assumptions / open questions
 
-1. **TL consumes the ONNX DINOv2 natively.** To confirm: does TL's current ONNX pipeline support the `dinov2_vitb14_reg` architecture (registers, input shape, pooling output) without modification? If not, what's the surgery?
+1. **TL consumes the ONNX DINOv2 natively.** Confirmed: `dinov2_vits14.onnx` (from `onnx2keras/dinov2/dino-2-test.onnx`) loads in TL without errors.
 2. **TL CSV row format.** Column names must match the toy's θ key set exactly, or a mapping layer is needed. To be documented once we have a sample CSV.
 3. **TL iteration cadence.** How does a "TL iteration" actually get triggered — manual Insights export, scheduled job, API call? The benchmark needs to script this to be reproducible.
 4. **TL seed / sampler determinism.** Is TL's suggestion engine seedable? If not, multi-seed runs are needed on the TL side to get a distribution, not a single curve.
@@ -149,7 +144,7 @@ bench/
     data/
       real/                        # 500 images generated from θ*
       real_embeddings.npy          # cached once
-    dinov2_vitb14_reg.onnx         # frozen evaluator
+    dinov2_vits14.onnx             # frozen evaluator (gitignored)
     runs/
       optuna_seed42/               # per-run metrics + logs
       tl_seed42/

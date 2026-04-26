@@ -14,7 +14,7 @@ _TRANSFORM = transforms.Compose([
     transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
 ])
 
-DEFAULT_ONNX_PATH = Path(__file__).parent / "dinov2_vitb14_reg.onnx"
+DEFAULT_ONNX_PATH = Path(__file__).parent / "dinov2_vits14.onnx"
 
 
 def mmd_rbf(X: np.ndarray, Y: np.ndarray, max_samples: int = 1000) -> float:
@@ -36,10 +36,11 @@ class Embedder:
             import onnxruntime as ort
             self._session = ort.InferenceSession(str(onnx_path))
             self._input_name = self._session.get_inputs()[0].name
+            self._onnx_batch = self._session.get_inputs()[0].shape[0]
             self._backend = "onnx"
         else:
             import torch
-            self._model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
+            self._model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
             self._model.eval()
             self._device = torch.device(device)
             self._model.to(self._device)
@@ -52,7 +53,13 @@ class Embedder:
         for i in range(0, len(tensors), batch_size):
             batch = torch.stack(tensors[i : i + batch_size])
             if self._backend == "onnx":
-                out = self._session.run(None, {self._input_name: batch.numpy()})[0]
+                if isinstance(self._onnx_batch, int):
+                    out = np.concatenate([
+                        self._session.run(None, {self._input_name: t.unsqueeze(0).numpy()})[0]
+                        for t in batch
+                    ], axis=0)
+                else:
+                    out = self._session.run(None, {self._input_name: batch.numpy()})[0]
             else:
                 with torch.inference_mode():
                     out = self._model(batch.to(self._device)).cpu().numpy()

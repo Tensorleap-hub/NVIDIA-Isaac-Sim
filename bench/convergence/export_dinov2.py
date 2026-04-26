@@ -14,7 +14,7 @@ import torch.nn as nn
 OPSET = 14
 INPUT_SHAPE = (1, 3, 224, 224)
 PARITY_TOL = 1e-4
-DEFAULT_OUT = Path(__file__).parent / "dinov2_vitb14.onnx"
+DEFAULT_OUT = Path(__file__).parent / "dinov2_vits14.onnx"
 HASH_FILE = Path(__file__).parent / "dinov2_onnx_hash.txt"
 
 
@@ -28,14 +28,14 @@ class _DinoWrapper(nn.Module):
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser("Export dinov2_vitb14 to ONNX and verify parity")
+    p = argparse.ArgumentParser("Export dinov2_vits14 to ONNX and verify parity")
     p.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
     p.add_argument("--out", type=Path, default=DEFAULT_OUT)
     return p.parse_args()
 
 
 def load_model(device: str) -> torch.nn.Module:
-    model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
+    model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
     model.eval()
     model.to(torch.device(device))
     return model
@@ -88,7 +88,7 @@ def write_hash(out: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    print(f"Loading dinov2_vitb14 on {args.device}…")
+    print(f"Loading dinov2_vits14 on {args.device}…")
     model = load_model(args.device)
     print("Exporting to ONNX…")
     export(model, args.out, args.device)
