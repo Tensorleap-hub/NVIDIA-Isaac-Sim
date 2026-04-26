@@ -26,7 +26,7 @@ def _make_background(bg_id: int) -> np.ndarray:
     return np.clip(arr, 0.0, 1.0)
 
 
-def generate_images(theta: dict, n: int, seed: int) -> list:
+def generate_images(theta: dict, n: int, seed: int) -> list[Image.Image]:
     rng = np.random.RandomState(seed)
     bg = _make_background(int(theta["background_id"]))
     images = []
