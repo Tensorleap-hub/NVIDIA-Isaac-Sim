@@ -3,7 +3,7 @@ name = "synth-bench"
 version = "0.1.0"
 description = "Convergence benchmark: Optuna vs TL suggester"
 authors = []
-packages = [{include = "convergence"}]
+packages = [{include = "convergence"}, {include = "benchmark_integration"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -20,6 +20,7 @@ scikit-learn = ">=1.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
+code-loader = "*"
 
 [build-system]
 requires = ["poetry-core"]
