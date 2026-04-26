@@ -96,7 +96,7 @@ class OptunaOptimizer:
 
         journal_path = self.experiment_dir / "optuna_journal.log"
         storage = optuna.storages.JournalStorage(
-            optuna.storages.JournalFileBackend(str(journal_path))
+            optuna.storages.JournalFileStorage(str(journal_path))
         )
         study_name = config.get('experiment_name', 'optuna_study')
 
