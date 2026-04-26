@@ -70,9 +70,14 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         {"image_path": str(p), "data_type": "real", "simulation_type": ""}
         for p in sorted(_REAL_DIR.glob("*.png"))
     ]
-    iter_dirs = sorted(_DATA_ROOT.glob("tl_iter_*"))
-    latest = next((d / "metadata.csv" for d in reversed(iter_dirs) if (d / "metadata.csv").exists()), None)
-    meta_df = pd.read_csv(latest if latest else _METADATA_PATH)
+    dfs = []
+    if _METADATA_PATH.exists():
+        dfs.append(pd.read_csv(_METADATA_PATH))
+    for d in sorted(_DATA_ROOT.glob("tl_iter_*")):
+        p = d / "metadata.csv"
+        if p.exists():
+            dfs.append(pd.read_csv(p))
+    meta_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame(columns=["image_path"] + _THETA_KEYS)
     synth_records = [
         {"image_path": str(row["image_path"]), "data_type": "synth", "simulation_type": "simulation_1",
          **{k: float(row[k]) for k in _THETA_KEYS}}
