@@ -10,7 +10,7 @@ from calibration_optuna.metrics import compute_all_metrics, DistributionMetrics
 
 from .config import (
     THETA_STAR_PATH, N_ITERATIONS, N_TRIALS_PER_ITER, N_IMAGES_PER_TRIAL, SEED, RUNS_DIR,
-    THETA_KEYS, THETA_BOUNDS,
+    THETA_KEYS, THETA_BOUNDS, MMD_MAX_SAMPLES,
 )
 from .evaluator import Embedder
 from .harness import run_trial
