@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import List
 
@@ -9,9 +7,11 @@ import pandas as pd
 from PIL import Image
 
 from code_loader.contract.datasetclasses import PreprocessResponse, PredictionTypeHandler
-from code_loader.contract.enums import DatasetMetadataType, DataStateType
+from code_loader.contract.enums import DatasetMetadataType, DataStateType, LeapDataType
+from code_loader.contract.visualizer_classes import LeapImage
 from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_custom_loss,
+    tensorleap_custom_visualizer,
     tensorleap_gt_encoder,
     tensorleap_input_encoder,
     tensorleap_integration_test,
@@ -100,6 +100,14 @@ def domain_gt_encoder(idx: str, preprocess: PreprocessResponse) -> np.ndarray:
     return np.asarray(1.0 if preprocess.data[idx]["data_type"] == "synth" else 0.0, dtype=np.float32)
 
 
+@tensorleap_custom_visualizer(name="image", visualizer_type=LeapDataType.Image)
+def image_visualizer(image: np.ndarray) -> LeapImage:
+    if image.ndim == 4:
+        image = image[0]
+    img = (image.transpose(1, 2, 0) * _STD + _MEAN).clip(0, 1)
+    return LeapImage(data=(img * 255).astype(np.uint8))
+
+
 @tensorleap_custom_loss("embedding_l2")
 def embedding_l2_loss(embedding: np.ndarray, domain: np.ndarray) -> np.ndarray:
     return np.asarray(np.mean(embedding ** 2), dtype=np.float32)
@@ -137,6 +145,7 @@ def check_integration(idx, subset):
     domain = domain_gt_encoder(idx, subset)
     raw = model.run(None, {"img": image})[0]
     _ = embedding_l2_loss(raw, domain)
+    _ = image_visualizer(image)
     _ = data_type_metadata(idx, subset)
     _ = simulation_type_metadata(idx, subset)
     _ = theta_metadata(idx, subset)
