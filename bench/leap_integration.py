@@ -13,6 +13,8 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 
 from benchmark_integration import (
     data_type_metadata,
+    domain_gt_encoder,
+    embedding_l2_loss,
     input_encoder,
     preprocess_func_leap,
     simulation_type_metadata,
@@ -44,7 +46,9 @@ def load_model():
 def check_integration(idx, subset):
     model = load_model()
     image = input_encoder(idx, subset)
-    _ = model.run(None, {"img": image})[0]
+    domain = domain_gt_encoder(idx, subset)
+    raw = model.run(None, {"img": image})[0]
+    _ = embedding_l2_loss(raw, domain)
     _ = data_type_metadata(idx, subset)
     _ = simulation_type_metadata(idx, subset)
     _ = theta_metadata(idx, subset)

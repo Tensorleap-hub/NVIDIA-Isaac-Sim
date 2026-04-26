@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from code_loader.contract.datasetclasses import PreprocessResponse
-from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_input_encoder
+from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_gt_encoder, tensorleap_input_encoder
 
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -25,3 +25,9 @@ def _preprocess_image(path: str) -> np.ndarray:
 @tensorleap_input_encoder("image", channel_dim=1)
 def input_encoder(idx: str, preprocess: PreprocessResponse) -> np.ndarray:
     return _preprocess_image(preprocess.data[idx]["image_path"])
+
+
+@tensorleap_gt_encoder("domain")
+def domain_gt_encoder(idx: str, preprocess: PreprocessResponse) -> np.ndarray:
+    is_synth = preprocess.data[idx]["data_type"] == "synth"
+    return np.asarray(1.0 if is_synth else 0.0, dtype=np.float32)
