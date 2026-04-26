@@ -40,14 +40,22 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
             record[k] = float(row[k])
         synth_records.append(record)
 
-    real_ids = [f"real_{i:04d}" for i in range(len(real_records))]
+    split = int(len(real_records) * 0.8)
+    train_records, val_records = real_records[:split], real_records[split:]
+    train_ids = [f"real_{i:04d}" for i in range(len(train_records))]
+    val_ids = [f"real_{i:04d}" for i in range(len(train_records), len(real_records))]
     synth_ids = [f"synth_{i:06d}" for i in range(len(synth_records))]
 
     return [
         PreprocessResponse(
-            data={sid: r for sid, r in zip(real_ids, real_records)},
-            sample_ids=real_ids,
+            data={sid: r for sid, r in zip(train_ids, train_records)},
+            sample_ids=train_ids,
             state=DataStateType.training,
+        ),
+        PreprocessResponse(
+            data={sid: r for sid, r in zip(val_ids, val_records)},
+            sample_ids=val_ids,
+            state=DataStateType.validation,
         ),
         PreprocessResponse(
             data={sid: r for sid, r in zip(synth_ids, synth_records)},

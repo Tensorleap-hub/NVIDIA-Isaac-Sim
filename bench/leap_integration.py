@@ -44,7 +44,7 @@ def load_model():
 def check_integration(idx, subset):
     model = load_model()
     image = input_encoder(idx, subset)
-    _ = model.run(None, {"pixel_values": image[np.newaxis]})[0]
+    _ = model.run(None, {"img": image})[0]
     _ = data_type_metadata(idx, subset)
     _ = simulation_type_metadata(idx, subset)
     _ = theta_metadata(idx, subset)
