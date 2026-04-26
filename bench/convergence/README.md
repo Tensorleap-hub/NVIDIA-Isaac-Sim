@@ -45,10 +45,18 @@ Continuous + discrete + categorical mix intentional — mirrors the real SDG sea
 Generated once from θ\* with M distinct RNG seeds. Proposed M = 500. Images written to `bench/data/real/` and not regenerated during benchmarking.
 
 ### 4.3 Evaluator
-- **Model:** `dinov2_vitb14_reg` (matching `simulation_calibration_loop/project_config.yaml`).
+- **Model:** `dinov2_vitb14_reg` preferred (matches `simulation_calibration_loop/project_config.yaml`), but any `dinov2_vitb14` variant is acceptable if the reg variant causes export issues.
 - **Preprocessing:** resize 256, center-crop 224, DINOv2-standard normalization.
 - **Export:** traced/exported to ONNX at a frozen version; both loops load this ONNX file.
 - **Distance metric:** MMD over embeddings, `mmd_max_samples = 1000` (matching production config). Per-trial: generate N\_trial = 128 synthetic images (matches `num_frames` in the real seed configs), embed, compute MMD against cached real embeddings.
+
+> [!important] Prerequisite task (separate agent)
+> Export DINOv2 to ONNX and verify it loads successfully in Tensorleap before the benchmark can run on the TL side. Steps:
+> 1. Export `dinov2_vitb14_reg` (or fallback variant) to ONNX using `torch.onnx.export` with a representative input.
+> 2. Verify ONNX output parity against the PyTorch model (same input → embeddings within 1e-5).
+> 3. Upload the ONNX to TL and confirm it parses without errors.
+> 4. Commit the `.onnx` file + an integrity hash to `bench/convergence/`.
+> This is a blocker for Condition B (TL side) but not for Condition A (local Optuna loop).
 
 ### 4.4 Initial conditions
 - Same seed configs: a fixed set of 8 starting θ vectors, distributed across the search space (one per roughly stratified region). Same file, same order, used by both loops.
@@ -152,7 +160,9 @@ Dependencies: reuse `.sim_loop_venv` where possible; only addition is ONNX runti
 ## 12. Decision log (to fill as we go)
 
 - [ ] θ\* value chosen and committed
-- [ ] DINOv2 ONNX export verified (parity check: same embedding for same input image on both loops, bit-identical or within 1e-5)
+- [ ] **DINOv2 exported to ONNX** (separate agent task — see §4.3)
+- [ ] **DINOv2 ONNX imports successfully into TL** (separate agent task — see §4.3)
+- [ ] DINOv2 ONNX parity verified (same embedding for same input, within 1e-5)
 - [ ] ε\_θ, ε\_obj set from pilot
 - [ ] TL ONNX compatibility confirmed
 - [ ] TL CSV column schema documented
