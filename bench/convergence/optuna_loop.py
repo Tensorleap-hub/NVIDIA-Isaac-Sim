@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from calibration_optuna.optimizer import OptunaOptimizer
-from calibration_optuna.metrics import compute_all_metrics
+from calibration_optuna.metrics import compute_all_metrics, DistributionMetrics
 
 from .config import (
     THETA_STAR_PATH, N_ITERATIONS, N_TRIALS_PER_ITER, N_IMAGES_PER_TRIAL, SEED, RUNS_DIR,
@@ -88,8 +88,9 @@ def run_optuna_loop(
         "random_seed": seed,
         "iteration_batch_size": n_trials_per_iter,
         "optimization_metrics": ["mmd_rbf"],
+        "mmd_max_samples": MMD_MAX_SAMPLES,
         "optimizer": {
-            "n_startup_trials": max(20, n_trials_per_iter * 3),
+            "n_startup_trials": 60,
             "multivariate": True,
         },
     }
@@ -100,6 +101,14 @@ def run_optuna_loop(
         param_bounds=_PARAM_BOUNDS,
         param_type=_PARAM_TYPE,
     )
+
+    rng_real = np.random.RandomState(42)
+    if len(real_embeddings) > MMD_MAX_SAMPLES:
+        real_idx = rng_real.choice(len(real_embeddings), MMD_MAX_SAMPLES, replace=False)
+        real_sub = real_embeddings[real_idx]
+    else:
+        real_sub = real_embeddings
+    rbf_gamma = DistributionMetrics._compute_gamma_median_heuristic(real_sub, real_sub)
 
     trial_seed = seed
     current_distributions = [
@@ -114,7 +123,7 @@ def run_optuna_loop(
             theta = _params_to_theta(params)
             _dist, syn_embs = run_trial(theta, n_images, real_embeddings, embedder, seed=trial_seed)
             trial_seed += 1
-            full_metrics = compute_all_metrics(syn_embs, real_embeddings)
+            full_metrics = compute_all_metrics(syn_embs, real_sub, rbf_gamma=rbf_gamma)
             trial_results.append((theta, full_metrics["mmd_rbf"]))
             metrics_list.append(full_metrics)
 
