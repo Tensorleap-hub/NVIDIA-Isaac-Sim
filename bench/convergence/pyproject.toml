@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "dinov2-bench"
+version = "0.1.0"
+description = ""
+authors = ["ranhomri <ran.homri@tensorleap.ai>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "~3.10"
+torch = "2.1.2"
+torchvision = "0.16.2"
+onnxruntime = ">=1.17,<1.24"
+numpy = "<2"
+pillow = ">=10.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
