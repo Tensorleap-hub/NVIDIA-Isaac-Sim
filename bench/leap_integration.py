@@ -20,8 +20,22 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
 )
 
+import os
+
 _BENCH_DIR = Path(__file__).parent
-_DATA_ROOT = Path.home() / "tensorleap" / "data" / "synth-data-benchmark"
+_REL = "synth-data-benchmark"
+
+
+def _get_data_root() -> Path:
+    if "GENERIC_HOST_PATH" in os.environ:
+        return Path(os.environ["GENERIC_HOST_PATH"]) / _REL
+    fallback = Path("/home/ssm-user/tensorleap/data")
+    if fallback.exists():
+        return fallback / _REL
+    return Path("~/tensorleap/data").expanduser() / _REL
+
+
+_DATA_ROOT = _get_data_root()
 _REAL_DIR = _DATA_ROOT / "real"
 _METADATA_PATH = _DATA_ROOT / "tl_seed" / "metadata.csv"
 _ONNX_PATH = _BENCH_DIR / "convergence" / "dinov2_vits14.onnx"
