@@ -23,6 +23,24 @@ THETA_BOUNDS = {
     "background_id":     (0.0,  3.0),
 }
 
+def seed_thetas(n: int, seed: int) -> list:
+    import numpy as np
+    rng = np.random.RandomState(seed)
+    thetas = []
+    for _ in range(n):
+        theta = {}
+        for k in THETA_KEYS:
+            lo, hi = THETA_BOUNDS[k]
+            if k == "clutter_count":
+                theta[k] = int(rng.randint(int(lo), int(hi) + 1))
+            elif k == "background_id":
+                theta[k] = int(rng.randint(0, 4))
+            else:
+                theta[k] = float(rng.uniform(lo, hi))
+        thetas.append(theta)
+    return thetas
+
+
 IMAGE_SIZE = 256
 N_IMAGES_PER_TRIAL = 128
 N_ITERATIONS = 3

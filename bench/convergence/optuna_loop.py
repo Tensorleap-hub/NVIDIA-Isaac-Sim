@@ -10,7 +10,7 @@ from calibration_optuna.metrics import compute_all_metrics, DistributionMetrics
 
 from .config import (
     THETA_STAR_PATH, N_ITERATIONS, N_TRIALS_PER_ITER, N_IMAGES_PER_TRIAL, SEED, RUNS_DIR,
-    THETA_KEYS, THETA_BOUNDS, MMD_MAX_SAMPLES,
+    THETA_KEYS, THETA_BOUNDS, MMD_MAX_SAMPLES, seed_thetas,
 )
 from .evaluator import Embedder
 from .harness import run_trial
@@ -40,22 +40,6 @@ _PARAM_TYPE = {_GROUP: {
     "background_id":    "categorical",
 }}
 
-
-def _seed_thetas(n: int, seed: int) -> list[dict]:
-    rng = np.random.RandomState(seed)
-    thetas = []
-    for _ in range(n):
-        theta = {}
-        for k in THETA_KEYS:
-            lo, hi = THETA_BOUNDS[k]
-            if k == "clutter_count":
-                theta[k] = int(rng.randint(int(lo), int(hi) + 1))
-            elif k == "background_id":
-                theta[k] = int(rng.randint(0, 4))
-            else:
-                theta[k] = float(rng.uniform(lo, hi))
-        thetas.append(theta)
-    return thetas
 
 
 def _theta_to_params(theta: dict) -> dict:
@@ -113,7 +97,7 @@ def run_optuna_loop(
     trial_seed = seed
     current_distributions = [
         (f"seed_{i}", _theta_to_params(t))
-        for i, t in enumerate(_seed_thetas(n_trials_per_iter, seed))
+        for i, t in enumerate(seed_thetas(n_trials_per_iter, seed))
     ]
 
     for iteration in range(n_iterations):
