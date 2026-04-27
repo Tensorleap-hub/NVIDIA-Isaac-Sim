@@ -16,9 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import (
-    DATA_ROOT, N_TRIALS_PER_ITER, N_IMAGES_PER_TRIAL, SEED, THETA_KEYS, seed_thetas,
-)
+from .config import DATA_ROOT, THETA_KEYS
 from .evaluator import Embedder
 from .generator import generate_images
 
@@ -27,26 +25,40 @@ IMAGES_DIR = TL_SEED_DIR / "images"
 METADATA_PATH = TL_SEED_DIR / "metadata.csv"
 EMBEDDINGS_PATH = TL_SEED_DIR / "embeddings.npy"
 
+_SEED_N_IMAGES = 200
+_SEED_THETAS = [
+    {
+        "blur_sigma": 4.0, "noise_std": 0.42, "brightness_shift": -0.35,
+        "color_shift_r": 0.22, "color_shift_g": -0.22, "color_shift_b": 0.22,
+        "clutter_count": 17, "background_id": 3,
+    },
+    {
+        "blur_sigma": 0.1, "noise_std": 0.0, "brightness_shift": 0.38,
+        "color_shift_r": -0.22, "color_shift_g": 0.22, "color_shift_b": -0.22,
+        "clutter_count": 1, "background_id": 0,
+    },
+]
+
 
 def main() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-    thetas = seed_thetas(N_TRIALS_PER_ITER, SEED)
-    print(f"Generating {N_TRIALS_PER_ITER} distributions × {N_IMAGES_PER_TRIAL} images …")
+    thetas = _SEED_THETAS
+    n_dist = len(thetas)
+    print(f"Generating {n_dist} distributions × {_SEED_N_IMAGES} images …")
 
     all_images = []
     metadata_rows = []
 
     for dist_idx, theta in enumerate(thetas):
-        images = generate_images(theta, n=N_IMAGES_PER_TRIAL, seed=dist_idx)
+        images = generate_images(theta, n=_SEED_N_IMAGES, seed=dist_idx)
         for img_idx, img in enumerate(images):
             fname = f"seed_{dist_idx:03d}_{img_idx:04d}.png"
             img.save(IMAGES_DIR / fname)
             row = {"image_path": str(IMAGES_DIR / fname), **theta}
             metadata_rows.append(row)
         all_images.extend(images)
-        if (dist_idx + 1) % 5 == 0:
-            print(f"  {dist_idx + 1}/{N_TRIALS_PER_ITER} distributions done")
+        print(f"  dist {dist_idx + 1}/{n_dist} done")
 
     metadata_df = pd.DataFrame(metadata_rows, columns=["image_path"] + THETA_KEYS)
     metadata_df.to_csv(METADATA_PATH, index=False)
