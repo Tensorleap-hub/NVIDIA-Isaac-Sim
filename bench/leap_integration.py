@@ -133,7 +133,7 @@ def simulation_type_metadata(idx: str, preprocess: PreprocessResponse) -> str:
     return preprocess.data[idx].get("simulation_type", "")
 
 
-@tensorleap_metadata("tl_iter", DatasetMetadataType.numeric)
+@tensorleap_metadata("tl_iter", DatasetMetadataType.float)
 def tl_iter_metadata(idx: str, preprocess: PreprocessResponse) -> float:
     val = preprocess.data[idx].get("tl_iter")
     return float("nan") if val is None else float(val)
