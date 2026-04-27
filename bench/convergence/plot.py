@@ -42,8 +42,9 @@ def plot_comparison(
 
 if __name__ == "__main__":
     from .config import RUNS_DIR, SEED
+    tl_csv = RUNS_DIR / f"tl_seed{SEED}" / "metrics.csv"
     plot_comparison(
         optuna_csv=RUNS_DIR / f"optuna_seed{SEED}" / "metrics.csv",
-        tl_csv=RUNS_DIR / f"tl_seed{SEED}" / "metrics.csv",
+        tl_csv=tl_csv if tl_csv.exists() else None,
         output_path=RUNS_DIR / "comparison.png",
     )

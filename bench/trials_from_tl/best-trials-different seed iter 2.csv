@@ -1,0 +1,2 @@
+distribution_id,simulation_type,n_samples,limit_reached,metadata.theta_background_id,metadata.theta_blur_sigma,metadata.theta_brightness_shift,metadata.theta_clutter_count,metadata.theta_color_shift_b,metadata.theta_color_shift_g,metadata.theta_color_shift_r,metadata.theta_noise_std
+trial_27,simulation_1,1500,False,0,0.17106512188911438,-0.28105664253234863,12,-0.18867699801921844,-0.07965072244405746,0.15174514055252075,0.00977421272546053
