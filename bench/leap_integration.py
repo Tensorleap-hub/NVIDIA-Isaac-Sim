@@ -25,7 +25,7 @@ import re
 
 _BENCH_DIR = Path(__file__).parent
 _REL = "synth-data-benchmark"
-_SYNTH_ITERS = [0, 1]
+_SYNTH_ITERS = [0, 1, 2]
 
 def _get_data_root() -> Path:
     if "GENERIC_HOST_PATH" in os.environ:
@@ -40,7 +40,7 @@ _DATA_ROOT = _get_data_root()
 _REAL_DIR = _DATA_ROOT / "real"
 _METADATA_PATH = _DATA_ROOT / "tl_seed" / "metadata.csv"
 _ONNX_PATH = _BENCH_DIR / "convergence" / "dinov2_vits14.onnx"
-_TRIALS_DIR = _BENCH_DIR / "trials_from_tl"
+_TRIALS_DIR = _DATA_ROOT / "trials_from_tl"
 
 
 _THETA_KEYS = [
