@@ -21,10 +21,11 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 )
 
 import os
+import re
 
 _BENCH_DIR = Path(__file__).parent
 _REL = "synth-data-benchmark"
-
+_SYNTH_ITERS = [0, 1]
 
 def _get_data_root() -> Path:
     if "GENERIC_HOST_PATH" in os.environ:
@@ -39,13 +40,7 @@ _DATA_ROOT = _get_data_root()
 _REAL_DIR = _DATA_ROOT / "real"
 _METADATA_PATH = _DATA_ROOT / "tl_seed" / "metadata.csv"
 _ONNX_PATH = _BENCH_DIR / "convergence" / "dinov2_vits14.onnx"
-
-
-def _parse_synth_iters() -> set | None:
-    raw = os.environ.get("SYNTH_ITERS", "all").strip()
-    if raw.lower() == "all":
-        return None
-    return {int(x.strip()) for x in raw.split(",") if x.strip()}
+_TRIALS_DIR = _BENCH_DIR / "trials_from_tl"
 
 
 _THETA_KEYS = [
@@ -64,6 +59,24 @@ prediction_embedding = PredictionTypeHandler(
 )
 
 
+def _load_best_trial_sets() -> dict:
+    result = {}
+    if not _TRIALS_DIR.exists():
+        return result
+    for csv_path in sorted(_TRIALS_DIR.glob("best-trials-*.csv")):
+        m = re.search(r"iter[_ ]?(\d+)", csv_path.stem, re.IGNORECASE)
+        iter_num = int(m.group(1)) if m else 0
+        df = pd.read_csv(csv_path)
+        theta_set = result.setdefault(iter_num, set())
+        for _, row in df.iterrows():
+            key = tuple(round(float(row[f"metadata.theta_{k}"]), 6) for k in _THETA_KEYS)
+            theta_set.add(key)
+    return result
+
+
+_BEST_TRIAL_SETS = _load_best_trial_sets()
+
+
 def _load_image(path: str) -> np.ndarray:
     img = Image.open(path).convert("RGB")
     img = img.resize((256, 256), Image.BICUBIC)
@@ -78,7 +91,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         {"image_path": str(p), "data_type": "real", "simulation_type": ""}
         for p in sorted(_REAL_DIR.glob("*.png"))
     ]
-    synth_iters = _parse_synth_iters()
+    synth_iters = _SYNTH_ITERS
     tagged = []
     if _METADATA_PATH.exists() and (synth_iters is None or 0 in synth_iters):
         df0 = pd.read_csv(_METADATA_PATH)
@@ -151,6 +164,19 @@ def tl_iter_metadata(idx: str, preprocess: PreprocessResponse) -> float:
     return float("nan") if val is None else float(val)
 
 
+@tensorleap_metadata("best_trial_label", DatasetMetadataType.string)
+def best_trial_label_metadata(idx: str, preprocess: PreprocessResponse) -> str:
+    record = preprocess.data[idx]
+    if record["data_type"] == "real":
+        return "real"
+    iter_num = int(record.get("tl_iter", 0))
+    trial_set = _BEST_TRIAL_SETS.get(iter_num)
+    if not trial_set:
+        return None
+    key = tuple(round(float(record[k]), 6) for k in _THETA_KEYS)
+    return f"best trial iter {iter_num}" if key in trial_set else None
+
+
 @tensorleap_metadata("theta")
 def theta_metadata(idx: str, preprocess: PreprocessResponse) -> dict:
     record = preprocess.data[idx]
@@ -176,6 +202,7 @@ def check_integration(idx, subset):
     _ = image_visualizer(image)
     _ = data_type_metadata(idx, subset)
     _ = simulation_type_metadata(idx, subset)
+    _ = best_trial_label_metadata(idx, subset)
     _ = theta_metadata(idx, subset)
 
 
