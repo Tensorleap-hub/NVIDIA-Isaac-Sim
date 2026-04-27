@@ -13,6 +13,7 @@ from .config import (
     THETA_KEYS, THETA_BOUNDS, MMD_MAX_SAMPLES, seed_thetas,
 )
 from .evaluator import Embedder
+from .generate_tl_seed import _SEED_THETAS, _SEED_N_IMAGES
 from .harness import run_trial
 from .metrics import MetricsLogger, IterationRecord
 
@@ -97,15 +98,16 @@ def run_optuna_loop(
     trial_seed = seed
     current_distributions = [
         (f"seed_{i}", _theta_to_params(t))
-        for i, t in enumerate(seed_thetas(n_trials_per_iter, seed))
+        for i, t in enumerate(_SEED_THETAS)
     ]
 
     for iteration in range(n_iterations):
+        iter_n_images = _SEED_N_IMAGES if iteration == 0 else n_images
         trial_results = []
         metrics_list = []
         for _dist_id, params in current_distributions:
             theta = _params_to_theta(params)
-            _dist, syn_embs = run_trial(theta, n_images, real_embeddings, embedder, seed=trial_seed)
+            _dist, syn_embs = run_trial(theta, iter_n_images, real_embeddings, embedder, seed=trial_seed)
             trial_seed += 1
             full_metrics = compute_all_metrics(syn_embs, real_sub, rbf_gamma=rbf_gamma)
             trial_results.append((theta, full_metrics["mmd_rbf"]))
