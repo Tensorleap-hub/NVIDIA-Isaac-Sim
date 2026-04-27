@@ -11,6 +11,7 @@ from .config import (
 )
 from .evaluator import Embedder
 from .generate_tl_seed import _SEED_THETAS, _SEED_N_IMAGES
+from .evaluator import mmd_rbf
 from .harness import run_trial
 from .metrics import MetricsLogger, IterationRecord
 
@@ -52,11 +53,15 @@ def run_tl_loop(
     trial_seed = seed
     for i, (_label, thetas, n_imgs) in enumerate(iterations):
         trial_results = []
+        all_syn_embs = []
         for theta in thetas:
-            _dist, _ = run_trial(theta, n_imgs, real_embeddings, embedder, seed=trial_seed)
+            _dist, syn_embs = run_trial(theta, n_imgs, real_embeddings, embedder, seed=trial_seed)
             trial_seed += 1
             trial_results.append((theta, _dist))
-        record = logger.log(i, trial_results)
+            all_syn_embs.append(syn_embs)
+        pooled = np.concatenate(all_syn_embs, axis=0)
+        all_samples_obj = mmd_rbf(pooled, real_embeddings)
+        record = logger.log(i, trial_results, all_samples_obj)
         print(
             f"[tl]     iter={i:02d}  best={record.best_objective:.4f}"
             f"  gap={record.param_gap:.4f}  spread={record.spread:.4f}"

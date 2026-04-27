@@ -12,7 +12,7 @@ from .config import (
     THETA_STAR_PATH, N_ITERATIONS, N_TRIALS_PER_ITER, N_IMAGES_PER_TRIAL, SEED, RUNS_DIR,
     THETA_KEYS, THETA_BOUNDS, MMD_MAX_SAMPLES, seed_thetas,
 )
-from .evaluator import Embedder
+from .evaluator import Embedder, mmd_rbf
 from .generate_tl_seed import _SEED_THETAS, _SEED_N_IMAGES
 from .harness import run_trial
 from .metrics import MetricsLogger, IterationRecord
@@ -105,6 +105,7 @@ def run_optuna_loop(
         iter_n_images = _SEED_N_IMAGES if iteration == 0 else n_images
         trial_results = []
         metrics_list = []
+        all_syn_embs = []
         for _dist_id, params in current_distributions:
             theta = _params_to_theta(params)
             _dist, syn_embs = run_trial(theta, iter_n_images, real_embeddings, embedder, seed=trial_seed)
@@ -112,8 +113,11 @@ def run_optuna_loop(
             full_metrics = compute_all_metrics(syn_embs, real_sub, rbf_gamma=rbf_gamma)
             trial_results.append((theta, full_metrics["mmd_rbf"]))
             metrics_list.append(full_metrics)
+            all_syn_embs.append(syn_embs)
 
-        record = logger.log(iteration, trial_results)
+        pooled = np.concatenate(all_syn_embs, axis=0)
+        all_samples_obj = mmd_rbf(pooled, real_embeddings)
+        record = logger.log(iteration, trial_results, all_samples_obj)
         print(
             f"[optuna] iter={iteration:02d}  best={record.best_objective:.4f}"
             f"  gap={record.param_gap:.4f}  spread={record.spread:.4f}"

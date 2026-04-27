@@ -11,7 +11,7 @@ def plot_comparison(
     tl_csv: Path | None = None,
     output_path: Path | None = None,
 ) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(20, 4))
 
     sources = [("Optuna", optuna_csv)]
     if tl_csv is not None:
@@ -22,10 +22,13 @@ def plot_comparison(
         axes[0].plot(df["iteration"], df["best_objective"], marker="o", label=label)
         axes[1].plot(df["iteration"], df["param_gap"], marker="o", label=label)
         axes[2].plot(df["iteration"], df["spread"], marker="o", label=label)
+        if "all_samples_objective" in df.columns:
+            axes[3].plot(df["iteration"], df["all_samples_objective"], marker="o", label=label)
 
     axes[0].set(title="Best Objective (MMD)", xlabel="Iteration", ylabel="MMD ↓")
     axes[1].set(title="Param Gap to θ*", xlabel="Iteration", ylabel="‖θ − θ*‖ ↓")
     axes[2].set(title="Spread (Exploration)", xlabel="Iteration", ylabel="Mean Param Std")
+    axes[3].set(title="All Samples Objective (MMD)", xlabel="Iteration", ylabel="MMD ↓")
 
     for ax in axes:
         ax.legend()

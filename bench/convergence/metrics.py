@@ -35,6 +35,7 @@ class IterationRecord:
     spread: float
     median_objective: float
     mean_objective: float
+    all_samples_objective: float
 
 
 _FIELDNAMES = [f.name for f in fields(IterationRecord)]
@@ -51,7 +52,7 @@ class MetricsLogger:
             with self._path.open("w", newline="") as f:
                 csv.DictWriter(f, fieldnames=_FIELDNAMES).writeheader()
 
-    def log(self, iteration: int, trial_results: list[tuple[dict, float]]) -> IterationRecord:
+    def log(self, iteration: int, trial_results: list[tuple[dict, float]], all_samples_objective: float = float("nan")) -> IterationRecord:
         objectives = [r[1] for r in trial_results]
         thetas = [r[0] for r in trial_results]
         iter_best = min(objectives)
@@ -67,6 +68,7 @@ class MetricsLogger:
             spread=spread(thetas),
             median_objective=float(np.median(objectives)),
             mean_objective=float(np.mean(objectives)),
+            all_samples_objective=all_samples_objective,
         )
         with self._path.open("a", newline="") as f:
             csv.DictWriter(f, fieldnames=_FIELDNAMES).writerow(asdict(record))
@@ -84,5 +86,6 @@ class MetricsLogger:
                     spread=float(row["spread"]),
                     median_objective=float(row["median_objective"]),
                     mean_objective=float(row["mean_objective"]),
+                    all_samples_objective=float(row.get("all_samples_objective", float("nan"))),
                 ))
         return records
