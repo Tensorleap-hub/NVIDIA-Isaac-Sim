@@ -172,9 +172,9 @@ def best_trial_label_metadata(idx: str, preprocess: PreprocessResponse) -> str:
     iter_num = int(record.get("tl_iter", 0))
     trial_set = _BEST_TRIAL_SETS.get(iter_num)
     if not trial_set:
-        return ""
+        return "None"
     key = tuple(round(float(record[k]), 6) for k in _THETA_KEYS)
-    return f"best trial iter {iter_num}" if key in trial_set else ""
+    return f"best trial iter {iter_num}" if key in trial_set else "None"
 
 
 @tensorleap_metadata("theta")
