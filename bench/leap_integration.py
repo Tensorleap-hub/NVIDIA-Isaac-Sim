@@ -70,16 +70,21 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         {"image_path": str(p), "data_type": "real", "simulation_type": ""}
         for p in sorted(_REAL_DIR.glob("*.png"))
     ]
-    dfs = []
+    tagged = []
     if _METADATA_PATH.exists():
-        dfs.append(pd.read_csv(_METADATA_PATH))
+        df0 = pd.read_csv(_METADATA_PATH)
+        df0["_iter"] = 0
+        tagged.append(df0)
     for d in sorted(_DATA_ROOT.glob("tl_iter_*")):
         p = d / "metadata.csv"
         if p.exists():
-            dfs.append(pd.read_csv(p))
-    meta_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame(columns=["image_path"] + _THETA_KEYS)
+            df_i = pd.read_csv(p)
+            df_i["_iter"] = int(d.name.split("_")[-1])
+            tagged.append(df_i)
+    meta_df = pd.concat(tagged, ignore_index=True) if tagged else pd.DataFrame(columns=["image_path"] + _THETA_KEYS + ["_iter"])
     synth_records = [
         {"image_path": str(row["image_path"]), "data_type": "synth", "simulation_type": "simulation_1",
+         "tl_iter": int(row["_iter"]),
          **{k: float(row[k]) for k in _THETA_KEYS}}
         for _, row in meta_df.iterrows()
     ]
@@ -126,6 +131,11 @@ def data_type_metadata(idx: str, preprocess: PreprocessResponse) -> str:
 @tensorleap_metadata("simulation_type", DatasetMetadataType.string)
 def simulation_type_metadata(idx: str, preprocess: PreprocessResponse) -> str:
     return preprocess.data[idx].get("simulation_type", "")
+
+
+@tensorleap_metadata("tl_iter", DatasetMetadataType.numeric)
+def tl_iter_metadata(idx: str, preprocess: PreprocessResponse) -> float:
+    return float(preprocess.data[idx].get("tl_iter", -1))
 
 
 @tensorleap_metadata("theta")
