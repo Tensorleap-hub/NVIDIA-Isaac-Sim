@@ -42,7 +42,7 @@ def seed_thetas(n: int, seed: int) -> list:
 
 
 IMAGE_SIZE = 256
-N_IMAGES_PER_TRIAL = 128
+N_IMAGES_PER_TRIAL = 32
 N_ITERATIONS = 3
 N_TRIALS_PER_ITER = 30
 SEED = 42
