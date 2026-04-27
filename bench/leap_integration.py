@@ -40,6 +40,14 @@ _REAL_DIR = _DATA_ROOT / "real"
 _METADATA_PATH = _DATA_ROOT / "tl_seed" / "metadata.csv"
 _ONNX_PATH = _BENCH_DIR / "convergence" / "dinov2_vits14.onnx"
 
+
+def _parse_synth_iters() -> set | None:
+    raw = os.environ.get("SYNTH_ITERS", "all").strip()
+    if raw.lower() == "all":
+        return None
+    return {int(x.strip()) for x in raw.split(",") if x.strip()}
+
+
 _THETA_KEYS = [
     "blur_sigma", "noise_std", "brightness_shift",
     "color_shift_r", "color_shift_g", "color_shift_b",
@@ -70,16 +78,20 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         {"image_path": str(p), "data_type": "real", "simulation_type": ""}
         for p in sorted(_REAL_DIR.glob("*.png"))
     ]
+    synth_iters = _parse_synth_iters()
     tagged = []
-    if _METADATA_PATH.exists():
+    if _METADATA_PATH.exists() and (synth_iters is None or 0 in synth_iters):
         df0 = pd.read_csv(_METADATA_PATH)
         df0["_iter"] = 0
         tagged.append(df0)
     for d in sorted(_DATA_ROOT.glob("tl_iter_*")):
+        iter_num = int(d.name.split("_")[-1])
+        if synth_iters is not None and iter_num not in synth_iters:
+            continue
         p = d / "metadata.csv"
         if p.exists():
             df_i = pd.read_csv(p)
-            df_i["_iter"] = int(d.name.split("_")[-1])
+            df_i["_iter"] = iter_num
             tagged.append(df_i)
     meta_df = pd.concat(tagged, ignore_index=True) if tagged else pd.DataFrame(columns=["image_path"] + _THETA_KEYS + ["_iter"])
     synth_records = [
