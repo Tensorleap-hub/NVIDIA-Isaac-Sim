@@ -62,6 +62,7 @@ def run_optuna_loop(
     n_trials_per_iter: int = N_TRIALS_PER_ITER,
     n_images: int = N_IMAGES_PER_TRIAL,
     seed: int = SEED,
+    stateless: bool = False,
 ) -> list[IterationRecord]:
     run_dir = Path(run_dir)
     theta_star = json.loads(THETA_STAR_PATH.read_text())
@@ -101,6 +102,9 @@ def run_optuna_loop(
         for i, t in enumerate(_SEED_THETAS)
     ]
 
+    accumulated_distributions = []
+    accumulated_metrics = []
+
     for iteration in range(n_iterations):
         iter_n_images = _SEED_N_IMAGES if iteration == 0 else n_images
         trial_results = []
@@ -115,17 +119,29 @@ def run_optuna_loop(
             metrics_list.append(full_metrics)
             all_syn_embs.append(syn_embs)
 
+        accumulated_distributions.extend(current_distributions)
+        accumulated_metrics.extend(metrics_list)
+
         pooled = np.concatenate(all_syn_embs, axis=0)
         all_samples_obj = mmd_rbf(pooled, real_embeddings)
         record = logger.log(iteration, trial_results, all_samples_obj)
+        label = "optuna-stateless" if stateless else "optuna"
         print(
-            f"[optuna] iter={iteration:02d}  best={record.best_objective:.4f}"
+            f"[{label}] iter={iteration:02d}  best={record.best_objective:.4f}"
             f"  gap={record.param_gap:.4f}  spread={record.spread:.4f}"
         )
 
+        if stateless:
+            optimizer = OptunaOptimizer(
+                experiment_dir=run_dir / f"iter_{iteration}",
+                config=config,
+                param_bounds=_PARAM_BOUNDS,
+                param_type=_PARAM_TYPE,
+            )
+
         current_distributions = optimizer.suggest_next_distributions(
-            current_distributions=current_distributions,
-            metrics_list=metrics_list,
+            current_distributions=accumulated_distributions if stateless else current_distributions,
+            metrics_list=accumulated_metrics if stateless else metrics_list,
             config=config,
             trial_numbers=None,
         )
