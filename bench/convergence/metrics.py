@@ -48,9 +48,8 @@ class MetricsLogger:
         self._global_best = float("inf")
         self._global_best_theta: dict | None = None
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        if not self._path.exists():
-            with self._path.open("w", newline="") as f:
-                csv.DictWriter(f, fieldnames=_FIELDNAMES).writeheader()
+        with self._path.open("w", newline="") as f:
+            csv.DictWriter(f, fieldnames=_FIELDNAMES).writeheader()
 
     def log(self, iteration: int, trial_results: list[tuple[dict, float]], all_samples_objective: float = float("nan")) -> IterationRecord:
         objectives = [r[1] for r in trial_results]
