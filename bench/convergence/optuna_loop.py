@@ -61,7 +61,6 @@ def run_optuna_loop(
     n_trials_per_iter: int = N_TRIALS_PER_ITER,
     n_images: int = N_IMAGES_PER_TRIAL,
     seed: int = SEED,
-    stateless: bool = False,
 ) -> list[IterationRecord]:
     run_dir = Path(run_dir)
     theta_star = json.loads(THETA_STAR_PATH.read_text())
@@ -79,13 +78,6 @@ def run_optuna_loop(
             "multivariate": True,
         },
     }
-
-    optimizer = OptunaOptimizer(
-        experiment_dir=run_dir,
-        config=config,
-        param_bounds=_PARAM_BOUNDS,
-        param_type=_PARAM_TYPE,
-    )
 
     rng_real = np.random.RandomState(42)
     if len(real_embeddings) > MMD_MAX_SAMPLES:
@@ -126,28 +118,22 @@ def run_optuna_loop(
         pooled = np.concatenate(all_syn_embs, axis=0)
         all_samples_obj = mmd_rbf(pooled, real_embeddings)
         record = logger.log(iteration, trial_results, all_samples_obj)
-        label = "optuna-stateless" if stateless else "optuna"
         print(
-            f"[{label}] iter={iteration:02d}  best={record.best_objective:.4f}"
+            f"[optuna] iter={iteration:02d}  best={record.best_objective:.4f}"
             f"  gap={record.param_gap:.4f}  spread={record.spread:.4f}"
         )
 
-        if stateless:
-            optimizer = OptunaOptimizer(
-                experiment_dir=run_dir / f"iter_{iteration}",
-                config=config,
-                param_bounds=_PARAM_BOUNDS,
-                param_type=_PARAM_TYPE,
-            )
-
-        feed_dists = accumulated_distributions if stateless else current_distributions
-        feed_metrics = accumulated_metrics if stateless else metrics_list
-        feed_trial_numbers = [None] * len(feed_dists) if stateless else None
-        current_distributions = optimizer.suggest_next_distributions(
-            current_distributions=feed_dists,
-            metrics_list=feed_metrics,
+        optimizer = OptunaOptimizer(
+            experiment_dir=run_dir / f"iter_{iteration}",
             config=config,
-            trial_numbers=feed_trial_numbers,
+            param_bounds=_PARAM_BOUNDS,
+            param_type=_PARAM_TYPE,
+        )
+        current_distributions = optimizer.suggest_next_distributions(
+            current_distributions=accumulated_distributions,
+            metrics_list=accumulated_metrics,
+            config=config,
+            trial_numbers=[None] * len(accumulated_distributions),
         )
 
     return logger.load()
