@@ -27,16 +27,8 @@ EMBEDDINGS_PATH = TL_SEED_DIR / "embeddings.npy"
 
 _SEED_N_IMAGES = 200
 _SEED_THETAS = [
-    {
-        "blur_sigma": 4.0, "noise_std": 0.42, "brightness_shift": -0.35,
-        "color_shift_r": 0.22, "color_shift_g": -0.22, "color_shift_b": 0.22,
-        "clutter_count": 17, "background_id": 3,
-    },
-    {
-        "blur_sigma": 0.1, "noise_std": 0.0, "brightness_shift": 0.38,
-        "color_shift_r": -0.22, "color_shift_g": 0.22, "color_shift_b": -0.22,
-        "clutter_count": 1, "background_id": 0,
-    },
+    {"blur_sigma": 4.0, "clutter_count": 17},
+    {"blur_sigma": 0.1, "clutter_count": 1},
 ]
 
 

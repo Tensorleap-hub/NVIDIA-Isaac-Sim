@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -20,25 +21,13 @@ from .metrics import MetricsLogger, IterationRecord
 _GROUP = "simulation_1"
 
 _PARAM_BOUNDS = {_GROUP: {
-    "blur_sigma":       [0.0, 5.0],
-    "noise_std":        [0.0, 0.5],
-    "brightness_shift": [-0.5, 0.5],
-    "color_shift_r":    [-0.3, 0.3],
-    "color_shift_g":    [-0.3, 0.3],
-    "color_shift_b":    [-0.3, 0.3],
-    "clutter_count":    [0, 20],
-    "background_id":    [0, 1, 2, 3],
+    "blur_sigma":    [0.0, 5.0],
+    "clutter_count": [0, 20],
 }}
 
 _PARAM_TYPE = {_GROUP: {
-    "blur_sigma":       "float",
-    "noise_std":        "float",
-    "brightness_shift": "float",
-    "color_shift_r":    "float",
-    "color_shift_g":    "float",
-    "color_shift_b":    "float",
-    "clutter_count":    "int",
-    "background_id":    "categorical",
+    "blur_sigma":    "float",
+    "clutter_count": "int",
 }}
 
 
@@ -53,6 +42,16 @@ def _theta_to_params(theta: dict) -> dict:
 def _params_to_theta(params: dict) -> dict:
     prefix = f"{_GROUP}__"
     return {k[len(prefix):]: v for k, v in params.items() if k.startswith(prefix)}
+
+
+def _probs_to_logits(params: dict) -> dict:
+    result = {}
+    for k, v in params.items():
+        if k.startswith("shape_prob_"):
+            result[f"shape_logit_{k[len('shape_prob_'):]}"] = math.log(max(v, 1e-6))
+        else:
+            result[k] = v
+    return result
 
 
 def run_optuna_loop(
@@ -119,7 +118,9 @@ def run_optuna_loop(
             metrics_list.append(full_metrics)
             all_syn_embs.append(syn_embs)
 
-        accumulated_distributions.extend(current_distributions)
+        accumulated_distributions.extend(
+            [(d, _probs_to_logits(p)) for d, p in current_distributions]
+        )
         accumulated_metrics.extend(metrics_list)
 
         pooled = np.concatenate(all_syn_embs, axis=0)
@@ -139,11 +140,14 @@ def run_optuna_loop(
                 param_type=_PARAM_TYPE,
             )
 
+        feed_dists = accumulated_distributions if stateless else current_distributions
+        feed_metrics = accumulated_metrics if stateless else metrics_list
+        feed_trial_numbers = [None] * len(feed_dists) if stateless else None
         current_distributions = optimizer.suggest_next_distributions(
-            current_distributions=accumulated_distributions if stateless else current_distributions,
-            metrics_list=accumulated_metrics if stateless else metrics_list,
+            current_distributions=feed_dists,
+            metrics_list=feed_metrics,
             config=config,
-            trial_numbers=None,
+            trial_numbers=feed_trial_numbers,
         )
 
     return logger.load()

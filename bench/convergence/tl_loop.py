@@ -15,21 +15,16 @@ from .evaluator import mmd_rbf
 from .harness import run_trial
 from .metrics import MetricsLogger, IterationRecord
 
-_THETA_KEYS = [
-    "blur_sigma", "noise_std", "brightness_shift",
-    "color_shift_r", "color_shift_g", "color_shift_b",
-    "clutter_count", "background_id",
-]
 _PREFIX = "metadata.theta_"
 
 
 def _parse_next_trials_csv(csv_path: Path) -> list[dict]:
+    from .config import THETA_KEYS
     df = pd.read_csv(csv_path)
     thetas = []
     for _, row in df.iterrows():
-        theta = {k: float(row[f"{_PREFIX}{k}"]) for k in _THETA_KEYS}
+        theta = {k: float(row[f"{_PREFIX}{k}"]) for k in THETA_KEYS}
         theta["clutter_count"] = int(round(theta["clutter_count"]))
-        theta["background_id"] = int(round(theta["background_id"]))
         thetas.append(theta)
     return thetas
 

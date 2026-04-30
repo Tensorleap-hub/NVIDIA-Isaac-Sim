@@ -32,7 +32,7 @@ def _parse_theta(row: pd.Series) -> dict:
     for k in THETA_KEYS:
         col = f"{_THETA_PREFIX}{k}"
         val = float(row[col])
-        if k in ("clutter_count", "background_id"):
+        if k == "clutter_count":
             val = int(round(val))
         theta[k] = val
     return theta
