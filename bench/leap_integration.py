@@ -44,9 +44,8 @@ _TRIALS_DIR = _DATA_ROOT / "trials_from_tl"
 
 
 _THETA_KEYS = [
-    "blur_sigma", "noise_std", "brightness_shift",
-    "color_shift_r", "color_shift_g", "color_shift_b",
-    "clutter_count", "background_id",
+    "blur_sigma",
+    "clutter_count",
 ]
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
