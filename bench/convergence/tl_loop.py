@@ -7,12 +7,11 @@ import numpy as np
 import pandas as pd
 
 from .config import (
-    THETA_STAR_PATH, N_IMAGES_PER_TRIAL, SEED, RUNS_DIR,
+    THETA_STAR_PATH, N_IMAGES_PER_TRIAL, SEED, RUNS_DIR, MMD_MAX_SAMPLES,
 )
-from .evaluator import Embedder
+from .evaluator import Embedder, mmd_rbf
 from .generate_tl_seed import _SEED_THETAS, _SEED_N_IMAGES
-from .evaluator import mmd_rbf
-from .harness import run_trial
+from .generator import generate_images
 from .metrics import MetricsLogger, IterationRecord
 
 _PREFIX = "metadata.theta_"
@@ -35,6 +34,19 @@ def _parse_next_trials_csv(csv_path: Path) -> list[dict]:
     return thetas
 
 
+def _save_iter_data(run_dir: Path, iter_idx: int, theta_images: list[tuple[dict, list]]) -> None:
+    iter_dir = run_dir / f"iter_{iter_idx:02d}"
+    images_dir = iter_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for dist_idx, (theta, images) in enumerate(theta_images):
+        for img_idx, img in enumerate(images):
+            fname = f"dist_{dist_idx:03d}_{img_idx:04d}.png"
+            img.save(images_dir / fname)
+            rows.append({"image_path": str(images_dir / fname), **theta})
+    pd.DataFrame(rows).to_csv(iter_dir / "metadata.csv", index=False)
+
+
 def run_tl_loop(
     real_embeddings: np.ndarray,
     iter_csvs: list[Path],
@@ -55,11 +67,22 @@ def run_tl_loop(
     for i, (_label, thetas, n_imgs) in enumerate(iterations):
         trial_results = []
         all_syn_embs = []
+        is_seed = _label == "seed"
+        theta_images = []
+
         for theta in thetas:
-            _dist, syn_embs = run_trial(theta, n_imgs, real_embeddings, embedder, seed=trial_seed)
+            images = generate_images(theta, n_imgs, seed=trial_seed)
+            syn_embs = embedder.embed(images)
+            dist = mmd_rbf(syn_embs, real_embeddings, max_samples=MMD_MAX_SAMPLES)
             trial_seed += 1
-            trial_results.append((theta, _dist))
+            trial_results.append((theta, dist))
             all_syn_embs.append(syn_embs)
+            if not is_seed:
+                theta_images.append((theta, images))
+
+        if not is_seed:
+            _save_iter_data(run_dir, i, theta_images)
+
         pooled = np.concatenate(all_syn_embs, axis=0)
         all_samples_obj = mmd_rbf(pooled, real_embeddings)
         record = logger.log(i, trial_results, all_samples_obj)
