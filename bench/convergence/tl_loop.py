@@ -18,13 +18,19 @@ from .metrics import MetricsLogger, IterationRecord
 _PREFIX = "metadata.theta_"
 
 
+_INT_KEYS = {"clutter_count", "background_id"}
+
+
 def _parse_next_trials_csv(csv_path: Path) -> list[dict]:
-    from .config import THETA_KEYS
     df = pd.read_csv(csv_path)
+    theta_cols = [c for c in df.columns if c.startswith(_PREFIX)]
     thetas = []
     for _, row in df.iterrows():
-        theta = {k: float(row[f"{_PREFIX}{k}"]) for k in THETA_KEYS}
-        theta["clutter_count"] = int(round(theta["clutter_count"]))
+        theta = {}
+        for col in theta_cols:
+            key = col[len(_PREFIX):]
+            val = float(row[col])
+            theta[key] = int(round(val)) if key in _INT_KEYS else val
         thetas.append(theta)
     return thetas
 
