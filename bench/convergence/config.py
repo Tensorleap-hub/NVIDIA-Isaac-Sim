@@ -5,7 +5,7 @@ REAL_DIR = DATA_ROOT / "real"
 REAL_EMBEDDINGS_PATH = DATA_ROOT / "real_embeddings.npy"
 RUNS_DIR = DATA_ROOT / "runs"
 THETA_STAR_PATH = Path(__file__).parent / "theta_star.json"
-N_REAL_IMAGES = 500
+N_REAL_IMAGES = 100
 
 THETA_KEYS = [
     "blur_sigma",
