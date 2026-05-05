@@ -29,6 +29,7 @@ _SEED_N_IMAGES = 200
 _SEED_THETAS = [
     {"blur_sigma": 4.0, "clutter_count": 17},
     {"blur_sigma": 0.1, "clutter_count": 1},
+    {"blur_sigma": 2.5, "clutter_count": 10},
 ]
 
 
