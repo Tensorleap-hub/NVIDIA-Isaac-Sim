@@ -25,7 +25,7 @@ IMAGES_DIR = TL_SEED_DIR / "images"
 METADATA_PATH = TL_SEED_DIR / "metadata.csv"
 EMBEDDINGS_PATH = TL_SEED_DIR / "embeddings.npy"
 
-_SEED_N_IMAGES = 200
+_SEED_N_IMAGES = 25
 _SEED_THETAS = [
     {"blur_sigma": 4.0, "clutter_count": 17},
     {"blur_sigma": 0.1, "clutter_count": 1},
