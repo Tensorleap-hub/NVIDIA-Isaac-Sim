@@ -89,7 +89,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     real_records = [
         {"image_path": str(p), "data_type": "real", "simulation_type": ""}
         for p in sorted(_REAL_DIR.glob("*.png"))
-    ]
+    ][:100]
     synth_iters = _SYNTH_ITERS
     tagged = []
     if _METADATA_PATH.exists() and (synth_iters is None or 0 in synth_iters):
@@ -112,7 +112,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
          **{k: float(row[k]) for k in _THETA_KEYS}}
         for _, row in meta_df.iterrows()
     ]
-    split = int(len(real_records) * 0.8)
+    split = int(len(real_records) * 0.7)
     train, val = real_records[:split], real_records[split:]
     train_ids = [f"real_{i:04d}" for i in range(len(train))]
     val_ids   = [f"real_{i:04d}" for i in range(len(train), len(real_records))]
