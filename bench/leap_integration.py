@@ -25,7 +25,7 @@ import re
 
 _BENCH_DIR = Path(__file__).parent
 _REL = "synth-data-benchmark"
-_SYNTH_ITERS = [0, 1, 2]
+_SYNTH_ITERS = []
 
 def _get_data_root() -> Path:
     if "GENERIC_HOST_PATH" in os.environ:
@@ -117,11 +117,13 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     train_ids = [f"real_{i:04d}" for i in range(len(train))]
     val_ids   = [f"real_{i:04d}" for i in range(len(train), len(real_records))]
     synth_ids = [f"synth_{i:06d}" for i in range(len(synth_records))]
-    return [
+    responses = [
         PreprocessResponse(data=dict(zip(train_ids, train)), sample_ids=train_ids, state=DataStateType.training),
         PreprocessResponse(data=dict(zip(val_ids, val)),     sample_ids=val_ids,   state=DataStateType.validation),
-        PreprocessResponse(data=dict(zip(synth_ids, synth_records)), sample_ids=synth_ids, state=DataStateType.additional),
     ]
+    if synth_records:
+        responses.append(PreprocessResponse(data=dict(zip(synth_ids, synth_records)), sample_ids=synth_ids, state=DataStateType.additional))
+    return responses
 
 
 @tensorleap_input_encoder("image", channel_dim=1)
