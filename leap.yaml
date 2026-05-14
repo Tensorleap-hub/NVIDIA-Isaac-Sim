@@ -7,6 +7,4 @@ include:
     - tensorleap_requirements.txt
     - tensorleap_intgration_code/*.py
     - tensorleap_intgration_code/project_config.yaml
-    - rtdetr_native/*.py
-    - rtdetrv2_r18vd_120e_raw_outputs.onnx
 pythonVersion: py310

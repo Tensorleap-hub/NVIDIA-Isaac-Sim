@@ -100,6 +100,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         key=lambda r: (
             str(r.get("optuna_bucket", "")),
             str(r.get("optuna_theme", "")),
+            str(r.get("optuna_repetition", "")),
             r["iteration"],
             r["run_number"],
             r["experiment"],
@@ -125,8 +126,10 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         elif r["subset"] == "extended":
             sample_id = f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
         elif r["subset"] == "optuna":
+            repetition_part = f"{r.get('optuna_repetition', '')}_" if r.get("optuna_repetition") else ""
             sample_id = (
                 f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
+                f"{repetition_part}"
                 f"iter{r['iteration']}_run{r['run_number']}_"
                 f"{r['experiment']}_frame{r['image_id']}"
             )
@@ -484,6 +487,7 @@ def _append_optuna_experiment_records(
     experiment_name: str,
     optuna_bucket: str,
     optuna_theme: str,
+    optuna_repetition: str,
     trial_number: int | None,
     summary: dict | None,
     trial_dir: Path | None,
@@ -554,10 +558,73 @@ def _append_optuna_experiment_records(
             "experiment": experiment_name,
             "optuna_bucket": optuna_bucket,
             "optuna_theme": optuna_theme,
+            "optuna_repetition": optuna_repetition,
             "trial_number": trial_number,
             "optuna_rank": int(rank_value) if rank_value is not None else None,
             "optuna_objective_value": float(objective_value) if objective_value is not None else None,
         })
+
+
+def _append_optuna_trial_records(
+    *,
+    records: list,
+    trial_dir: Path,
+    optuna_bucket: str,
+    optuna_theme: str,
+    optuna_repetition: str,
+) -> None:
+    trial_match = _OPTUNA_TRIAL_DIR_RE.match(trial_dir.name)
+    if trial_match is None:
+        return
+
+    trial_number = int(trial_match.group("trial"))
+    outputs_root = trial_dir / "outputs"
+    if not outputs_root.is_dir():
+        return
+
+    for experiment_dir in sorted(
+        path for path in outputs_root.iterdir()
+        if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
+    ):
+        _append_optuna_experiment_records(
+            records=records,
+            experiment_dir=experiment_dir,
+            experiment_name=experiment_dir.name,
+            optuna_bucket=optuna_bucket,
+            optuna_theme=optuna_theme,
+            optuna_repetition=optuna_repetition,
+            trial_number=trial_number,
+            summary=None,
+            trial_dir=trial_dir,
+        )
+
+
+def _append_optuna_run_wrapper_records(
+    *,
+    records: list,
+    run_dir: Path,
+    optuna_bucket: str,
+    optuna_theme: str,
+    optuna_repetition: str,
+) -> None:
+    if _OPTUNA_DIR_RE.match(run_dir.name) is None:
+        return
+
+    experiment_dir = run_dir / "outputs" / run_dir.name
+    if not experiment_dir.is_dir():
+        experiment_dir = run_dir
+
+    _append_optuna_experiment_records(
+        records=records,
+        experiment_dir=experiment_dir,
+        experiment_name=run_dir.name,
+        optuna_bucket=optuna_bucket,
+        optuna_theme=optuna_theme,
+        optuna_repetition=optuna_repetition,
+        trial_number=None,
+        summary=None,
+        trial_dir=run_dir,
+    )
 
 
 def _load_optuna_records() -> list:
@@ -565,6 +632,8 @@ def _load_optuna_records() -> list:
     Load frames from optuna trees, including:
       - flat top-level iterXXX_runYYY/Camera directories
       - themed trial folders like camera/trial_147/outputs/iter016_run007
+      - themed repetition folders like camera-color/repetition_0/iter000_run000/outputs/iter000_run000
+      - themed repetition trial folders like camera-color/repetition_0/trial_28/outputs/iter001_run000
       - worst folders like worst/camera/iter004_run007/outputs/iter004_run007
     """
     optuna_cfg = CONFIG.get("optuna_data", {})
@@ -589,6 +658,7 @@ def _load_optuna_records() -> list:
             experiment_name=experiment_dir.name,
             optuna_bucket="flat",
             optuna_theme="flat",
+            optuna_repetition="",
             trial_number=None,
             summary=None,
             trial_dir=None,
@@ -599,30 +669,45 @@ def _load_optuna_records() -> list:
         if path.is_dir() and path.name not in {"worst"} and not _OPTUNA_DIR_RE.match(path.name)
     )
     for theme_dir in regular_theme_dirs:
-        for trial_dir in sorted(
+        for trial_dir in sorted(path for path in theme_dir.iterdir() if path.is_dir()):
+            if _OPTUNA_TRIAL_DIR_RE.match(trial_dir.name) is None:
+                continue
+            _append_optuna_trial_records(
+                records=records,
+                trial_dir=trial_dir,
+                optuna_bucket="regular",
+                optuna_theme=theme_dir.name,
+                optuna_repetition="",
+            )
+
+        repetition_dirs = sorted(
             path for path in theme_dir.iterdir()
-            if path.is_dir() and _OPTUNA_TRIAL_DIR_RE.match(path.name)
-        ):
-            trial_match = _OPTUNA_TRIAL_DIR_RE.match(trial_dir.name)
-            if trial_match is None:
-                continue
-            trial_number = int(trial_match.group("trial"))
-            outputs_root = trial_dir / "outputs"
-            if not outputs_root.is_dir():
-                continue
-            for experiment_dir in sorted(
-                path for path in outputs_root.iterdir()
-                if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
-            ):
-                _append_optuna_experiment_records(
+            if path.is_dir()
+            and path.name not in {"cache", "outputs", "yamls"}
+            and _OPTUNA_DIR_RE.match(path.name) is None
+            and _OPTUNA_TRIAL_DIR_RE.match(path.name) is None
+        )
+        for repetition_dir in repetition_dirs:
+            for run_dir in sorted(path for path in repetition_dir.iterdir() if path.is_dir()):
+                if _OPTUNA_DIR_RE.match(run_dir.name) is None:
+                    continue
+                _append_optuna_run_wrapper_records(
                     records=records,
-                    experiment_dir=experiment_dir,
-                    experiment_name=experiment_dir.name,
+                    run_dir=run_dir,
                     optuna_bucket="regular",
                     optuna_theme=theme_dir.name,
-                    trial_number=trial_number,
-                    summary=None,
+                    optuna_repetition=repetition_dir.name,
+                )
+
+            for trial_dir in sorted(path for path in repetition_dir.iterdir() if path.is_dir()):
+                if _OPTUNA_TRIAL_DIR_RE.match(trial_dir.name) is None:
+                    continue
+                _append_optuna_trial_records(
+                    records=records,
                     trial_dir=trial_dir,
+                    optuna_bucket="regular",
+                    optuna_theme=theme_dir.name,
+                    optuna_repetition=repetition_dir.name,
                 )
 
     worst_root = base_path / "worst"
@@ -641,6 +726,7 @@ def _load_optuna_records() -> list:
                     experiment_name=run_dir.name,
                     optuna_bucket="worst",
                     optuna_theme=theme_dir.name,
+                    optuna_repetition="",
                     trial_number=None,
                     summary=_load_optuna_summary(run_dir / "summary.json"),
                     trial_dir=None,

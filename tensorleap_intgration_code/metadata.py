@@ -59,6 +59,7 @@ def sample_metadata(idx: int, preprocessing: PreprocessResponse) -> dict:
         "subset": record["subset"],
         "optuna_bucket": str(record.get("optuna_bucket", "")),
         "optuna_theme": str(record.get("optuna_theme", "")),
+        "optuna_repetition": str(record.get("optuna_repetition", "")),
         "optuna_trial_number": float(record["trial_number"]) if record.get("trial_number") is not None else float(np.nan),
         "optuna_rank": float(record["optuna_rank"]) if record.get("optuna_rank") is not None else float(np.nan),
         "optuna_objective_value": float(record["optuna_objective_value"]) if record.get("optuna_objective_value") is not None else float(np.nan),
