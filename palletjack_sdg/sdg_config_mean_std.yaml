@@ -24,7 +24,7 @@ output:
   instance_segmentation: false
 
 environment:
-  name: warehouse
+  name: full_warehouse
 
 environment_urls:
   warehouse: /Isaac/Environments/Simple_Warehouse/warehouse.usd

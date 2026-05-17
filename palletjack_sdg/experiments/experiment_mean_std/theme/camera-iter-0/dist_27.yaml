@@ -1,0 +1,24 @@
+extends: ../../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_type: fisheyePolynomial
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 1.7191
+  - 3.9217
+  camera_height_mean: 1.8213
+  camera_height_std: 0.4676
+  camera_tilt_mean: -9.0
+  camera_tilt_std: 1.2416
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 59.5544
+  camera_roll_mean: 0.0
+  camera_roll_std: 5.0
+  color_std:
+  - 0.0
+  - 0.0
+  - 0.0

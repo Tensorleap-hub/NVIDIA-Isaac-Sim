@@ -1,0 +1,24 @@
+extends: ../../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+camera:
+  camera_type: pinhole
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 5.3623
+  - 6.4777
+  camera_height_mean: 0.6032
+  camera_height_std: 0.4842
+  camera_tilt_mean: -4.0
+  camera_tilt_std: 2.5447
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 67.7712
+  camera_roll_mean: 0.0
+  camera_roll_std: 3.0
+  color_std:
+  - 0.0
+  - 0.0
+  - 0.0
