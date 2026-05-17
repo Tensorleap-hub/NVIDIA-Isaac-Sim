@@ -1,0 +1,89 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: full_warehouse
+camera:
+  camera_type: pinhole
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 4.1269
+  - 9.398
+  camera_height_mean: 1.4788
+  camera_height_std: 0.4157
+  camera_tilt_mean: -10.0
+  camera_tilt_std: 4.2983
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 100.7349
+  camera_roll_mean: 0.0
+  camera_roll_std: 2.0
+  fov_mean: 94.0
+  fov_std: 8.608
+  color_std:
+  - 0.0
+  - 0.0
+  - 0.0
+  noise_std_mean: 6.0
+  noise_std_std: 2.3094
+  motion_blur_strength_mean: 2.1466
+  motion_blur_strength_std: 0.3464
+  dataset_noise:
+    enabled: false
+    mode: gaussian_jpeg
+    sigma_mean: 4.8516
+    sigma_std: 0.9951
+    jpeg_quality_mean: 24.0
+    jpeg_quality_std: 10.0
+    shot_scale_mean: 71.0
+    shot_scale_std: 0.0
+    seed: -1
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0
+  brightness_gain_std: 0.0
+  contrast_gain_mean: 1.0
+  contrast_gain_std: 0.0
+  gamma_mean: 1.0
+  gamma_std: 0.0
+distractors:
+  clutter_level: 3.6185
+  groups:
+    CardBox:
+      diversity: 3
+      occurrence: 2
+    BarelPlastic:
+      diversity: 2
+      occurrence: 5
+    BottlePlastic:
+      diversity: 2
+      occurrence: 3
+    CratePlastic:
+      diversity: 3
+      occurrence: 3
+    TrafficSigns:
+      diversity: 2
+      occurrence: 2
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 2
+      occurrence: 2
+    PushCart:
+      diversity: 1
+      occurrence: 1
+lighting:
+  intensity_mean: 75291.0
+  intensity_std: 567145.0
+materials:
+  roughness_mean: 0.41
+  roughness_std: 0.1867
+  emissive_intensity_mean: 128.0
+  emissive_intensity_std: 49.5823
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_marble.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
