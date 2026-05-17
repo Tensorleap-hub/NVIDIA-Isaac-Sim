@@ -1,0 +1,89 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: warehouse_with_forklifts
+camera:
+  camera_type: pinhole
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 1.7233
+  - 9.0201
+  camera_height_mean: 2.5587
+  camera_height_std: 0.5216
+  camera_tilt_mean: -7.0
+  camera_tilt_std: 3.2482
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 65.4374
+  camera_roll_mean: 0.0
+  camera_roll_std: 0.0
+  fov_mean: 110.0
+  fov_std: 9.7519
+  color_std:
+  - 0.0
+  - 0.0
+  - 0.0
+  noise_std_mean: 6.0
+  noise_std_std: 2.3094
+  motion_blur_strength_mean: 0.5154
+  motion_blur_strength_std: 0.2537
+  dataset_noise:
+    enabled: true
+    mode: gaussian
+    sigma_mean: 2.2652
+    sigma_std: 0.7221
+    jpeg_quality_mean: 23.0
+    jpeg_quality_std: 7.0
+    shot_scale_mean: 77.0
+    shot_scale_std: 0.0
+    seed: -1
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0855
+  brightness_gain_std: 0.0093
+  contrast_gain_mean: 0.9617
+  contrast_gain_std: 0.0037
+  gamma_mean: 1.071
+  gamma_std: 0.0122
+distractors:
+  clutter_level: 3.6357
+  groups:
+    CardBox:
+      diversity: 5
+      occurrence: 5
+    BarelPlastic:
+      diversity: 2
+      occurrence: 5
+    BottlePlastic:
+      diversity: 3
+      occurrence: 3
+    CratePlastic:
+      diversity: 4
+      occurrence: 3
+    TrafficSigns:
+      diversity: 2
+      occurrence: 2
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 3
+      occurrence: 1
+    PushCart:
+      diversity: 1
+      occurrence: 1
+lighting:
+  intensity_mean: 84872.0
+  intensity_std: 353368.0
+materials:
+  roughness_mean: 0.3883
+  roughness_std: 0.2637
+  emissive_intensity_mean: 103.0
+  emissive_intensity_std: 168.2456
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg
