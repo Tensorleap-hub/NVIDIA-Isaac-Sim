@@ -126,13 +126,24 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         elif r["subset"] == "extended":
             sample_id = f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
         elif r["subset"] == "optuna":
-            repetition_part = f"{r.get('optuna_repetition', '')}_" if r.get("optuna_repetition") else ""
-            sample_id = (
-                f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
-                f"{repetition_part}"
-                f"iter{r['iteration']}_run{r['run_number']}_"
-                f"{r['experiment']}_frame{r['image_id']}"
-            )
+            if r.get("optuna_selected_cycle") is not None:
+                sample_id = (
+                    f"optuna_selected_{r.get('optuna_theme', 'flat')}_"
+                    f"cycle{int(r['optuna_selected_cycle']):02d}_"
+                    f"{r.get('optuna_selected_timestamp', 'unknown')}_"
+                    f"{r.get('optuna_selected_kind', 'unknown')}_"
+                    f"{r.get('optuna_selected_label', 'unknown')}_"
+                    f"iter{r['iteration']}_run{r['run_number']}_"
+                    f"{r['experiment']}_frame{r['image_id']}"
+                )
+            else:
+                repetition_part = f"{r.get('optuna_repetition', '')}_" if r.get("optuna_repetition") else ""
+                sample_id = (
+                    f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
+                    f"{repetition_part}"
+                    f"iter{r['iteration']}_run{r['run_number']}_"
+                    f"{r['experiment']}_frame{r['image_id']}"
+                )
         elif r["subset"] == "optuna_tests":
             sample_id = (
                 f"optuna_tests_{r.get('optuna_test_name', 'unknown')}_"
@@ -208,73 +219,52 @@ def _load_synth_records() -> list:
     allowed_runs = synth_cfg.get("run_numbers")  # None, int, or list of ints
     if isinstance(allowed_runs, int):
         allowed_runs = [allowed_runs]
+    selected_runs = set(allowed_runs) if allowed_runs is not None else None
 
     records = []
+    base_path = Path(base)
     run_dirs = sorted(
-        d for d in os.listdir(base)
-        if d.startswith("palletjack_run_") and os.path.isdir(os.path.join(base, d))
+        path for path in base_path.iterdir()
+        if path.name.startswith("palletjack_run_") and path.is_dir()
     )
-    if allowed_runs is not None:
-        allowed_runs = set(allowed_runs)
-        available_runs = {int(d.split("_")[-1]) for d in run_dirs}
-        missing = allowed_runs - available_runs
+    if selected_runs is not None:
+        available_runs = {int(path.name.split("_")[-1]) for path in run_dirs}
+        missing = selected_runs - available_runs
         if missing:
             raise ValueError(
-                f"synth_data.run_numbers: desired {sorted(allowed_runs)}, "
+                f"synth_data.run_numbers: desired {sorted(selected_runs)}, "
                 f"data has {sorted(available_runs)}, "
                 f"missing {sorted(missing)}"
             )
-        run_dirs = [d for d in run_dirs if int(d.split("_")[-1]) in allowed_runs]
+        run_dirs = [path for path in run_dirs if int(path.name.split("_")[-1]) in selected_runs]
 
-    for run_dir in run_dirs:
-        run_number = int(run_dir.split("_")[-1])
-        run_path = os.path.join(base, run_dir)
+    for run_path in run_dirs:
+        run_number = int(run_path.name.split("_")[-1])
+        run_records_start = len(records)
 
         exp_dirs = sorted(
-            d for d in os.listdir(run_path)
-            if os.path.isdir(os.path.join(run_path, d))
+            path for path in run_path.iterdir()
+            if path.is_dir()
         )
 
-        for exp_dir in exp_dirs:
-            exp_path = os.path.join(run_path, exp_dir)
-            run_config_path = os.path.join(exp_path, "run_config.yaml")
-            if not os.path.isfile(run_config_path):
+        for exp_path in exp_dirs:
+            exp_dir = exp_path.name
+            run_config_path = exp_path / "run_config.yaml"
+            if not run_config_path.is_file():
                 continue
 
-            with open(run_config_path, "r") as f:
+            with run_config_path.open("r") as f:
                 exp_config = yaml.safe_load(f)
             run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
 
-            rgb_dir = os.path.join(exp_path, "Camera", "rgb")
-            ann_dir = os.path.join(exp_path, "Camera", "object_detection")
-            num_frames = int(run_config.get("run", {}).get("num_frames", 0))
             orig_w = int(run_config.get("render", {}).get("width", 960))
             orig_h = int(run_config.get("render", {}).get("height", 544))
+            frame_records = _read_supported_frame_records(exp_path, run_config)
 
-            for i in range(num_frames):
-                img_path = os.path.join(rgb_dir, f"{i}.png")
-                if not os.path.isfile(img_path):
-                    continue
-                ann_path = os.path.join(ann_dir, f"{i}.txt")
-
-                anns = []
-                if os.path.isfile(ann_path):
-                    with open(ann_path, "r") as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) < 8:
-                                continue
-                            if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
-                                continue
-                            x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
-                            anns.append({
-                                "category_id": 11,
-                                "bbox": [x1, y1, x2 - x1, y2 - y1],
-                            })
-
+            for image_id, img_path, anns in frame_records:
                 records.append({
-                    "image_id": i,
-                    "path": img_path,
+                    "image_id": image_id,
+                    "path": str(img_path),
                     "width": orig_w,
                     "height": orig_h,
                     "subset": "synth",
@@ -283,6 +273,13 @@ def _load_synth_records() -> list:
                     "run_number": run_number,
                     "experiment": exp_dir,
                 })
+
+        if selected_runs is not None and len(records) == run_records_start:
+            _raise_empty_selected_data_error(
+                "synth_data.run_numbers",
+                run_number,
+                run_path,
+            )
 
     num_samples = synth_cfg.get("num_samples")
     if num_samples is not None:
@@ -320,75 +317,54 @@ def _load_extended_records() -> list:
     allowed_runs = ext_cfg.get("extended_numbers")  # None, int, or list of ints
     if isinstance(allowed_runs, int):
         allowed_runs = [allowed_runs]
+    selected_runs = set(allowed_runs) if allowed_runs is not None else None
 
+    base_path = Path(base)
     run_dirs = sorted(
-        d for d in os.listdir(base)
-        if os.path.isdir(os.path.join(base, d)) and d.isdigit()
+        path for path in base_path.iterdir()
+        if path.is_dir() and path.name.isdigit()
     )
     if not run_dirs:
         raise FileNotFoundError(f"no run_dirs found in {base}, make sure all run folder names are numbers")
-    if allowed_runs is not None:
-        allowed_runs = set(allowed_runs)
-        available_runs = {int(d) for d in run_dirs}
-        missing = allowed_runs - available_runs
+    if selected_runs is not None:
+        available_runs = {int(path.name) for path in run_dirs}
+        missing = selected_runs - available_runs
         if missing:
             raise ValueError(
-                f"extended_data.extended_numbers: desired {sorted(allowed_runs)}, "
+                f"extended_data.extended_numbers: desired {sorted(selected_runs)}, "
                 f"data has {sorted(available_runs)}, "
                 f"missing {sorted(missing)}"
             )
-        run_dirs = [d for d in run_dirs if int(d) in allowed_runs]
+        run_dirs = [path for path in run_dirs if int(path.name) in selected_runs]
 
     records = []
-    for run_dir in run_dirs:
-        run_number = int(run_dir)
-        run_path = os.path.join(base, run_dir)
+    for run_path in run_dirs:
+        run_number = int(run_path.name)
+        run_records_start = len(records)
 
         exp_dirs = sorted(
-            d for d in os.listdir(run_path)
-            if os.path.isdir(os.path.join(run_path, d))
+            path for path in run_path.iterdir()
+            if path.is_dir()
         )
 
-        for exp_dir in exp_dirs:
-            exp_path = os.path.join(run_path, exp_dir)
-            run_config_path = os.path.join(exp_path, "run_config.yaml")
-            if not os.path.isfile(run_config_path):
+        for exp_path in exp_dirs:
+            exp_dir = exp_path.name
+            run_config_path = exp_path / "run_config.yaml"
+            if not run_config_path.is_file():
                 continue
 
-            with open(run_config_path, "r") as f:
+            with run_config_path.open("r") as f:
                 exp_config = yaml.safe_load(f)
             run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
 
-            rgb_dir = os.path.join(exp_path, "Camera", "rgb")
-            ann_dir = os.path.join(exp_path, "Camera", "object_detection")
-            num_frames = int(run_config.get("run", {}).get("num_frames", 0))
             orig_w = int(run_config.get("render", {}).get("width", 960))
             orig_h = int(run_config.get("render", {}).get("height", 544))
+            frame_records = _read_supported_frame_records(exp_path, run_config)
 
-            for i in range(num_frames):
-                img_path = os.path.join(rgb_dir, f"{i}.png")
-                if not os.path.isfile(img_path):
-                    continue
-                ann_path = os.path.join(ann_dir, f"{i}.txt")
-
-                anns = []
-                if os.path.isfile(ann_path):
-                    with open(ann_path, "r") as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) < 8:
-                                continue
-                            if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
-                                continue
-                            x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
-                            anns.append({
-                                "category_id": 11,
-                                "bbox": [x1, y1, x2 - x1, y2 - y1],
-                            })
-
+            for image_id, img_path, anns in frame_records:
                 records.append({
-                    "image_id": i,
-                    "path": img_path,
+                    "image_id": image_id,
+                    "path": str(img_path),
                     "width": orig_w,
                     "height": orig_h,
                     "subset": "extended",
@@ -397,6 +373,13 @@ def _load_extended_records() -> list:
                     "run_number": run_number,
                     "experiment": exp_dir,
                 })
+
+        if selected_runs is not None and len(records) == run_records_start:
+            _raise_empty_selected_data_error(
+                "extended_data.extended_numbers",
+                run_number,
+                run_path,
+            )
 
     num_samples = ext_cfg.get("num_samples")
     if num_samples is not None:
@@ -419,6 +402,8 @@ def _load_extended_records() -> list:
 _OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
 _OPTUNA_TRIAL_DIR_RE = re.compile(r"^trial_(?P<trial>\d+)$")
 _OPTUNA_FLAT_RGB_RE = re.compile(r"^rgb_(?P<frame>\d+)\.png$")
+_OPTUNA_CYCLE_RE = re.compile(r"^cycle_(?P<cycle>\d+)_(?P<timestamp>\d{8}T\d{6}Z)$")
+_OPTUNA_SELECTED_TRIAL_RE = re.compile(r"^(?P<kind>best|worst)_(?P<label>.+)$")
 
 
 def _parse_kitti_annotation_file(annotation_path: str) -> list[dict]:
@@ -472,6 +457,78 @@ def _parse_basic_writer_bbox_annotations(annotation_path: Path, label_path: Path
     return anns
 
 
+def _read_camera_kitti_frame_records(
+    experiment_dir: Path,
+    run_config: dict,
+) -> list[tuple[int, Path, list[dict]]]:
+    rgb_dir = experiment_dir / "Camera" / "rgb"
+    ann_dir = experiment_dir / "Camera" / "object_detection"
+    if not rgb_dir.is_dir():
+        return []
+
+    num_frames = int(run_config.get("run", {}).get("num_frames", 0))
+    frame_ids = list(range(num_frames))
+    if not frame_ids:
+        frame_ids = sorted(
+            int(path.stem)
+            for path in rgb_dir.iterdir()
+            if path.is_file() and path.suffix == ".png" and path.stem.isdigit()
+        )
+
+    frame_records = []
+    for frame_id in frame_ids:
+        img_path = rgb_dir / f"{frame_id}.png"
+        if not img_path.is_file():
+            continue
+        ann_path = ann_dir / f"{frame_id}.txt"
+        frame_records.append(
+            (frame_id, img_path, _parse_kitti_annotation_file(str(ann_path)))
+        )
+    return frame_records
+
+
+def _read_basic_writer_frame_records(
+    experiment_dir: Path,
+    run_config: dict,
+) -> list[tuple[int, Path, list[dict]]]:
+    flat_rgb_paths = sorted(
+        path for path in experiment_dir.iterdir()
+        if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
+    )
+
+    frame_records = []
+    for img_path in flat_rgb_paths:
+        frame_match = _OPTUNA_FLAT_RGB_RE.match(img_path.name)
+        if frame_match is None:
+            continue
+        frame_id = int(frame_match.group("frame"))
+        ann_path = experiment_dir / f"bounding_box_2d_tight_{frame_id:04d}.npy"
+        label_path = experiment_dir / f"bounding_box_2d_tight_labels_{frame_id:04d}.json"
+        frame_records.append(
+            (frame_id, img_path, _parse_basic_writer_bbox_annotations(ann_path, label_path))
+        )
+    return frame_records
+
+
+def _read_supported_frame_records(
+    experiment_dir: Path,
+    run_config: dict,
+) -> list[tuple[int, Path, list[dict]]]:
+    frame_records = _read_camera_kitti_frame_records(experiment_dir, run_config)
+    if frame_records:
+        return frame_records
+    return _read_basic_writer_frame_records(experiment_dir, run_config)
+
+
+def _raise_empty_selected_data_error(config_key: str, selected_id: int, data_path: Path) -> None:
+    raise ValueError(
+        f"{config_key} includes {selected_id}, but no supported image frames were found "
+        f"under {data_path}. Expected either Camera/rgb/<frame>.png with "
+        f"Camera/object_detection/<frame>.txt annotations, or flat rgb_####.png "
+        f"with bounding_box_2d_tight_####.npy/json annotations."
+    )
+
+
 def _load_optuna_summary(summary_path: Path) -> dict:
     if not summary_path.is_file():
         return {}
@@ -508,9 +565,6 @@ def _append_optuna_experiment_records(
         exp_config = yaml.safe_load(f)
     run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
 
-    rgb_dir = experiment_dir / "Camera" / "rgb"
-    ann_dir = experiment_dir / "Camera" / "object_detection"
-    num_frames = int(run_config.get("run", {}).get("num_frames", 0))
     orig_w = int(run_config.get("render", {}).get("width", 960))
     orig_h = int(run_config.get("render", {}).get("height", 544))
     iteration = int(match.group("iteration"))
@@ -519,30 +573,7 @@ def _append_optuna_experiment_records(
 
     rank_value = summary.get("rank")
     objective_value = summary.get("objective_value")
-
-    frame_records: list[tuple[int, Path, list[dict]]] = []
-    if rgb_dir.is_dir():
-        for i in range(num_frames):
-            img_path = rgb_dir / f"{i}.png"
-            if not img_path.is_file():
-                continue
-            ann_path = ann_dir / f"{i}.txt"
-            frame_records.append((i, img_path, _parse_kitti_annotation_file(str(ann_path))))
-    else:
-        flat_rgb_paths = sorted(
-            path for path in experiment_dir.iterdir()
-            if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
-        )
-        for img_path in flat_rgb_paths:
-            frame_match = _OPTUNA_FLAT_RGB_RE.match(img_path.name)
-            if frame_match is None:
-                continue
-            frame_id = int(frame_match.group("frame"))
-            ann_path = experiment_dir / f"bounding_box_2d_tight_{frame_id:04d}.npy"
-            label_path = experiment_dir / f"bounding_box_2d_tight_labels_{frame_id:04d}.json"
-            frame_records.append(
-                (frame_id, img_path, _parse_basic_writer_bbox_annotations(ann_path, label_path))
-            )
+    frame_records = _read_supported_frame_records(experiment_dir, run_config)
 
     for image_id, img_path, anns in frame_records:
         records.append({
@@ -627,6 +658,130 @@ def _append_optuna_run_wrapper_records(
     )
 
 
+def _append_optuna_selected_trial_records(
+    *,
+    records: list,
+    selected_trial_dir: Path,
+    category: str,
+    cycle_index: int,
+    timestamp: str,
+) -> None:
+    selected_match = _OPTUNA_SELECTED_TRIAL_RE.match(selected_trial_dir.name)
+    if selected_match is None:
+        return
+
+    outputs_root = selected_trial_dir / "outputs"
+    if not outputs_root.is_dir():
+        return
+
+    trial_kind = selected_match.group("kind")
+    trial_label = selected_match.group("label")
+
+    for experiment_dir in sorted(
+        path for path in outputs_root.iterdir()
+        if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
+    ):
+        experiment_name = experiment_dir.name
+        match = _OPTUNA_DIR_RE.match(experiment_name)
+        if match is None:
+            continue
+
+        run_config_path = selected_trial_dir / "yamls" / f"{experiment_name}.yaml"
+        if not run_config_path.is_file():
+            run_config_path = experiment_dir / "run_config.yaml"
+        if not run_config_path.is_file():
+            continue
+
+        with run_config_path.open("r") as f:
+            exp_config = yaml.safe_load(f)
+        run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+        orig_w = int(run_config.get("render", {}).get("width", 960))
+        orig_h = int(run_config.get("render", {}).get("height", 544))
+        iteration = int(match.group("iteration"))
+        run_number = int(match.group("run"))
+        frame_records = _read_supported_frame_records(experiment_dir, run_config)
+
+        for image_id, img_path, anns in frame_records:
+            records.append({
+                "image_id": image_id,
+                "path": str(img_path),
+                "width": orig_w,
+                "height": orig_h,
+                "subset": "optuna",
+                "anns": anns,
+                "run_config": run_config,
+                "run_number": run_number,
+                "iteration": iteration,
+                "experiment": experiment_name,
+                "optuna_bucket": "selected",
+                "optuna_theme": category,
+                "optuna_repetition": f"cycle_{cycle_index:02d}_{timestamp}",
+                "trial_number": None,
+                "optuna_rank": None,
+                "optuna_objective_value": None,
+                "optuna_selected_kind": trial_kind,
+                "optuna_selected_label": trial_label,
+                "optuna_selected_cycle": cycle_index,
+                "optuna_selected_timestamp": timestamp,
+            })
+
+
+def _load_optuna_selected_records() -> list:
+    """
+    Load frames from the warehouse tree shaped like:
+      optuna-ec2/<category>/cycle_XX_<timestamp>/<best|worst>_*/
+    """
+    optuna_cfg = CONFIG.get("optuna_data", {})
+    if not optuna_cfg.get("additional", True):
+        return []
+
+    base = optuna_cfg.get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    records = []
+    base_path = Path(base)
+
+    for category_dir in sorted(path for path in base_path.iterdir() if path.is_dir()):
+        for cycle_dir in sorted(path for path in category_dir.iterdir() if path.is_dir()):
+            cycle_match = _OPTUNA_CYCLE_RE.match(cycle_dir.name)
+            if cycle_match is None:
+                continue
+            cycle_index = int(cycle_match.group("cycle"))
+            timestamp = cycle_match.group("timestamp")
+            for selected_trial_dir in sorted(path for path in cycle_dir.iterdir() if path.is_dir()):
+                _append_optuna_selected_trial_records(
+                    records=records,
+                    selected_trial_dir=selected_trial_dir,
+                    category=category_dir.name,
+                    cycle_index=cycle_index,
+                    timestamp=timestamp,
+                )
+
+    num_samples = optuna_cfg.get("num_samples")
+    if num_samples is not None:
+        by_cycle = {}
+        for record in records:
+            cycle_key = (
+                record.get("optuna_theme"),
+                record.get("optuna_selected_cycle"),
+                record.get("optuna_selected_label"),
+            )
+            by_cycle.setdefault(cycle_key, []).append(record)
+        sampled = []
+        rng = random.Random(42)
+        for cycle_records in by_cycle.values():
+            if len(cycle_records) > num_samples:
+                rng.shuffle(cycle_records)
+                sampled.extend(cycle_records[:num_samples])
+            else:
+                sampled.extend(cycle_records)
+        records = sampled
+
+    return records
+
+
 def _load_optuna_records() -> list:
     """
     Load frames from optuna trees, including:
@@ -646,6 +801,9 @@ def _load_optuna_records() -> list:
 
     records = []
     base_path = Path(base)
+    selected_records = _load_optuna_selected_records()
+    if selected_records:
+        records.extend(selected_records)
 
     flat_experiment_dirs = sorted(
         path for path in base_path.iterdir()
@@ -829,21 +987,11 @@ def _append_optuna_test_run_records(
         orig_h = int(run_config.get("render", {}).get("height", 544))
         relative_experiment = frame_dir.relative_to(run_dir)
         experiment_name = run_name if str(relative_experiment) == "." else f"{run_name}__{relative_experiment.as_posix().replace('/', '__')}"
+        frame_records = _read_supported_frame_records(frame_dir, run_config)
 
-        flat_rgb_paths = sorted(
-            path for path in frame_dir.iterdir()
-            if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
-        )
-        for img_path in flat_rgb_paths:
-            frame_match = _OPTUNA_FLAT_RGB_RE.match(img_path.name)
-            if frame_match is None:
-                continue
-            frame_id = int(frame_match.group("frame"))
-            ann_path = frame_dir / f"bounding_box_2d_tight_{frame_id:04d}.npy"
-            label_path = frame_dir / f"bounding_box_2d_tight_labels_{frame_id:04d}.json"
-            anns = _parse_basic_writer_bbox_annotations(ann_path, label_path)
+        for image_id, img_path, anns in frame_records:
             records.append({
-                "image_id": frame_id,
+                "image_id": image_id,
                 "path": str(img_path),
                 "width": orig_w,
                 "height": orig_h,
@@ -858,6 +1006,9 @@ def _append_optuna_test_run_records(
 
 
 def _discover_optuna_test_frame_dirs(run_dir: Path) -> list[Path]:
+    if (run_dir / "Camera" / "rgb").is_dir():
+        return [run_dir]
+
     direct_rgb_paths = sorted(
         path for path in run_dir.iterdir()
         if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
@@ -865,12 +1016,17 @@ def _discover_optuna_test_frame_dirs(run_dir: Path) -> list[Path]:
     if direct_rgb_paths:
         return [run_dir]
 
-    frame_dirs = sorted({
+    camera_frame_dirs = {
+        path.parent.parent
+        for path in run_dir.rglob("Camera/rgb")
+        if path.is_dir()
+    }
+    basic_writer_frame_dirs = {
         path.parent
         for path in run_dir.rglob("rgb_*.png")
         if path.is_file() and _OPTUNA_FLAT_RGB_RE.match(path.name)
-    })
-    return frame_dirs
+    }
+    return sorted(camera_frame_dirs | basic_writer_frame_dirs)
 
 
 # ---------------------------------------------------------------------------
