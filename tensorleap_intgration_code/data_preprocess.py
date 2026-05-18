@@ -95,7 +95,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         val_records   = val_records[:max_samples]
 
     synth_records.sort(key=lambda r: r["run_number"])
-    extended_records.sort(key=lambda r: (r["run_number"], r["experiment"]))
+    extended_records.sort(key=lambda r: (r.get("iteration", 0), r["run_number"], r["experiment"]))
     optuna_records.sort(
         key=lambda r: (
             str(r.get("optuna_bucket", "")),
@@ -124,7 +124,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         if r["subset"] == "synth":
             sample_id = f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
         elif r["subset"] == "extended":
-            sample_id = f"ext{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+            sample_id = f"ext_iter{r.get('iteration', 0)}_run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
         elif r["subset"] == "optuna":
             if r.get("optuna_selected_cycle") is not None:
                 sample_id = (
@@ -301,10 +301,12 @@ def _load_synth_records() -> list:
 
 def _load_extended_records() -> list:
     """
-    Load frames from extended/{run_number}/{exp_dir}/Camera/ directories.
+    Load frames from extended/{name}-{iter}/{run_name}/ directories.
 
-    Same KITTI format as synth data; run dirs are plain integers (0, 1, ...).
-    Records are tagged subset='extended' and carry run_config for metadata.
+    Top-level folders are named like 'camera-01'; the trailing number is the
+    iteration index.  Each subfolder (e.g. 'dist_29') is a run; the number
+    after the last '_' is the run_number.  Frames use the flat basic-writer
+    format (rgb_XXXX.png + bounding_box_2d_tight_XXXX.npy/json).
     """
     ext_cfg = CONFIG.get("extended_data", {})
     if not ext_cfg.get("additional", True):
@@ -314,42 +316,41 @@ def _load_extended_records() -> list:
     if not base or not os.path.isdir(base):
         return []
 
-    allowed_runs = ext_cfg.get("extended_numbers")  # None, int, or list of ints
-    if isinstance(allowed_runs, int):
-        allowed_runs = [allowed_runs]
-    selected_runs = set(allowed_runs) if allowed_runs is not None else None
+    allowed_iters = ext_cfg.get("extended_numbers")
+    if isinstance(allowed_iters, int):
+        allowed_iters = [allowed_iters]
+    selected_iters = set(allowed_iters) if allowed_iters is not None else None
 
     base_path = Path(base)
-    run_dirs = sorted(
+    iter_dirs = sorted(
         path for path in base_path.iterdir()
-        if path.is_dir() and path.name.isdigit()
+        if path.is_dir() and _EXTENDED_ITER_DIR_RE.match(path.name)
     )
-    if not run_dirs:
-        raise FileNotFoundError(f"no run_dirs found in {base}, make sure all run folder names are numbers")
-    if selected_runs is not None:
-        available_runs = {int(path.name) for path in run_dirs}
-        missing = selected_runs - available_runs
+    if not iter_dirs:
+        raise FileNotFoundError(f"no iteration dirs found in {base}")
+
+    if selected_iters is not None:
+        available_iters = {int(_EXTENDED_ITER_DIR_RE.match(p.name).group(1)) for p in iter_dirs}
+        missing = selected_iters - available_iters
         if missing:
             raise ValueError(
-                f"extended_data.extended_numbers: desired {sorted(selected_runs)}, "
-                f"data has {sorted(available_runs)}, "
+                f"extended_data.extended_numbers: desired {sorted(selected_iters)}, "
+                f"data has {sorted(available_iters)}, "
                 f"missing {sorted(missing)}"
             )
-        run_dirs = [path for path in run_dirs if int(path.name) in selected_runs]
+        iter_dirs = [p for p in iter_dirs if int(_EXTENDED_ITER_DIR_RE.match(p.name).group(1)) in selected_iters]
 
     records = []
-    for run_path in run_dirs:
-        run_number = int(run_path.name)
-        run_records_start = len(records)
+    for iter_path in iter_dirs:
+        iteration = int(_EXTENDED_ITER_DIR_RE.match(iter_path.name).group(1))
 
-        exp_dirs = sorted(
-            path for path in run_path.iterdir()
-            if path.is_dir()
-        )
+        for run_path in sorted(path for path in iter_path.iterdir() if path.is_dir()):
+            run_number_str = run_path.name.split("_")[-1]
+            if not run_number_str.isdigit():
+                continue
+            run_number = int(run_number_str)
 
-        for exp_path in exp_dirs:
-            exp_dir = exp_path.name
-            run_config_path = exp_path / "run_config.yaml"
+            run_config_path = run_path / "run_config.yaml"
             if not run_config_path.is_file():
                 continue
 
@@ -359,7 +360,7 @@ def _load_extended_records() -> list:
 
             orig_w = int(run_config.get("render", {}).get("width", 960))
             orig_h = int(run_config.get("render", {}).get("height", 544))
-            frame_records = _read_supported_frame_records(exp_path, run_config)
+            frame_records = _read_supported_frame_records(run_path, run_config)
 
             for image_id, img_path, anns in frame_records:
                 records.append({
@@ -370,22 +371,16 @@ def _load_extended_records() -> list:
                     "subset": "extended",
                     "anns": anns,
                     "run_config": run_config,
+                    "iteration": iteration,
                     "run_number": run_number,
-                    "experiment": exp_dir,
+                    "experiment": run_path.name,
                 })
-
-        if selected_runs is not None and len(records) == run_records_start:
-            _raise_empty_selected_data_error(
-                "extended_data.extended_numbers",
-                run_number,
-                run_path,
-            )
 
     num_samples = ext_cfg.get("num_samples")
     if num_samples is not None:
         by_run = {}
         for r in records:
-            by_run.setdefault(r["run_number"], []).append(r)
+            by_run.setdefault((r["iteration"], r["run_number"]), []).append(r)
         sampled = []
         rng = random.Random(42)
         for run_records in by_run.values():
@@ -399,6 +394,7 @@ def _load_extended_records() -> list:
     return records
 
 
+_EXTENDED_ITER_DIR_RE = re.compile(r"^.+-(\d+)$")
 _OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
 _OPTUNA_TRIAL_DIR_RE = re.compile(r"^trial_(?P<trial>\d+)$")
 _OPTUNA_FLAT_RGB_RE = re.compile(r"^rgb_(?P<frame>\d+)\.png$")
