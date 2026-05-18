@@ -1,0 +1,93 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: full_warehouse
+camera:
+  camera_type: pinhole
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 4.5193
+  - 5.984
+  camera_height_mean: 1.3346
+  camera_height_std: 0.8104
+  camera_tilt_mean: -7.0
+  camera_tilt_std: 4.0801
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 85.6533
+  camera_roll_mean: 0.0
+  camera_roll_std: 2.0
+  focal_length_std: 0.0
+  fov_mean: 71.0
+  fov_std: 4.9091
+  color_std:
+  - 0.0
+  - 0.0
+  - 0.0
+  noise_std_mean: 6.0
+  noise_std_std: 2.3094
+  motion_blur_strength_mean: 2.0772
+  motion_blur_strength_std: 0.6898
+  jpeg_quality_mean: 97.5
+  jpeg_quality_std: 1.4434
+  dataset_noise:
+    enabled: true
+    mode: shot
+    sigma_mean: 10.0817
+    sigma_std: 0.7073
+    jpeg_quality_mean: 25.0
+    jpeg_quality_std: 6.0
+    shot_scale_mean: 51.0
+    shot_scale_std: 3.0
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.0097
+  brightness_gain_std: 0.0113
+  contrast_gain_mean: 1.0299
+  contrast_gain_std: 0.0014
+  gamma_mean: 1.0357
+  gamma_std: 0.0045
+distractor_randomization:
+  scale_mean: 1.25
+  scale_std: 0.1443
+distractors:
+  clutter_level: 1.8444
+  groups:
+    CardBox:
+      diversity: 3
+      occurrence: 6
+    BarelPlastic:
+      diversity: 2
+      occurrence: 2
+    BottlePlastic:
+      diversity: 4
+      occurrence: 2
+    CratePlastic:
+      diversity: 3
+      occurrence: 4
+    TrafficSigns:
+      diversity: 2
+      occurrence: 2
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 2
+      occurrence: 2
+    PushCart:
+      diversity: 1
+      occurrence: 2
+lighting:
+  intensity_mean: 117819.0
+  intensity_std: 267433.0
+materials:
+  roughness_mean: 0.4554
+  roughness_std: 0.2036
+  emissive_intensity_mean: 418.0
+  emissive_intensity_std: 187.333
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg

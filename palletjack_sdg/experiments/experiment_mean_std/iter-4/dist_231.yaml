@@ -1,0 +1,94 @@
+extends: ../../../sdg_config_mean_std.yaml
+run:
+  num_frames: 128
+  data_dir: /placeholder
+environment:
+  name: warehouse
+camera:
+  camera_type: pinhole
+  position_mean:
+  - -1.0
+  - 2.0
+  position_std:
+  - 5.4774
+  - 7.1689
+  camera_height_mean: 0.9244
+  camera_height_std: 0.3862
+  camera_tilt_mean: -15.0
+  camera_tilt_std: 4.7735
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 108.0659
+  camera_roll_mean: 0.0
+  camera_roll_std: 1.0
+  focal_length_std: 0.0
+  fov_mean: 57.0
+  fov_std: 8.1372
+  color_std:
+  - 0.0
+  - 0.0
+  - 0.0
+  noise_std_mean: 6.0
+  noise_std_std: 2.3094
+  motion_blur_strength_mean: 1.0387
+  motion_blur_strength_std: 0.3168
+  jpeg_quality_mean: 97.5
+  jpeg_quality_std: 1.4434
+  dataset_noise:
+    enabled: false
+    mode: gaussian_jpeg
+    sigma_mean: 4.1418
+    sigma_std: 1.5246
+    jpeg_quality_mean: 30.0
+    jpeg_quality_std: 6.0
+    shot_scale_mean: 76.0
+    shot_scale_std: 1.0
+image_augmentation:
+  enabled: false
+  brightness_gain_mean: 1.1255
+  brightness_gain_std: 0.0197
+  contrast_gain_mean: 0.9332
+  contrast_gain_std: 0.0105
+  gamma_mean: 0.9792
+  gamma_std: 0.0278
+distractor_randomization:
+  scale_mean: 1.25
+  scale_std: 0.1443
+distractors:
+  clutter_level: 1.2466
+  groups:
+    CardBox:
+      diversity: 4
+      occurrence: 2
+    BarelPlastic:
+      diversity: 3
+      occurrence: 2
+    BottlePlastic:
+      diversity: 3
+      occurrence: 2
+    CratePlastic:
+      diversity: 2
+      occurrence: 3
+    TrafficSigns:
+      diversity: 2
+      occurrence: 2
+    Bucket:
+      diversity: 1
+      occurrence: 2
+    RackPile:
+      diversity: 1
+      occurrence: 1
+    PushCart:
+      diversity: 1
+      occurrence: 1
+lighting:
+  intensity_mean: 60821.0
+  intensity_std: 273509.0
+materials:
+  roughness_mean: 0.4828
+  roughness_std: 0.1278
+  emissive_intensity_mean: 138.0
+  emissive_intensity_std: 78.7055
+  textures:
+  - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
+  - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
