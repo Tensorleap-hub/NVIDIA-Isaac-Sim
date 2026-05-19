@@ -77,9 +77,6 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "camera.camera_roll_std",
         "camera.fov_mean",
         "camera.fov_std",
-        "camera.camera_type",
-        "camera.fisheye_max_fov",
-        "camera.position_std",
     ],
     "camera-color": [
         "image_augmentation.enabled",
@@ -121,7 +118,6 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "palletjacks.count_per_model",
         "palletjacks.position_std",
         "palletjacks.rotation_std",
-        "distractor_randomization.position_std",
     ],
     "lighting": [
         "lighting.intensity_mean",
