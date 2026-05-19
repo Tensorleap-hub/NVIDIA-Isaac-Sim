@@ -18,7 +18,7 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
 )
 
-from tensorleap_intgration_code.config import COCO_ID_TO_IDX, CONFIG
+from tensorleap_intgration_code.config import COCO_ID_TO_IDX, CONFIG, abs_path_from_root
 
 IMAGE_SIZE = int(CONFIG["image_size"])
 MAX_DETS = int(CONFIG["max_num_of_objects"])
@@ -31,6 +31,43 @@ def _validate_unique_sample_ids(sample_ids: list[str], label: str) -> None:
         raise ValueError(
             f"Duplicate sample ids found in {label}: {preview}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Preprocessing helpers
+# ---------------------------------------------------------------------------
+
+def _make_additional_sample_id(r: dict) -> str:
+    if r["subset"] == "synth":
+        return f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+    elif r["subset"] == "extended":
+        return f"ext_iter{r.get('iteration', 0)}_run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
+    elif r["subset"] == "optuna":
+        if r.get("optuna_selected_cycle") is not None:
+            return (
+                f"optuna_selected_{r.get('optuna_theme', 'flat')}_"
+                f"cycle{int(r['optuna_selected_cycle']):02d}_"
+                f"{r.get('optuna_selected_timestamp', 'unknown')}_"
+                f"{r.get('optuna_selected_kind', 'unknown')}_"
+                f"{r.get('optuna_selected_label', 'unknown')}_"
+                f"iter{r['iteration']}_run{r['run_number']}_"
+                f"{r['experiment']}_frame{r['image_id']}"
+            )
+        else:
+            repetition_part = f"{r.get('optuna_repetition', '')}_" if r.get("optuna_repetition") else ""
+            return (
+                f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
+                f"{repetition_part}"
+                f"iter{r['iteration']}_run{r['run_number']}_"
+                f"{r['experiment']}_frame{r['image_id']}"
+            )
+    elif r["subset"] == "optuna_tests":
+        return (
+            f"optuna_tests_{r.get('optuna_test_name', 'unknown')}_"
+            f"{r.get('run_name', 'unknown')}_{r['experiment']}_frame{r['image_id']}"
+        )
+    else:
+        raise ValueError(f"Unsupported additional subset {r['subset']!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +89,10 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         subset  : 'subset-1' … 'subset-5'
         anns    : list of COCO annotation dicts for this image
     """
+    custom_cfg = CONFIG.get("custom_latent_space") or {}
+    if custom_cfg.get("real_cache_manifest") or custom_cfg.get("base_cache_manifest") or custom_cfg.get("runs_root"):
+        return _preprocess_custom_latent_space(custom_cfg)
+
     data_path = CONFIG["data"]["data_path"]
     ann_file = os.path.join(data_path, CONFIG["data"]["annotations_file"])
 
@@ -119,39 +160,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
-    additional_ids = []
-    for r in additional_records:
-        if r["subset"] == "synth":
-            sample_id = f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
-        elif r["subset"] == "extended":
-            sample_id = f"ext_iter{r.get('iteration', 0)}_run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
-        elif r["subset"] == "optuna":
-            if r.get("optuna_selected_cycle") is not None:
-                sample_id = (
-                    f"optuna_selected_{r.get('optuna_theme', 'flat')}_"
-                    f"cycle{int(r['optuna_selected_cycle']):02d}_"
-                    f"{r.get('optuna_selected_timestamp', 'unknown')}_"
-                    f"{r.get('optuna_selected_kind', 'unknown')}_"
-                    f"{r.get('optuna_selected_label', 'unknown')}_"
-                    f"iter{r['iteration']}_run{r['run_number']}_"
-                    f"{r['experiment']}_frame{r['image_id']}"
-                )
-            else:
-                repetition_part = f"{r.get('optuna_repetition', '')}_" if r.get("optuna_repetition") else ""
-                sample_id = (
-                    f"optuna_{r.get('optuna_bucket', 'regular')}_{r.get('optuna_theme', 'flat')}_"
-                    f"{repetition_part}"
-                    f"iter{r['iteration']}_run{r['run_number']}_"
-                    f"{r['experiment']}_frame{r['image_id']}"
-                )
-        elif r["subset"] == "optuna_tests":
-            sample_id = (
-                f"optuna_tests_{r.get('optuna_test_name', 'unknown')}_"
-                f"{r.get('run_name', 'unknown')}_{r['experiment']}_frame{r['image_id']}"
-            )
-        else:
-            raise ValueError(f"Unsupported additional subset {r['subset']!r}")
-        additional_ids.append(sample_id)
+    additional_ids = [_make_additional_sample_id(r) for r in additional_records]
     _validate_unique_sample_ids(train_ids, "training split")
     _validate_unique_sample_ids(val_ids, "validation split")
     _validate_unique_sample_ids(additional_ids, "additional split")
@@ -169,7 +178,97 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
             PreprocessResponse(data={sid: r for sid, r in zip(val_ids, val_records)}, sample_ids=val_ids,
                                state=DataStateType.validation),
             ]
-            # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Custom latent-space loading (images cached by visualize_population.py)
+# ---------------------------------------------------------------------------
+
+def _load_manifest_image_records(manifest_path: str, subset_name: str) -> list:
+    if not os.path.isabs(manifest_path):
+        manifest_path = abs_path_from_root(manifest_path)
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+    image_paths = manifest.get("image_paths", [])
+    if not image_paths:
+        raise ValueError(f"No image_paths in manifest: {manifest_path}")
+    return [
+        {
+            "image_id": i,
+            "path": path,
+            "width": IMAGE_SIZE,
+            "height": IMAGE_SIZE,
+            "subset": subset_name,
+            "anns": [],
+        }
+        for i, path in enumerate(image_paths)
+    ]
+
+
+def _load_custom_run_records(runs_root: str) -> list:
+    if not os.path.isabs(runs_root):
+        runs_root = abs_path_from_root(runs_root)
+    runs_path = Path(runs_root)
+    if not runs_path.is_dir():
+        raise ValueError(f"custom_latent_space.runs_root does not exist: {runs_root}")
+    records: list = []
+    for cycle_dir in sorted(p for p in runs_path.rglob("*") if p.is_dir() and _OPTUNA_CYCLE_RE.match(p.name)):
+        cycle_match = _OPTUNA_CYCLE_RE.match(cycle_dir.name)
+        cycle_index = int(cycle_match.group("cycle"))
+        timestamp = cycle_match.group("timestamp")
+        category = cycle_dir.parent.name
+        for selected_trial_dir in sorted(p for p in cycle_dir.iterdir() if p.is_dir()):
+            _append_optuna_selected_trial_records(
+                records=records,
+                selected_trial_dir=selected_trial_dir,
+                category=category,
+                cycle_index=cycle_index,
+                timestamp=timestamp,
+            )
+    return records
+
+
+def _preprocess_custom_latent_space(custom_cfg: dict) -> List[PreprocessResponse]:
+    real_manifest = custom_cfg.get("real_cache_manifest")
+    base_manifest = custom_cfg.get("base_cache_manifest")
+    runs_root = custom_cfg.get("runs_root")
+
+    real_records = _load_manifest_image_records(real_manifest, "custom_real") if real_manifest else []
+    base_records = _load_manifest_image_records(base_manifest, "custom_base") if base_manifest else []
+    run_records = _load_custom_run_records(runs_root) if runs_root else []
+
+    real_ids = [f"custom_real_{i}" for i in range(len(real_records))]
+    base_ids = [f"custom_base_{i}" for i in range(len(base_records))]
+    run_ids = [_make_additional_sample_id(r) for r in run_records]
+
+    _validate_unique_sample_ids(real_ids, "custom_latent_space real")
+    _validate_unique_sample_ids(base_ids, "custom_latent_space base")
+    _validate_unique_sample_ids(run_ids, "custom_latent_space runs")
+    _validate_unique_sample_ids(real_ids + base_ids + run_ids, "custom_latent_space all")
+
+    subsets = []
+    if real_records:
+        subsets.append(PreprocessResponse(
+            data={sid: r for sid, r in zip(real_ids, real_records)},
+            sample_ids=real_ids,
+            state=DataStateType.training,
+        ))
+    if base_records:
+        subsets.append(PreprocessResponse(
+            data={sid: r for sid, r in zip(base_ids, base_records)},
+            sample_ids=base_ids,
+            state=DataStateType.validation,
+        ))
+    if run_records:
+        subsets.append(PreprocessResponse(
+            data={sid: r for sid, r in zip(run_ids, run_records)},
+            sample_ids=run_ids,
+            state=DataStateType.additional,
+        ))
+    return subsets
+
+
+# ---------------------------------------------------------------------------
 # Synthetic data loading (KITTI annotations, Isaac Sim)
 # ---------------------------------------------------------------------------
 

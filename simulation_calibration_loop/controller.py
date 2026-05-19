@@ -408,8 +408,12 @@ class SimulationCalibrationController:
     def _load_iteration_rows(self, state: dict[str, Any], start_iteration: int) -> list[dict[str, Any]]:
         """Choose the current batch source: seeds on iteration 0, suggestions otherwise."""
         if start_iteration == 0:
-            if self.base_pool.enabled and self.base_pool.has_scored_entries():
-                pool_rows = self._build_iteration_zero_rows_from_pool(target_count=len(self.seed_rows))
+            if (
+                self.base_pool.enabled
+                and self.base_pool.has_scored_entries()
+                and len(self.base_pool.entries) > len(self.seed_rows)
+            ):
+                pool_rows = self._prime_optuna_from_pool_embeddings()
                 if pool_rows:
                     return pool_rows
             return self._attach_base_configs_to_rows(
@@ -423,6 +427,72 @@ class SimulationCalibrationController:
             use_seed_defaults=False,
         )
 
+    def _prime_optuna_from_pool_embeddings(self) -> list[dict[str, Any]]:
+        """Initialize Optuna with pool entries using their cached DINOv2 embeddings.
+
+        Loads each pool entry's existing embeddings from disk, feeds them all into
+        evaluate_iteration as external (add_trial) observations, then returns the
+        resulting ask() suggestions as iter-0 rows — no Isaac simulation needed.
+        """
+        scored = [
+            e for e in self.base_pool.entries
+            if e.score is not None and e.embedding_path and Path(e.embedding_path).exists()
+        ]
+        if not scored:
+            return []
+
+        current_distributions = []
+        all_embeddings = []
+        embeddings_indices_by_dist: dict[int, list] = {}
+        start_index = 0
+
+        for dist_index, entry in enumerate(scored):
+            embedding_array = np.load(entry.embedding_path)
+            all_embeddings.append(embedding_array)
+            end_index = start_index + len(embedding_array)
+            params = {f"shape_logit_{self.group_name}": 0.0}
+            for key, value in entry.flattened_params.items():
+                params[f"{self.group_name}__{key}"] = value
+            current_distributions.append((entry.entry_id, params))
+            embeddings_indices_by_dist[dist_index] = [(0, np.arange(start_index, end_index))]
+            start_index = end_index
+
+        embeddings_by_shape = [np.concatenate(all_embeddings, axis=0)]
+        trial_numbers = [None] * len(scored)
+
+        print(f"Priming Optuna with {len(scored)} pool entries (cached embeddings)...")
+        raw_suggestions, _ = self.runner.evaluate_iteration(
+            current_distributions=current_distributions,
+            embeddings_by_shape=embeddings_by_shape,
+            embeddings_indices_by_dist=embeddings_indices_by_dist,
+            trial_numbers=trial_numbers,
+        )
+
+        suggestions = []
+        for suggestion_id, params in raw_suggestions:
+            flattened = {
+                key[len(f"{self.group_name}__"):]: value
+                for key, value in params.items()
+                if key.startswith(f"{self.group_name}__")
+            }
+            trial_number = None
+            if suggestion_id.startswith("trial_"):
+                trial_number = int(suggestion_id.split("_", 1)[1])
+            suggestions.append({
+                "suggestion_id": suggestion_id,
+                "optuna_trial_number": trial_number,
+                "params": flattened,
+            })
+
+        return self._attach_base_configs_to_rows(
+            suggestions,
+            iteration_index=0,
+            use_seed_defaults=False,
+        )
+
+    # NOT USED! Was used to re-sample pool entries and re-run them as fresh simulations
+    # to initialize iter-0 — i.e. replay the pool as a new batch instead of using
+    # cached embeddings. Superseded by _prime_optuna_from_pool_embeddings.
     def _build_iteration_zero_rows_from_pool(self, target_count: int) -> list[dict[str, Any]]:
         """Use sampled scored pool entries as the direct iteration-0 candidates."""
         sampled_entries = self.base_pool.sample_entries(target_count)

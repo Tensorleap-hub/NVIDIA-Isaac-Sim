@@ -5,3 +5,4 @@ configs:
   - project_config_camera_noise_light.yaml
   - project_config_camera_color_objects.yaml
   - project_config_noise_materials_objects.yaml
+  - project_config_all

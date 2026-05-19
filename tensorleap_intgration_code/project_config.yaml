@@ -79,3 +79,8 @@ optuna_tests_data:
   additional: false          # set to false to exclude optuna test datasets entirely
   tests:                   # null = include all; list like [camera] to include only test_camera
   num_samples:              # null = no limit; per-run cap after deterministic shuffle
+
+custom_latent_space:
+  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"  # path to .manifest.json from population_view/cache/ for real images
+  base_cache_manifest: "simulation_calibration_loop/population_view/cache/base_3684769ec526f1c4_dinov2_vitb14_reg.manifest.json"  # path to .manifest.json from population_view/cache/ for base images
+  runs_root: "/Users/orram/Tensorleap/data/warehouse/selected_trial_downloads"            # root dir of downloaded selected runs (e.g. selected_trial_downloads/optuna-ec2)

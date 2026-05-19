@@ -7,4 +7,5 @@ include:
     - tensorleap_requirements.txt
     - tensorleap_intgration_code/*.py
     - tensorleap_intgration_code/project_config.yaml
+    - simulation_calibration_loop/population_view/cache/*
 pythonVersion: py310
