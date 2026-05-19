@@ -32,6 +32,8 @@ actors:
     count_max: 2
     assets:
       - /Isaac/Robots/Forklift/Forklift_A01.usd
+      - /Isaac/Robots/Forklift/Forklift_B01.usd
+      - /Isaac/Robots/Forklift/Forklift_C01.usd
     spawn:
       position_mean: [0.0, 4.0, 0.0]
       position_std: [3.5, 4.5, 0.0]
@@ -43,19 +45,20 @@ actors:
       enabled: true
   humans:
     enabled: true
-    # NOTE: using a warehouse prop as a visible surrogate until a valid human USD is available in your asset server.
     count_mean: 2.0
     count_std: 1.0
     count_min: 2
     count_max: 5
     assets:
-      - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
+      - /Isaac/People/Characters/original_male_adult_construction_01/male_adult_construction_01.usd
+      - /Isaac/People/Characters/original_male_adult_construction_02/male_adult_construction_02.usd
+      - /Isaac/People/Characters/original_male_adult_construction_03/male_adult_construction_03.usd
     spawn:
       position_mean: [0.0, 4.0, 0.0]
       position_std: [4.0, 6.0, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 180.0]
-      scale_mean: 1.6
-      scale_std: 0.1
+      scale_mean: 1.0
+      scale_std: 0.05
     motion:
       enabled: true
