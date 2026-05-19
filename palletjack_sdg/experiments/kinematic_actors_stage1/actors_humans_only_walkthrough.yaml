@@ -8,14 +8,14 @@ environment:
   name: full_warehouse
 
 camera:
-  look_at: [0.0, 6.0, 0.0]
+  look_at: [0.0, 3.0, 0.0]
   position_mean: [-12.0, -10.0]
   position_std: [0.0, 0.0]
   camera_height_mean: 8.0
   camera_height_std: 0.0
-  camera_tilt_mean: -25.0
+  camera_tilt_mean: null
   camera_tilt_std: 0.0
-  camera_yaw_mean: 35.0
+  camera_yaw_mean: 180.0
   camera_yaw_std: 0.0
   camera_roll_mean: 0.0
   camera_roll_std: 0.0
