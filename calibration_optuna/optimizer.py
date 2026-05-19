@@ -607,6 +607,7 @@ class OptunaOptimizer:
         # Tell: Register current results with Optuna using add_trial()
         print(f"  Registering {len(current_distributions)} results with Optuna...")
 
+        existing_trial_numbers = {t.number for t in self.study.trials}
         for idx, ((dist_id, params), metrics, trial_number) in enumerate(zip(current_distributions, metrics_list, trial_numbers)):
             # Get metric values
             trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
@@ -618,8 +619,9 @@ class OptunaOptimizer:
                 if dist is not None and hasattr(dist, 'low') and hasattr(dist, 'high'):
                     val = max(dist.low, min(dist.high, val))
                 clamped_params[key] = val
-            if trial_number is None:
-                # External seed data not produced by ask()
+            if trial_number is None or trial_number not in existing_trial_numbers:
+                # External seed data, or a trial from a previous in-memory session
+                # that no longer exists after restart — import via add_trial.
                 trial = optuna.trial.create_trial(
                     params=clamped_params,
                     distributions=distributions,
@@ -628,7 +630,7 @@ class OptunaOptimizer:
                 )
                 self.study.add_trial(trial)
             else:
-                # Complete an asked trial produced in a previous iteration
+                # Complete an asked trial produced in the current session's ask()
                 self.study.tell(
                     trial_number,
                     values=trial_values,
