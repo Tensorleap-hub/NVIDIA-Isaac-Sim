@@ -15,6 +15,9 @@ fi
 cd "$ISAAC_SIM_PATH"
 
 ./python.sh - << PYEOF
+from omni.isaac.kit import SimulationApp
+simulation_app = SimulationApp({"headless": True, "renderer": "RayTracedLighting"})
+
 import omni.client
 
 ROOT = "$ROOT"
@@ -30,4 +33,5 @@ def walk(path, indent=0):
             walk(path + "/" + e.relative_path, indent + 1)
 
 walk(ROOT)
+simulation_app.close()
 PYEOF
