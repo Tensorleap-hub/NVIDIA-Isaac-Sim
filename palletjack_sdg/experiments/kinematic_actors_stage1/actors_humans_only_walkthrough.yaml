@@ -8,12 +8,20 @@ environment:
   name: full_warehouse
 
 camera:
-  camera_tilt_mean: -10.0
-  camera_tilt_std: 3.0
+  look_at: [0.0, 3.0, 0.0]
+  position_mean: [0.0, 3.0]
+  position_std: [0.0, 0.0]
+  camera_height_mean: 3.8
+  camera_height_std: 0.0
+  camera_tilt_mean: null
+  camera_tilt_std: 0.0
   camera_yaw_mean: 180.0
-  camera_yaw_std: 60.0
+  camera_yaw_std: 0.0
   camera_roll_mean: 0.0
-  camera_roll_std: 2.0
+  camera_roll_std: 0.0
+  fov_mean: 95.0
+  fov_std: 0.0
+
 
 actors:
   enabled: true
@@ -21,12 +29,13 @@ actors:
     enabled: false
   humans:
     enabled: true
+    # NOTE: using a warehouse prop as a visible surrogate until a valid human USD is available in your asset server.
     count_mean: 3.0
     count_std: 1.0
     count_min: 2
     count_max: 5
     assets:
-      - /Isaac/People/Characters/Worker_A.usd
+      - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd
     spawn:
       position_mean: [0.0, 3.5, 0.0]
       position_std: [5.0, 7.0, 0.0]
