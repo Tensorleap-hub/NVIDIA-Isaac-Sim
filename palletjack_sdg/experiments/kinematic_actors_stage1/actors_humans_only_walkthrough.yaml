@@ -8,10 +8,10 @@ environment:
   name: full_warehouse
 
 camera:
-  look_at: [0.0, 3.0, 0.0]
-  position_mean: [-12.0, -10.0]
+  look_at: [0.0, 8.0, 1.0]
+  position_mean: [-8.0, -8.0]
   position_std: [0.0, 0.0]
-  camera_height_mean: 8.0
+  camera_height_mean: 6.5
   camera_height_std: 0.0
   camera_tilt_mean: null
   camera_tilt_std: 0.0
@@ -19,7 +19,7 @@ camera:
   camera_yaw_std: 0.0
   camera_roll_mean: 0.0
   camera_roll_std: 0.0
-  fov_mean: 110.0
+  fov_mean: 125.0
   fov_std: 0.0
 
 
@@ -35,13 +35,13 @@ actors:
     count_min: 2
     count_max: 5
     assets:
-      - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd
+      - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
     spawn:
       position_mean: [0.0, 3.5, 0.0]
       position_std: [5.0, 7.0, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 180.0]
-      scale_mean: 1.0
-      scale_std: 0.02
+      scale_mean: 1.6
+      scale_std: 0.1
     motion:
       enabled: true

@@ -8,10 +8,10 @@ environment:
   name: warehouse_with_forklifts
 
 camera:
-  look_at: [0.0, 3.0, 0.0]
-  position_mean: [-12.0, -10.0]
+  look_at: [0.0, 8.0, 1.0]
+  position_mean: [-8.0, -8.0]
   position_std: [0.0, 0.0]
-  camera_height_mean: 8.0
+  camera_height_mean: 6.5
   camera_height_std: 0.0
   camera_tilt_mean: null
   camera_tilt_std: 0.0
@@ -19,7 +19,7 @@ camera:
   camera_yaw_std: 0.0
   camera_roll_mean: 0.0
   camera_roll_std: 0.0
-  fov_mean: 110.0
+  fov_mean: 125.0
   fov_std: 0.0
 
 actors:
