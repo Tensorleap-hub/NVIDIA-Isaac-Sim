@@ -36,9 +36,9 @@ actors:
       - /Isaac/Robots/Forklift/Forklift_C01.usd
     spawn:
       position_mean: [0.0, 3.0, 0.0]
-      position_std: [2.0, 2.5, 0.0]
+      position_std: [5.0, 6.0, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
-      rotation_std: [0.0, 0.0, 45.0]
+      rotation_std: [0.0, 0.0, 160.0]
       scale_mean: 1.0
       scale_std: 0.0
     motion:

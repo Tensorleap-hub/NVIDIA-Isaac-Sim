@@ -8,10 +8,10 @@ environment:
   name: warehouse_with_forklifts
 
 camera:
-  look_at: [0.0, 8.0, 1.0]
-  position_mean: [-8.0, -8.0]
+  look_at: [0.0, 4.5, 1.0]
+  position_mean: [-4.5, -2.5]
   position_std: [0.0, 0.0]
-  camera_height_mean: 6.5
+  camera_height_mean: 3.2
   camera_height_std: 0.0
   camera_tilt_mean: null
   camera_tilt_std: 0.0
@@ -19,7 +19,7 @@ camera:
   camera_yaw_std: 0.0
   camera_roll_mean: 0.0
   camera_roll_std: 0.0
-  fov_mean: 125.0
+  fov_mean: 95.0
   fov_std: 0.0
 
 actors:
@@ -36,9 +36,9 @@ actors:
       - /Isaac/Robots/Forklift/Forklift_C01.usd
     spawn:
       position_mean: [0.0, 4.0, 0.0]
-      position_std: [3.5, 4.5, 0.0]
+      position_std: [5.0, 6.5, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
-      rotation_std: [0.0, 0.0, 90.0]
+      rotation_std: [0.0, 0.0, 140.0]
       scale_mean: 1.6
       scale_std: 0.0
     motion:
@@ -55,7 +55,7 @@ actors:
       - /Isaac/People/Characters/original_male_adult_construction_03/male_adult_construction_03.usd
     spawn:
       position_mean: [0.0, 4.0, 0.0]
-      position_std: [4.0, 6.0, 0.0]
+      position_std: [3.0, 4.0, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 180.0]
       scale_mean: 1.0
