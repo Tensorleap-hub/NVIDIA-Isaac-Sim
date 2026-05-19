@@ -15,20 +15,20 @@ fi
 cd "$ISAAC_SIM_PATH"
 
 ./python.sh - << PYEOF
-from omni.isaac.kit import SimulationApp
-simulation_app = SimulationApp({"headless": True, "renderer": "RayTracedLighting"})
-
 import omni.client
 
-ROOT = "$ROOT"
+ROOT = "omniverse://localhost/NVIDIA/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props"
 
 def walk(path, indent=0):
     result, entries = omni.client.list(path)
+
     if result != omni.client.Result.OK:
-        print(f"{'  ' * indent}[ERROR {result}] {path}")
+        print("Failed:", path)
         return
+
     for e in entries:
         print("  " * indent + e.relative_path)
+
         if e.flags & omni.client.ItemFlags.CAN_HAVE_CHILDREN:
             walk(path + "/" + e.relative_path, indent + 1)
 
