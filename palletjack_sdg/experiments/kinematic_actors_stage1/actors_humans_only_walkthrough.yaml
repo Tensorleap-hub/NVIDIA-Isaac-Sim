@@ -1,0 +1,38 @@
+extends: ../../sdg_config_mean_std.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/kinematic_actors_stage1/humans_only_walkthrough
+  num_frames: 600
+
+environment:
+  name: full_warehouse
+
+camera:
+  camera_tilt_mean: -10.0
+  camera_tilt_std: 3.0
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 60.0
+  camera_roll_mean: 0.0
+  camera_roll_std: 2.0
+
+actors:
+  enabled: true
+  forklifts:
+    enabled: false
+  humans:
+    enabled: true
+    count_mean: 3.0
+    count_std: 1.0
+    count_min: 2
+    count_max: 5
+    assets:
+      - /Isaac/People/Characters/Worker_A.usd
+    spawn:
+      position_mean: [0.0, 3.5, 0.0]
+      position_std: [5.0, 7.0, 0.0]
+      rotation_mean: [0.0, 0.0, 180.0]
+      rotation_std: [0.0, 0.0, 180.0]
+      scale_mean: 1.0
+      scale_std: 0.02
+    motion:
+      enabled: true

@@ -1,0 +1,30 @@
+extends: ../../sdg_config_mean_std.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/kinematic_actors_stage1/forklift_single
+  num_frames: 500
+
+environment:
+  name: warehouse_with_forklifts
+
+actors:
+  enabled: true
+  forklifts:
+    enabled: true
+    count_mean: 1.0
+    count_std: 0.0
+    count_min: 1
+    count_max: 1
+    assets:
+      - /Isaac/Robots/Forklift/Forklift_A01.usd
+    spawn:
+      position_mean: [0.0, 3.0, 0.0]
+      position_std: [2.0, 2.5, 0.0]
+      rotation_mean: [0.0, 0.0, 180.0]
+      rotation_std: [0.0, 0.0, 45.0]
+      scale_mean: 1.0
+      scale_std: 0.0
+    motion:
+      enabled: true
+  humans:
+    enabled: false
