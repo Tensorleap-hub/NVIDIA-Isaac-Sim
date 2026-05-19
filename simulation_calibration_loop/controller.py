@@ -451,7 +451,8 @@ class SimulationCalibrationController:
             all_embeddings.append(embedding_array)
             end_index = start_index + len(embedding_array)
             params = {f"shape_logit_{self.group_name}": 0.0}
-            for key, value in entry.flattened_params.items():
+            theme_params = flatten_config(entry.config, self.schema)
+            for key, value in theme_params.items():
                 params[f"{self.group_name}__{key}"] = value
             current_distributions.append((entry.entry_id, params))
             embeddings_indices_by_dist[dist_index] = [(0, np.arange(start_index, end_index))]
