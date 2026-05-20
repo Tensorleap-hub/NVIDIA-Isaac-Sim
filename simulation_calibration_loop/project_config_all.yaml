@@ -1,5 +1,5 @@
 project_name: dinov2_subset3_optuna_loop_lighting
-workspace_dir: ./workspace_lighting
+workspace_dir: ./workspace_all
 baseline_state_path: ./workspace_noise/state.json
 promoted_baseline_dir: ./promoted_baseline_theme_rounds
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/all/
