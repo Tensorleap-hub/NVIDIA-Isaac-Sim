@@ -24,6 +24,11 @@ camera:
   fov_mean: 88.0
   fov_std: 8.0
 
+lighting:
+  intensity_mean: 120000
+  intensity_std: 150000
+  visibility_choices: [true, false]
+
 materials:
   emissive_intensity_mean: 50.0
   emissive_intensity_std: 20.0

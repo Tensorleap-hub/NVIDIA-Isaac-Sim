@@ -16,8 +16,14 @@ camera:
   camera_height_std: 0.25
   camera_tilt_mean: -14.0
   camera_tilt_std: 4.0
+  camera_yaw_std: 90.0
   fov_mean: 70.0
   fov_std: 5.0
+
+lighting:
+  intensity_mean: 130000
+  intensity_std: 80000
+  visibility_choices: [true]
 
 image_augmentation:
   enabled: true

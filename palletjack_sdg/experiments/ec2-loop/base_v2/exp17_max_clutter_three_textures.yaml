@@ -29,11 +29,22 @@ distractors:
       diversity: 2
       occurrence: 3
 
+
+    TrafficSigns:
+      occurrence: 0
+    Bucket:
+      occurrence: 0
+lighting:
+  intensity_mean: 120000
+  intensity_std: 80000
+  visibility_choices: [true, false]
+
 camera:
   camera_height_mean: 1.8
   camera_height_std: 0.3
   camera_tilt_mean: -17.0
   camera_tilt_std: 4.0
+  camera_yaw_std: 90
   fov_mean: 84.0
   fov_std: 7.0
 

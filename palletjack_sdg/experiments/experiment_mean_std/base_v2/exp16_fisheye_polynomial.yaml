@@ -18,13 +18,15 @@ camera:
   camera_height_std: 0.2
   camera_tilt_mean: -10.0
   camera_tilt_std: 3.0
+  camera_yaw_std: 90
 
 palletjacks:
   count_per_model: 2
 
 lighting:
   intensity_mean: 100000.0
-  intensity_std: 220000.0
+  intensity_std: 70000.0
+  visibility_choices: [true, false]
 
 materials:
   textures:

@@ -35,6 +35,7 @@ camera:
   camera_height_std: 0.25
   camera_tilt_mean: -13.0
   camera_tilt_std: 3.5
+  camera_yaw_std: 90
   fov_mean: 82.0
   fov_std: 5.0
 
@@ -45,7 +46,8 @@ palletjacks:
 
 lighting:
   intensity_mean: 110000.0
-  intensity_std: 180000.0
+  intensity_std: 75000.0
+  visibility_choices: [true, false]
 
 materials:
   textures:

@@ -417,8 +417,6 @@ def plot_comparison(all_sources: list[tuple[str, list[dict]]], output: Path, bin
     fig.patch.set_facecolor("#111111")
 
     col_titles = ["All classes"] + CLASS_ORDER
-    for col, title in enumerate(col_titles):
-        axes[0, col].set_title(title, color="white", fontsize=11, fontweight="bold")
 
     # ── Row 0: class distribution ──────────────────────────────────────────
     ax0 = axes[0, 0]
@@ -439,6 +437,14 @@ def plot_comparison(all_sources: list[tuple[str, list[dict]]], output: Path, bin
     ax0.set_title("Class distribution", color="white", fontsize=11, fontweight="bold")
     for col in range(1, ncols):
         axes[0, col].set_visible(False)
+
+    # Column headers via fig.text (row 0 cols 1-3 are invisible so titles there don't render)
+    for col, title in enumerate(col_titles):
+        # x position: centre of each column
+        x_pos = (col + 0.5) / ncols
+        fig.text(x_pos, 1.0, title, ha="center", va="bottom",
+                 color="white", fontsize=12, fontweight="bold",
+                 transform=fig.transFigure)
 
     # ── Rows 1..n: metric histograms ──────────────────────────────────────
     for row, (metric, label, xlim) in enumerate(metrics, start=1):

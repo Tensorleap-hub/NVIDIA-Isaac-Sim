@@ -8,6 +8,15 @@ environment:
   name: warehouse
 
 distractors:
+  groups:
+    TrafficSigns:
+      occurrence: 0
+    Bucket:
+      occurrence: 0
+    CratePlastic:
+      occurrence: 0
+    PushCart:
+      occurrence: 0
   clutter_level: 1.8
 
 camera:
@@ -16,6 +25,7 @@ camera:
   camera_height_std: 0.6
   camera_tilt_mean: -15.0
   camera_tilt_std: 6.0
+  camera_yaw_std: 90
   fov_mean: 90.0
   fov_std: 10.0
 
@@ -29,7 +39,8 @@ distractor_randomization:
 
 lighting:
   intensity_mean: 95000.0
-  intensity_std: 260000.0
+  intensity_std: 65000.0
+  visibility_choices: [true, false]
 
 materials:
   textures:

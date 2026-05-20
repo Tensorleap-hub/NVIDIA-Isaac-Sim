@@ -23,6 +23,7 @@ camera:
   camera_height_std: 0.4
   camera_tilt_mean: -15.0
   camera_tilt_std: 5.0
+  camera_yaw_std: 90
   fov_mean: 78.0
   fov_std: 6.0
   dataset_noise:
@@ -33,7 +34,8 @@ camera:
 
 lighting:
   intensity_mean: 100000.0
-  intensity_std: 200000.0
+  intensity_std: 70000.0
+  visibility_choices: [true, false]
 
 pallets:
   count_per_model: 3

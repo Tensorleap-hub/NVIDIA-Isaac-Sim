@@ -25,6 +25,7 @@ camera:
   camera_height_std: 0.5
   camera_tilt_mean: -10.0
   camera_tilt_std: 2.0
+  camera_yaw_std: 90
   fov_mean: 42.0
   fov_std: 3.0
 

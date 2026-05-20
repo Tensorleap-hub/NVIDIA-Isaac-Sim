@@ -17,11 +17,25 @@ distractors:
       diversity: 2
       occurrence: 2
 
+
+    BarelPlastic:
+      occurrence: 0
+    BottlePlastic:
+      occurrence: 0
+    CratePlastic:
+      occurrence: 0
+    TrafficSigns:
+      occurrence: 0
+    Bucket:
+      occurrence: 0
+    PushCart:
+      occurrence: 0
 camera:
   camera_height_mean: 1.4
   camera_height_std: 0.2
   camera_tilt_mean: -14.0
   camera_tilt_std: 3.0
+  camera_yaw_std: 90
   fov_mean: 74.0
   fov_std: 4.0
   dataset_noise:

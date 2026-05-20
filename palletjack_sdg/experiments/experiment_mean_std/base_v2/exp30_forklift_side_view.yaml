@@ -26,7 +26,8 @@ camera:
 
 lighting:
   intensity_mean: 95000.0
-  intensity_std: 180000.0
+  intensity_std: 65000.0
+  visibility_choices: [true, false]
 
 forklifts:
   count_per_model: 4

@@ -8,6 +8,15 @@ environment:
   name: full_warehouse
 
 distractors:
+  groups:
+    TrafficSigns:
+      occurrence: 0
+    Bucket:
+      occurrence: 0
+    BarelPlastic:
+      occurrence: 0
+    BottlePlastic:
+      occurrence: 0
   clutter_level: 0.2
 
 camera:
@@ -16,6 +25,7 @@ camera:
   camera_height_std: 0.5
   camera_tilt_mean: -10.0
   camera_tilt_std: 2.0
+  camera_yaw_std: 90
   fov_mean: 42.0
   fov_std: 3.0
 
@@ -33,3 +43,7 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg
     - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
 
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0

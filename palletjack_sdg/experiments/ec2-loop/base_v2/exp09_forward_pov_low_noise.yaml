@@ -8,6 +8,7 @@ environment:
   name: warehouse
 
 distractors:
+  groups:
   clutter_level: 0.9
 
 camera:
@@ -35,3 +36,7 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
     - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
 
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0

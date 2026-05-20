@@ -17,6 +17,19 @@ distractors:
       diversity: 2
       occurrence: 1
 
+
+    BarelPlastic:
+      occurrence: 0
+    BottlePlastic:
+      occurrence: 0
+    CratePlastic:
+      occurrence: 0
+    TrafficSigns:
+      occurrence: 0
+    Bucket:
+      occurrence: 0
+    RackPile:
+      occurrence: 0
 camera:
   camera_height_mean: 0.7
   camera_height_std: 0.12
@@ -34,7 +47,7 @@ palletjacks:
 
 lighting:
   intensity_mean: 90000.0
-  intensity_std: 220000.0
+  intensity_std: 60000.0
   visibility_choices: [true, false]
 
 materials:
