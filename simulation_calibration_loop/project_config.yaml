@@ -24,7 +24,8 @@ search_space:
     - camera
     - camera-color
     - noise
-    - objects
+    - distractors-clutter
+    - distractors-diversity
     - lighting
     - materials
   include:

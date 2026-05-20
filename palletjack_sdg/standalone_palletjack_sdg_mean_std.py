@@ -340,7 +340,7 @@ def add_distractors():
 
     For each group:
       - randomly pick `diversity` variants from the asset pool
-      - spawn `max(1, round(occurrence × clutter_level))` instances of each variant
+      - spawn `round(occurrence × clutter_level)` instances of each variant; skip if 0
     Returns a rep group, or None if clutter_level is 0.
     """
     dist_cfg = CFG["distractors"]
@@ -351,14 +351,14 @@ def add_distractors():
 
     all_prims = []
     for group_name, group_cfg in dist_cfg.get("groups", {}).items():
-        if not group_cfg.get("use", True):
-            print(f"  {group_name}: disabled (use=false)")
-            continue
         pool = group_cfg.get("assets", [])
         if not pool:
             continue
         diversity  = min(group_cfg.get("diversity", len(pool)), len(pool))
-        count      = max(1, round(group_cfg.get("occurrence", 1) * clutter))
+        count      = round(group_cfg.get("occurrence", 1) * clutter)
+        if count == 0:
+            print(f"  {group_name}: skipped (occurrence=0)")
+            continue
         selected   = random.sample(pool, diversity)
         for asset in selected:
             all_prims.append(

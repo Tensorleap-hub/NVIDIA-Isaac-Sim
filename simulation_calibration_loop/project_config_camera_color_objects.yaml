@@ -25,7 +25,8 @@ isaac:
 search_space:
   themes:
     - camera-color
-    - objects
+    - distractors-clutter
+    - distractors-diversity
   include: []
   exclude:
     - run.data_dir

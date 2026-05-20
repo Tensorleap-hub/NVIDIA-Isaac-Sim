@@ -23,7 +23,8 @@ isaac:
   headless: true
 search_space:
   themes:
-    - objects
+    - distractors-clutter
+    - distractors-diversity
   include: []
   exclude:
     - run.data_dir

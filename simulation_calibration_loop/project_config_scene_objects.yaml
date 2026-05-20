@@ -1,17 +1,16 @@
-project_name: dinov2_subset3_optuna_loop_noise_materials_objects
-workspace_dir: ./workspace_noise_materials_objects
-promoted_baseline_dir: ./promoted_baseline_theme_rounds
-s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/noise_materials_objects/
-seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2
+project_name: dinov2_subset3_optuna_loop_scene_objects
+workspace_dir: ./workspace_scene_objects
+baseline_state_path: ./workspace_run3/state.json
+s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/scene_objects/
+synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_run3/iteration_000/outputs
+seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
 max_iterations: 5
 iteration_batch_size: 8
 random_seed: 42
 top_n_best_trials: 5
-mmd_max_samples: 2000
-base_pool:
-  enabled: true
+mmd_max_samples: 1000
 dino:
   model_name: dinov2_vitb14_reg
   repo: facebookresearch/dinov2
@@ -24,10 +23,7 @@ isaac:
   headless: true
 search_space:
   themes:
-    - noise
-    - materials
-    - distractors-clutter
-    - distractors-diversity
+    - scene-objects
     - environment
   include: []
   exclude:

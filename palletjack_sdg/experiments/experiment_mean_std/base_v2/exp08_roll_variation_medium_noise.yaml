@@ -10,19 +10,19 @@ environment:
 distractors:
   groups:
     BarelPlastic:
-      use: false
+      occurrence: 0
     TrafficSigns:
-      use: false
+      occurrence: 0
     Bucket:
-      use: false
+      occurrence: 0
     PushCart:
-      use: false
+      occurrence: 0
   clutter_level: 1.0
 
     Pallet:
-      use: false
+      occurrence: 0
     Forklift:
-      use: false
+      occurrence: 0
 camera:
   camera_height_mean: 1.5
   camera_height_std: 0.25

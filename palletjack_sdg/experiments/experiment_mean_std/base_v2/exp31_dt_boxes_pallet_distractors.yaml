@@ -21,7 +21,7 @@ distractors:
       diversity: 4
       occurrence: 4
     Forklift:
-      use: false
+      occurrence: 0
 
 camera:
   camera_height_mean: 3.5

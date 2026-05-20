@@ -10,13 +10,13 @@ environment:
 distractors:
   groups:
     RackPile:
-      use: false
+      occurrence: 0
     TrafficSigns:
-      use: false
+      occurrence: 0
     Bucket:
-      use: false
+      occurrence: 0
     PushCart:
-      use: false
+      occurrence: 0
   clutter_level: 1.0
 
 camera:

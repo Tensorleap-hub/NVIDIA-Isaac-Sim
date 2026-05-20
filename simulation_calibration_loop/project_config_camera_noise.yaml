@@ -1,7 +1,7 @@
-project_name: dinov2_subset3_optuna_loop_noise_materials_objects
-workspace_dir: ./workspace_noise_materials_objects
+project_name: dinov2_subset3_optuna_loop_camera_noise_light
+workspace_dir: ./workspace_cam_noise_light_2
 promoted_baseline_dir: ./promoted_baseline_theme_rounds
-s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/noise_materials_objects/
+s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/camera_noise_light/
 seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
@@ -25,9 +25,6 @@ isaac:
 search_space:
   themes:
     - noise
-    - materials
-    - distractors-clutter
-    - distractors-diversity
     - environment
   include: []
   exclude:
