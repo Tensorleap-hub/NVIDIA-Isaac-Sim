@@ -9,10 +9,6 @@ environment:
 
 distractors:
   groups:
-    Pallet:
-      occurrence: 0
-    Forklift:
-      occurrence: 0
   clutter_level: 0.0
 
 camera:
@@ -43,3 +39,7 @@ materials:
   roughness_mean: 0.2
   roughness_std: 0.08
 
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0

@@ -17,11 +17,6 @@ distractors:
     CardBox:
       diversity: 6
       occurrence: 4
-    Pallet:
-      diversity: 4
-      occurrence: 4
-    Forklift:
-      occurrence: 0
 
 camera:
   camera_height_mean: 3.5
@@ -32,3 +27,8 @@ camera:
 materials:
   emissive_intensity_mean: 50.0
   emissive_intensity_std: 20.0
+
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 4

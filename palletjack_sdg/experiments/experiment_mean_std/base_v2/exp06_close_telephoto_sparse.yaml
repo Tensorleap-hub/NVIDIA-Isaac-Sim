@@ -9,10 +9,6 @@ environment:
 
 distractors:
   groups:
-    Pallet:
-      occurrence: 0
-    Forklift:
-      occurrence: 0
   clutter_level: 0.3
 
 camera:
@@ -38,3 +34,7 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg
     - /Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg
 
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0

@@ -17,9 +17,6 @@ distractors:
     CardBox:
       diversity: 5
       occurrence: 3
-    Pallet:
-      diversity: 4
-      occurrence: 3
 
 camera:
   camera_height_mean: 2.0
@@ -37,3 +34,6 @@ camera:
 lighting:
   intensity_mean: 100000.0
   intensity_std: 200000.0
+
+pallets:
+  count_per_model: 3

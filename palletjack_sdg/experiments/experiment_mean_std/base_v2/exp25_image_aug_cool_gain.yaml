@@ -9,10 +9,6 @@ environment:
 
 distractors:
   groups:
-    Pallet:
-      occurrence: 0
-    Forklift:
-      occurrence: 0
   clutter_level: 1.1
 
 camera:
@@ -33,3 +29,8 @@ image_augmentation:
   gamma_std: 0.0
   color_gain_mean: [0.94, 1.02, 1.08]
   color_gain_std: [0.02, 0.02, 0.02]
+
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0

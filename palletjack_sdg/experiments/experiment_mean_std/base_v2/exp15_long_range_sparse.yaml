@@ -19,10 +19,6 @@ distractors:
       occurrence: 0
   clutter_level: 0.2
 
-    Pallet:
-      occurrence: 0
-    Forklift:
-      occurrence: 0
 camera:
   position_std: [6.0, 9.0]
   camera_height_mean: 3.0
@@ -46,3 +42,7 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg
     - /Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg
 
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0
