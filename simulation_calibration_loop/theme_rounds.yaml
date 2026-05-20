@@ -1,8 +1,22 @@
 rounds: 2
+
+# Common overrides applied to every per-theme config before each run.
+# Any key here wins over the value in the individual project_config_*.yaml.
+# promoted_baseline_dir is resolved relative to this file's location.
+common:
+  promoted_baseline_dir: ./promoted_baseline_theme_rounds
+  max_iterations: 30
+  iteration_batch_size: 4
+  sample_number: 64     # maps to isaac.num_frames_override in each config
+  base_pool:
+    enabled: true
+    max_size: 60
+    pin_seeds: true
+
 configs:
   - project_config_camera.yaml
   - project_config_noise_lighting.yaml
   - project_config_camera_noise_light.yaml
   - project_config_camera_color_objects.yaml
   - project_config_noise_materials_objects.yaml
-  - project_config_all
+  - project_config_all.yaml

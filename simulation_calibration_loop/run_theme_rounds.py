@@ -8,7 +8,9 @@ run, so later themed runs automatically inherit the latest promoted baseline.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -42,13 +44,25 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional root directory for all derived round workspaces.",
     )
+    parser.add_argument(
+        "--s3-dir",
+        type=str,
+        default=None,
+        help="S3 prefix (s3://bucket/path) to upload best runs after each theme config completes.",
+    )
+    parser.add_argument(
+        "--s3-top-n",
+        type=int,
+        default=3,
+        help="Number of best runs to upload per theme config (default: 3).",
+    )
     args = parser.parse_args()
     if args.round_config is None and not args.configs:
         parser.error("Pass either --round-config or at least one --config")
     return args
 
 
-def load_round_config(path: Path) -> tuple[int, list[Path]]:
+def load_round_config(path: Path) -> tuple[int, list[Path], dict]:
     """Load the round-run YAML and resolve listed configs relative to it."""
     payload = yaml.safe_load(path.read_text()) or {}
     rounds = int(payload.get("rounds", 1))
@@ -56,7 +70,12 @@ def load_round_config(path: Path) -> tuple[int, list[Path]]:
     if not config_items:
         raise ValueError(f"Round config has no configs: {path}")
     config_paths = [(path.parent / item).resolve() for item in config_items]
-    return rounds, config_paths
+    common = dict(payload.get("common") or {})
+    if common.get("promoted_baseline_dir"):
+        common["promoted_baseline_dir"] = str(
+            _resolve_config_path(common["promoted_baseline_dir"], path.parent)
+        )
+    return rounds, config_paths, common
 
 
 def main() -> None:
@@ -64,16 +83,22 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     retry_script = repo_root / "simulation_calibration_loop" / "run_main_loop_with_retry.sh"
     if args.round_config is not None:
-        rounds, config_paths = load_round_config(Path(args.round_config).resolve())
+        rounds, config_paths, common_overrides = load_round_config(Path(args.round_config).resolve())
     else:
         rounds = args.rounds
         config_paths = [Path(item).resolve() for item in args.configs]
+        common_overrides = {}
     workspace_root = Path(args.workspace_root).resolve() if args.workspace_root else None
     if workspace_root is not None:
         workspace_root.mkdir(parents=True, exist_ok=True)
     generated_config_dir = Path(
         tempfile.mkdtemp(prefix="simulation_calibration_loop_rounds_", dir=repo_root / "simulation_calibration_loop")
     )
+
+    s3_dir: str | None = args.s3_dir
+    s3_top_n: int = args.s3_top_n
+    if s3_dir is not None:
+        _validate_s3_connection(s3_dir)
 
     for round_index in range(rounds):
         first_round_workspace = _derive_round_workspace_dir(
@@ -94,6 +119,7 @@ def main() -> None:
                 round_index=round_index,
                 workspace_root=workspace_root,
                 synthetic_rgb_base_dir=first_round_workspace / "iteration_000" / "outputs",
+                common_overrides=common_overrides,
             )
             print(
                 f"[theme-rounds] {meta_label} config={derived_config_path}"
@@ -107,6 +133,111 @@ def main() -> None:
                 env=env,
             )
 
+            if s3_dir is not None:
+                workspace_dir = _derive_round_workspace_dir(config_path, round_index=round_index, workspace_root=workspace_root)
+                s3_prefix = f"{s3_dir.rstrip('/')}/{theme_name}/round_{round_index + 1:02d}/"
+                print(f"[theme-rounds] uploading top-{s3_top_n} runs to {s3_prefix}")
+                _upload_theme_best_runs(workspace_dir, s3_prefix, top_n=s3_top_n)
+
+
+def _validate_s3_connection(s3_dir: str) -> None:
+    """Verify S3 connectivity at startup by writing a marker object. Crashes on failure."""
+    if shutil.which("aws") is None:
+        raise RuntimeError("AWS CLI not found on PATH — cannot upload to S3")
+    marker = s3_dir.rstrip("/") + "/.run_theme_rounds_init"
+    result = subprocess.run(
+        ["aws", "s3", "cp", "-", marker],
+        input=b"run_theme_rounds S3 connectivity check\n",
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"S3 connection check failed for {s3_dir!r}:\n{result.stderr.decode().strip()}"
+        )
+    print(f"[theme-rounds] S3 connection verified: {s3_dir}")
+
+
+def _upload_theme_best_runs(workspace_dir: Path, s3_prefix: str, top_n: int) -> None:
+    """Read the workspace state, stage top_n runs + distances.txt, and sync to S3."""
+    state_path = workspace_dir / "state.json"
+    if not state_path.exists():
+        print(f"[theme-rounds] no state.json found at {workspace_dir}, skipping S3 upload")
+        return
+
+    state = json.loads(state_path.read_text())
+    artifacts = [
+        item
+        for iteration in state.get("iterations", [])
+        for item in iteration.get("artifacts", [])
+        if item.get("objective_value") is not None
+    ]
+    if not artifacts:
+        print("[theme-rounds] no scored artifacts found, skipping S3 upload")
+        return
+
+    artifacts.sort(key=lambda x: float(x["objective_value"]))
+
+    distances_lines = ["run_id\tobjective_value\toptuna_trial_number\tyaml_path"]
+    for item in artifacts:
+        distances_lines.append(
+            f"{item['run_id']}\t"
+            f"{item['objective_value']:.6f}\t"
+            f"{item.get('optuna_trial_number', '')}\t"
+            f"{item.get('yaml_path', '')}"
+        )
+    distances_text = "\n".join(distances_lines) + "\n"
+
+    with tempfile.TemporaryDirectory(prefix="theme_rounds_s3_") as tmp:
+        stage = Path(tmp)
+        (stage / "distances.txt").write_text(distances_text)
+
+        for item in artifacts[:top_n]:
+            run_id = item["run_id"]
+            trial_num = item.get("optuna_trial_number")
+            trial_id = f"trial_{trial_num}" if trial_num is not None else run_id
+            trial_dir = stage / trial_id
+
+            output_dir = Path(item["output_dir"])
+            if output_dir.exists():
+                dest = trial_dir / "outputs" / output_dir.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(output_dir, dest)
+
+            embedding_path = Path(item.get("embedding_path", ""))
+            if embedding_path.exists():
+                cache_dir = trial_dir / "cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(embedding_path, cache_dir / embedding_path.name)
+                manifest = embedding_path.with_suffix(".manifest.json")
+                if manifest.exists():
+                    shutil.copy2(manifest, cache_dir / manifest.name)
+
+            yaml_path = Path(item.get("yaml_path", ""))
+            if yaml_path.exists():
+                yamls_dir = trial_dir / "yamls"
+                yamls_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(yaml_path, yamls_dir / yaml_path.name)
+
+        subprocess.run(
+            ["aws", "s3", "sync", str(stage) + "/", s3_prefix],
+            check=True,
+        )
+        print(f"[theme-rounds] uploaded {min(top_n, len(artifacts))} runs to {s3_prefix}")
+
+
+def _apply_common_overrides(raw: dict, common: dict) -> None:
+    """Merge common section from theme_rounds.yaml into a per-theme config dict."""
+    for key in ("promoted_baseline_dir", "max_iterations", "iteration_batch_size"):
+        if key in common:
+            raw[key] = common[key]
+    if "base_pool" in common:
+        existing = raw.get("base_pool") or {}
+        existing.update(common["base_pool"])
+        raw["base_pool"] = existing
+    if "sample_number" in common:
+        isaac_cfg = raw.setdefault("isaac", {})
+        isaac_cfg["num_frames_override"] = int(common["sample_number"])
+
 
 def _write_round_config(
     source_config_path: Path,
@@ -114,11 +245,14 @@ def _write_round_config(
     round_index: int,
     workspace_root: Path | None,
     synthetic_rgb_base_dir: Path | None,
+    common_overrides: dict | None = None,
 ) -> Path:
     """Write a derived config with a round-specific workspace and project name."""
     raw = yaml.safe_load(source_config_path.read_text()) or {}
     round_suffix = f"_r{round_index + 1:02d}"
     source_config_dir = source_config_path.parent
+
+    _apply_common_overrides(raw, common_overrides or {})
 
     workspace_path = _derive_round_workspace_dir(
         source_config_path,
