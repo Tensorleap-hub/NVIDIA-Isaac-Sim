@@ -134,6 +134,8 @@ rep.settings.carb_settings("/omni/replicator/RTSubframes", 4)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def prefix_with_isaac_asset_server(relative_path):
+    if relative_path.startswith("http://") or relative_path.startswith("https://") or relative_path.startswith("omniverse://"):
+        return relative_path
     assets_root_path = get_assets_root_path()
     if assets_root_path is None:
         raise Exception("Nucleus server not found, could not access Isaac Sim assets folder")
