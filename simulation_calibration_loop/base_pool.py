@@ -94,6 +94,7 @@ class BasePoolManager:
         recency_weight: float,
         near_duplicate_threshold: float,
         random_seed: int,
+        pin_seeds: bool = True,
     ):
         self.state_path = state_path
         self.enabled = enabled
@@ -104,6 +105,7 @@ class BasePoolManager:
         self.diversity_weight = float(diversity_weight)
         self.recency_weight = float(recency_weight)
         self.near_duplicate_threshold = max(0.0, float(near_duplicate_threshold))
+        self.pin_seeds = bool(pin_seeds)
         self.random = np.random.default_rng(random_seed)
         self.entries: list[PoolEntry] = []
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,21 +207,38 @@ class BasePoolManager:
         self.state_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
 
     def _prune_entries(self, entries: list[PoolEntry]) -> list[PoolEntry]:
-        """Retain elites, recent challengers, and diverse survivors."""
-        ranked = sorted(entries, key=self._rank_key)
-        ranges = self._compute_numeric_ranges(ranked)
+        """Retain elites, recent challengers, and diverse survivors.
 
+        When pin_seeds is True, entries whose entry_id starts with 'seed::' are
+        always kept and serve as deduplication anchors for the remaining candidates.
+        """
+        if self.pin_seeds:
+            pinned = [e for e in entries if e.entry_id.startswith("seed::")]
+            candidates = [e for e in entries if not e.entry_id.startswith("seed::")]
+        else:
+            pinned = []
+            candidates = entries
+
+        ranked = sorted(candidates, key=self._rank_key)
+        ranges = self._compute_numeric_ranges(entries)
+
+        # Deduplicate candidates; seeds act as anchors so near-duplicate scored
+        # runs don't waste slots that the seeds already cover.
         deduped: list[PoolEntry] = []
+        reference: list[PoolEntry] = list(pinned)
         for entry in ranked:
             if any(
                 self._entry_distance(entry, kept, ranges) < self.near_duplicate_threshold
-                for kept in deduped
+                for kept in reference
             ):
                 continue
             deduped.append(entry)
+            reference.append(entry)
 
-        if len(deduped) <= self.max_size:
-            return deduped
+        non_seed_budget = max(0, self.max_size - len(pinned))
+
+        if len(deduped) <= non_seed_budget:
+            return pinned + deduped
 
         selected: list[PoolEntry] = []
         selected_ids: set[str] = set()
@@ -227,25 +246,25 @@ class BasePoolManager:
         for entry in self._scored_entries(deduped)[: self.elite_size]:
             selected.append(entry)
             selected_ids.add(entry.entry_id)
-            if len(selected) >= self.max_size:
-                return selected
+            if len(selected) >= non_seed_budget:
+                return pinned + selected
 
         for entry in self._recent_entries(deduped):
             if entry.entry_id in selected_ids:
                 continue
             selected.append(entry)
             selected_ids.add(entry.entry_id)
-            if len(selected_ids) >= min(self.max_size, self.elite_size + self.recent_size):
+            if len(selected_ids) >= min(non_seed_budget, self.elite_size + self.recent_size):
                 break
 
         remaining = [entry for entry in deduped if entry.entry_id not in selected_ids]
-        while remaining and len(selected) < self.max_size:
+        while remaining and len(selected) < non_seed_budget:
             index = max(
                 range(len(remaining)),
                 key=lambda current_index: self._diverse_selection_score(
                     remaining[current_index],
-                    selected=selected,
-                    pool=deduped,
+                    selected=selected + pinned,
+                    pool=deduped + pinned,
                     ranges=ranges,
                 ),
             )
@@ -253,7 +272,7 @@ class BasePoolManager:
             selected.append(entry)
             selected_ids.add(entry.entry_id)
 
-        return selected
+        return pinned + selected
 
     def _rank_key(self, entry: PoolEntry) -> tuple[float, float]:
         """Sort better-scoring and newer entries first."""

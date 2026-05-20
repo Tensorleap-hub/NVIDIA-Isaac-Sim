@@ -140,6 +140,7 @@ class SimulationCalibrationController:
             recency_weight=config.base_pool.recency_weight,
             near_duplicate_threshold=config.base_pool.near_duplicate_threshold,
             random_seed=config.random_seed,
+            pin_seeds=config.base_pool.pin_seeds,
         )
         self._bootstrap_base_pool(seed_items)
 

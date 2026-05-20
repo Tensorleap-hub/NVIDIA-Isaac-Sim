@@ -53,13 +53,14 @@ class BasePoolConfig:
 
     enabled: bool = False
     state_path: str | None = None
-    max_size: int = 50
+    max_size: int = 60
     elite_size: int = 10
     recent_size: int = 10
     score_weight: float = 0.6
     diversity_weight: float = 0.3
     recency_weight: float = 0.1
     near_duplicate_threshold: float = 0.08
+    pin_seeds: bool = True
 
 
 SEARCH_SPACE_THEMES: dict[str, list[str]] = {
@@ -103,21 +104,52 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
     ],
     "objects": [
         "distractors.clutter_level",
+        "distractors.groups.BarelPlastic.use",
         "distractors.groups.BarelPlastic.diversity",
         "distractors.groups.BarelPlastic.occurrence",
+        "distractors.groups.BottlePlastic.use",
         "distractors.groups.BottlePlastic.diversity",
         "distractors.groups.BottlePlastic.occurrence",
+        "distractors.groups.Bucket.use",
+        "distractors.groups.Bucket.diversity",
+        "distractors.groups.Bucket.occurrence",
+        "distractors.groups.CardBox.use",
         "distractors.groups.CardBox.diversity",
         "distractors.groups.CardBox.occurrence",
+        "distractors.groups.CratePlastic.use",
         "distractors.groups.CratePlastic.diversity",
         "distractors.groups.CratePlastic.occurrence",
+        "distractors.groups.PushCart.use",
         "distractors.groups.PushCart.diversity",
         "distractors.groups.PushCart.occurrence",
+        "distractors.groups.RackPile.use",
         "distractors.groups.RackPile.diversity",
         "distractors.groups.RackPile.occurrence",
+        "distractors.groups.TrafficSigns.use",
+        "distractors.groups.TrafficSigns.diversity",
+        "distractors.groups.TrafficSigns.occurrence",
+        "distractors.groups.Pallet.use",
+        "distractors.groups.Pallet.diversity",
+        "distractors.groups.Pallet.occurrence",
+        "distractors.groups.Forklift.use",
+        "distractors.groups.Forklift.diversity",
+        "distractors.groups.Forklift.occurrence",
+    ],
+    "scene-objects": [
         "palletjacks.count_per_model",
         "palletjacks.position_std",
         "palletjacks.rotation_std",
+        "forklifts.count_per_model",
+        "forklifts.position_std",
+        "forklifts.rotation_std",
+        "pallets.count_per_model",
+        "pallets.position_std",
+        "pallets.rotation_std",
+        "pallet_stacks.enabled",
+        "pallet_stacks.num_stacks",
+        "pallet_stacks.layers",
+        "pallet_stacks.position_std",
+        "pallet_stacks.rotation_std",
     ],
     "lighting": [
         "lighting.intensity_mean",
