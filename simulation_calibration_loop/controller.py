@@ -221,6 +221,7 @@ class SimulationCalibrationController:
             current_rows = next_rows
 
         self.ui.set_status(phase="complete", note=self._compose_note("workflow finished"))
+        self._write_param_importance()
         self.ui.stop()
 
     def _prepare_real_embeddings(self) -> np.ndarray:
@@ -1059,6 +1060,50 @@ class SimulationCalibrationController:
             f"to {promoted_yaml_path}"
         )
 
+    def _write_param_importance(self) -> Path | None:
+        """Compute and persist fANOVA parameter importances to workspace.
+
+        Returns the path written, or None if the study has too few trials.
+        """
+        import optuna
+        study = self.runner.optimizer.study
+        completed = [t for t in study.trials if t.values is not None]
+        if len(completed) < 2:
+            self.ui.append_log("[importance] skipped — fewer than 2 completed trials")
+            return None
+
+        n_objectives = len(self.optimizer_config.get("optimization_metrics", ["mmd_rbf"]))
+        target = (lambda t: t.values[0]) if n_objectives > 1 else None
+
+        try:
+            importances = optuna.importance.get_param_importances(
+                study,
+                target=target,
+            )
+        except Exception as exc:
+            self.ui.append_log(f"[importance] could not compute: {exc}")
+            return None
+
+        sorted_importances = dict(sorted(importances.items(), key=lambda kv: kv[1], reverse=True))
+        out_path = self.workspace_dir / "param_importance.json"
+        out_path.write_text(
+            json.dumps(
+                {
+                    "project_name": self.config.project_name,
+                    "completed_trials": len(completed),
+                    "importances": sorted_importances,
+                },
+                indent=2,
+                sort_keys=False,
+            )
+        )
+        top5 = list(sorted_importances.items())[:5]
+        self.ui.append_log(
+            f"[importance] wrote {out_path.name} ({len(completed)} trials) "
+            f"top5: {', '.join(f'{k}={v:.3f}' for k, v in top5)}"
+        )
+        return out_path
+
     def _export_best_runs_to_s3(self, state: dict[str, Any]) -> None:
         """Stage and upload the current top trials to a timestamped S3 snapshot."""
         if self.s3_best_runs_prefix is None or not state["iterations"]:
@@ -1121,6 +1166,10 @@ class SimulationCalibrationController:
                 "best_trials": manifest_runs,
             }
             (stage_root / "best_runs_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+            importance_path = self.workspace_dir / "param_importance.json"
+            if importance_path.exists():
+                shutil.copy2(importance_path, stage_root / "param_importance.json")
 
             self.ui.append_log(
                 f"[s3] uploading top {len(selected_artifacts)} runs to {snapshot_prefix}"
