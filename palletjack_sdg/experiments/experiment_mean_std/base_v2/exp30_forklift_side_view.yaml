@@ -7,6 +7,9 @@ run:
 # Forklift prominent from low side angle. Heavy clutter with DT cardboard boxes.
 # Pallet stacks in background. Side-biased yaw distribution.
 
+pallet_stacks:
+  enabled: true
+
 distractors:
   clutter_level: 1.4
   groups:
@@ -26,8 +29,8 @@ camera:
 
 lighting:
   intensity_mean: 95000.0
-  intensity_std: 65000.0
-  visibility_choices: [true, false]
+  intensity_std: 45000.0
+  visibility_choices: [true]
 
 forklifts:
   count_per_model: 4

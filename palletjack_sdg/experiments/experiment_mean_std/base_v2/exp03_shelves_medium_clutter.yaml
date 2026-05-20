@@ -45,8 +45,8 @@ palletjacks:
 
 lighting:
   intensity_mean: 130000.0
-  intensity_std: 90000.0
-  visibility_choices: [true, true, false]
+  intensity_std: 60000.0
+  visibility_choices: [true]
 
 materials:
   textures:
@@ -55,4 +55,3 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_tile_square_green.jpg
   roughness_mean: 0.45
   roughness_std: 0.12
-

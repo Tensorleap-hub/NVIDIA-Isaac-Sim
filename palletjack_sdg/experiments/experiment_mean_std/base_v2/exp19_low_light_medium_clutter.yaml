@@ -46,7 +46,7 @@ camera:
 
 lighting:
   intensity_mean: 35000.0
-  intensity_std: 25000.0
+  intensity_std: 15000.0
   visibility_choices: [true]
 
 materials:

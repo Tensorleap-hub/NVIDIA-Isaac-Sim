@@ -8,6 +8,7 @@ run:
 # isolate stacks + palletjacks under challenging low-light conditions.
 
 pallet_stacks:
+  enabled: true
   num_stacks: 5
   layers: 5
 
@@ -31,8 +32,8 @@ camera:
 
 lighting:
   intensity_mean: 15000.0
-  intensity_std: 25000.0
-  visibility_choices: [true, false, false, false, false, false, false, false, false, false]
+  intensity_std: 7500.0
+  visibility_choices: [true]
 
 forklifts:
   count_per_model: 0

@@ -28,7 +28,7 @@ palletjacks:
 
 lighting:
   intensity_mean: 220000.0
-  intensity_std: 120000.0
+  intensity_std: 100000.0
   visibility_choices: [true]
 
 materials:

@@ -32,8 +32,8 @@ distractors:
       occurrence: 0
 lighting:
   intensity_mean: 120000
-  intensity_std: 80000
-  visibility_choices: [true, false]
+  intensity_std: 60000
+  visibility_choices: [true]
 
 camera:
   camera_height_mean: 1.6

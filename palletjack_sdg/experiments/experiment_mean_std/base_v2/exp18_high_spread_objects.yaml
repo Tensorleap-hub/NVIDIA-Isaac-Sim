@@ -39,8 +39,8 @@ distractor_randomization:
 
 lighting:
   intensity_mean: 95000.0
-  intensity_std: 65000.0
-  visibility_choices: [true, false]
+  intensity_std: 45000.0
+  visibility_choices: [true]
 
 materials:
   textures:

@@ -8,6 +8,7 @@ run:
 # Overhead camera maximises box and pallet visibility. Forklift disabled.
 
 pallet_stacks:
+  enabled: true
   num_stacks: 4
   layers: 4
 
@@ -26,8 +27,8 @@ camera:
 
 lighting:
   intensity_mean: 120000
-  intensity_std: 150000
-  visibility_choices: [true, false]
+  intensity_std: 60000
+  visibility_choices: [true]
 
 materials:
   emissive_intensity_mean: 50.0

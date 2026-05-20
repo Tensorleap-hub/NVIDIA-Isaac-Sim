@@ -62,6 +62,16 @@ def _load_cfg(config_path):
     with open(config_path, "r") as f:
         raw_cfg = yaml.safe_load(f)
 
+    distractors_cfg = raw_cfg.get("distractors")
+    if (
+        isinstance(distractors_cfg, dict)
+        and "groups" in distractors_cfg
+        and distractors_cfg["groups"] is None
+    ):
+        # A bare `groups:` entry is a common YAML placeholder. Do not let it
+        # erase inherited distractor groups; use clutter_level=0 to disable.
+        distractors_cfg.pop("groups")
+
     if "extends" not in raw_cfg:
         return raw_cfg
 
@@ -353,8 +363,11 @@ def add_distractors():
         print("clutter_level=0 — no distractors added")
         return None
 
+    groups = dist_cfg.get("groups") or {}
     all_prims = []
-    for group_name, group_cfg in dist_cfg.get("groups", {}).items():
+    for group_name, group_cfg in groups.items():
+        if group_cfg is None:
+            continue
         pool = group_cfg.get("assets", [])
         if not pool:
             continue

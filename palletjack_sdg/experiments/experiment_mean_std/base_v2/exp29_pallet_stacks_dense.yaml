@@ -8,6 +8,7 @@ run:
 # Mid-height tilted camera to capture both stacks and palletjacks.
 
 pallet_stacks:
+  enabled: true
   num_stacks: 5
   layers: 6
 
@@ -23,5 +24,10 @@ camera:
 
 lighting:
   intensity_mean: 110000.0
-  intensity_std: 150000.0
-  visibility_choices: [true, false]
+  intensity_std: 55000.0
+  visibility_choices: [true]
+
+forklifts:
+  count_per_model: 1
+pallets:
+  count_per_model: 2

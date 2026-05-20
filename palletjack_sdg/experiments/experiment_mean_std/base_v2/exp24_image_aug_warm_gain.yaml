@@ -22,7 +22,7 @@ camera:
 
 lighting:
   intensity_mean: 130000
-  intensity_std: 80000
+  intensity_std: 60000
   visibility_choices: [true]
 
 image_augmentation:

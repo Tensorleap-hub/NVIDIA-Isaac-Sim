@@ -8,6 +8,7 @@ run:
 # distractors. JPEG compression noise adds sensor realism. Mixed mid-height view.
 
 pallet_stacks:
+  enabled: true
   num_stacks: 4
   layers: 4
 
@@ -34,8 +35,10 @@ camera:
 
 lighting:
   intensity_mean: 100000.0
-  intensity_std: 70000.0
-  visibility_choices: [true, false]
+  intensity_std: 50000.0
+  visibility_choices: [true]
 
+forklifts:
+  count_per_model: 1
 pallets:
   count_per_model: 3
