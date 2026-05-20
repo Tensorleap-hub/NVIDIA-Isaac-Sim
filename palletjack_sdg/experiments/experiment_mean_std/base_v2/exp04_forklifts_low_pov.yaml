@@ -17,6 +17,19 @@ distractors:
       diversity: 2
       occurrence: 1
 
+
+    BarelPlastic:
+      use: false
+    BottlePlastic:
+      use: false
+    CratePlastic:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
+    RackPile:
+      use: false
 camera:
   camera_height_mean: 0.7
   camera_height_std: 0.12

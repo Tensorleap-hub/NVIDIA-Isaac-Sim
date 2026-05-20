@@ -8,6 +8,11 @@ environment:
   name: warehouse
 
 distractors:
+  groups:
+    Pallet:
+      use: false
+    Forklift:
+      use: false
   clutter_level: 1.1
 
 camera:

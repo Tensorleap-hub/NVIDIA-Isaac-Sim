@@ -1,0 +1,34 @@
+extends: ../../../sdg_config_mean_std.yaml
+
+run:
+  num_frames: 128
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/base_v2/exp31_dt_boxes_pallet_distractors
+
+# DigitalTwin cardboard boxes and pallet distractors at high density.
+# Overhead camera maximises box and pallet visibility. Forklift disabled.
+
+pallet_stacks:
+  num_stacks: 4
+  layers: 4
+
+distractors:
+  clutter_level: 1.3
+  groups:
+    CardBox:
+      diversity: 6
+      occurrence: 4
+    Pallet:
+      diversity: 4
+      occurrence: 4
+    Forklift:
+      use: false
+
+camera:
+  camera_height_mean: 3.5
+  camera_height_std: 0.5
+  fov_mean: 88.0
+  fov_std: 8.0
+
+materials:
+  emissive_intensity_mean: 50.0
+  emissive_intensity_std: 20.0

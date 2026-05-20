@@ -8,6 +8,15 @@ environment:
   name: warehouse
 
 distractors:
+  groups:
+    CardBox:
+      use: false
+    BottlePlastic:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
   clutter_level: 1.1
 
 camera:

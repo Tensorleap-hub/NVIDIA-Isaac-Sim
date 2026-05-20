@@ -17,6 +17,19 @@ distractors:
       diversity: 3
       occurrence: 3
 
+
+    CardBox:
+      use: false
+    CratePlastic:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
+    RackPile:
+      use: false
+    PushCart:
+      use: false
 camera:
   camera_height_mean: 1.6
   camera_height_std: 0.25

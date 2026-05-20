@@ -23,6 +23,15 @@ distractors:
       diversity: 2
       occurrence: 2
 
+
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
+    RackPile:
+      use: false
+    PushCart:
+      use: false
 camera:
   camera_height_mean: 1.5
   camera_height_std: 0.35

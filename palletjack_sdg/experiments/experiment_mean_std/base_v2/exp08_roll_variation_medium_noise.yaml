@@ -8,8 +8,21 @@ environment:
   name: warehouse
 
 distractors:
+  groups:
+    BarelPlastic:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
+    PushCart:
+      use: false
   clutter_level: 1.0
 
+    Pallet:
+      use: false
+    Forklift:
+      use: false
 camera:
   camera_height_mean: 1.5
   camera_height_std: 0.25

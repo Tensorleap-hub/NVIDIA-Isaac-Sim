@@ -258,6 +258,81 @@ def add_palletjacks():
     return rep.create.group(rep_obj_list)
 
 
+def add_forklifts():
+    fl_cfg = CFG["forklifts"]
+    rep_obj_list = [
+        rep.create.from_usd(prefix_with_isaac_asset_server(asset), semantics=[("class", "forklift")], count=fl_cfg["count_per_model"])
+        for asset in fl_cfg["assets"]
+    ]
+    return rep.create.group(rep_obj_list)
+
+
+def add_pallets():
+    pa_cfg = CFG["pallets"]
+    rep_obj_list = [
+        rep.create.from_usd(prefix_with_isaac_asset_server(asset), semantics=[("class", "pallet")], count=pa_cfg["count_per_model"])
+        for asset in pa_cfg["assets"]
+    ]
+    return rep.create.group(rep_obj_list)
+
+
+def add_pallet_stacks():
+    """Create stacked pallet groups and register a per-frame randomizer.
+
+    Each stack uses the same asset for all layers. XY position and yaw are
+    sampled once per stack; Z increases by pallet_height_m per layer.
+    Returns the registered randomizer callable, or None if disabled.
+    """
+    ps_cfg = CFG.get("pallet_stacks", {})
+    if not ps_cfg.get("enabled", False):
+        return None
+
+    num_stacks = ps_cfg.get("num_stacks", 3)
+    layers = ps_cfg.get("layers", 4)
+    assets = ps_cfg.get("assets", CFG["pallets"]["assets"])
+
+    # stack_prims[stack_idx][layer_idx] = single-prim rep object
+    stack_prims = []
+    for _ in range(num_stacks):
+        asset = random.choice(assets)
+        stack_prims.append([
+            rep.create.from_usd(
+                prefix_with_isaac_asset_server(asset),
+                semantics=[("class", "pallet")],
+                count=1,
+            )
+            for _ in range(layers)
+        ])
+
+    pos_mean = ps_cfg.get("position_mean", [0.0, 3.0, 0.0])
+    pos_std = ps_cfg.get("position_std", [3.464102, 5.196152, 0.0])
+    rot_mean = ps_cfg.get("rotation_mean", [0.0, 0.0, 180.0])
+    rot_std = ps_cfg.get("rotation_std", [0.0, 0.0, 103.923048])
+    scale_mean = ps_cfg.get("scale_mean", [1.0, 1.0, 1.0])
+    scale_std = ps_cfg.get("scale_std", [0.0, 0.0, 0.0])
+    pallet_height = ps_cfg.get("pallet_height_m", 0.144)
+
+    @rep.randomizer.register
+    def randomize_pallet_stacks():
+        for layer_prims in stack_prims:
+            x = random.gauss(pos_mean[0], pos_std[0])
+            y = random.gauss(pos_mean[1], pos_std[1])
+            yaw = random.gauss(rot_mean[2], rot_std[2])
+            sx = random.gauss(scale_mean[0], scale_std[0]) if scale_std[0] > 0 else scale_mean[0]
+            sy = random.gauss(scale_mean[1], scale_std[1]) if scale_std[1] > 0 else scale_mean[1]
+            sz = random.gauss(scale_mean[2], scale_std[2]) if scale_std[2] > 0 else scale_mean[2]
+            for layer_idx, prim in enumerate(layer_prims):
+                z = layer_idx * pallet_height
+                with prim:
+                    rep.modify.pose(
+                        position=(x, y, z),
+                        rotation=(rot_mean[0], rot_mean[1], yaw),
+                        scale=(sx, sy, sz),
+                    )
+
+    return randomize_pallet_stacks
+
+
 def add_distractors():
     """Spawn distractor groups according to diversity, occurrence, and clutter_level.
 
@@ -274,6 +349,9 @@ def add_distractors():
 
     all_prims = []
     for group_name, group_cfg in dist_cfg.get("groups", {}).items():
+        if not group_cfg.get("use", True):
+            print(f"  {group_name}: disabled (use=false)")
+            continue
         pool = group_cfg.get("assets", [])
         if not pool:
             continue
@@ -342,10 +420,13 @@ def main():
 
     textures = full_textures_list()
     rep_palletjack_group = add_palletjacks()
+    rep_forklift_group = add_forklifts()
+    rep_pallet_group = add_pallets()
+    stack_randomizer = add_pallet_stacks()
 
     rep_distractor_group = add_distractors()
 
-    update_semantics(stage=stage, keep_semantics=["palletjack"])
+    update_semantics(stage=stage, keep_semantics=["palletjack", "forklift", "pallet"])
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cam_cfg = CFG["camera"]
@@ -401,6 +482,8 @@ def main():
 
     # ── Replicator pipeline ───────────────────────────────────────────────────
     pj_cfg  = CFG["palletjacks"]
+    fl_cfg  = CFG["forklifts"]
+    pa_cfg  = CFG["pallets"]
     dr_cfg  = CFG["distractor_randomization"]
     lt_cfg  = CFG["lighting"]
     mat_cfg = CFG["materials"]
@@ -456,6 +539,41 @@ def main():
                     tuple(pj_cfg["scale_std"]),
                 ),
             )
+
+        with rep_forklift_group:
+            rep.modify.pose(
+                position=rep_normal(
+                    tuple(fl_cfg["position_mean"]),
+                    tuple(fl_cfg["position_std"]),
+                ),
+                rotation=rep_normal(
+                    tuple(fl_cfg["rotation_mean"]),
+                    tuple(fl_cfg["rotation_std"]),
+                ),
+                scale=rep_normal(
+                    tuple(fl_cfg["scale_mean"]),
+                    tuple(fl_cfg["scale_std"]),
+                ),
+            )
+
+        with rep_pallet_group:
+            rep.modify.pose(
+                position=rep_normal(
+                    tuple(pa_cfg["position_mean"]),
+                    tuple(pa_cfg["position_std"]),
+                ),
+                rotation=rep_normal(
+                    tuple(pa_cfg["rotation_mean"]),
+                    tuple(pa_cfg["rotation_std"]),
+                ),
+                scale=rep_normal(
+                    tuple(pa_cfg["scale_mean"]),
+                    tuple(pa_cfg["scale_std"]),
+                ),
+            )
+
+        if stack_randomizer is not None:
+            rep.randomizer.randomize_pallet_stacks()
 
         if rep_distractor_group is not None:
             with rep_distractor_group:

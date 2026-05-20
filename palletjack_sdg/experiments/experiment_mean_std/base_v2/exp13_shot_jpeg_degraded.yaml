@@ -8,6 +8,15 @@ environment:
   name: warehouse_multiple_shelves
 
 distractors:
+  groups:
+    BottlePlastic:
+      use: false
+    CratePlastic:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
   clutter_level: 1.7
 
 camera:

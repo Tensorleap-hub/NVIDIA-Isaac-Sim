@@ -8,6 +8,15 @@ environment:
   name: warehouse
 
 distractors:
+  groups:
+    RackPile:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
+    PushCart:
+      use: false
   clutter_level: 1.0
 
 camera:

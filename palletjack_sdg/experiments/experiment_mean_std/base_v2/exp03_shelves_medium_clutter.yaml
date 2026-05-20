@@ -20,6 +20,17 @@ distractors:
       diversity: 2
       occurrence: 2
 
+
+    BarelPlastic:
+      use: false
+    TrafficSigns:
+      use: false
+    Bucket:
+      use: false
+    RackPile:
+      use: false
+    PushCart:
+      use: false
 camera:
   camera_height_mean: 2.8
   camera_height_std: 0.4
