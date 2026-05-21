@@ -166,13 +166,10 @@ def update_semantics(stage, keep_semantics=[]):
                     sem = Semantics.SemanticsAPI.Get(prim, instance_name)
                     type_attr = sem.GetSemanticTypeAttr()
                     data_attr = sem.GetSemanticDataAttr()
-                    for semantic_class in keep_semantics:
-                        if data_attr.Get() == semantic_class:
-                            continue
-                        else:
-                            prim.RemoveProperty(type_attr.GetName())
-                            prim.RemoveProperty(data_attr.GetName())
-                            prim.RemoveAPI(Semantics.SemanticsAPI, instance_name)
+                    if data_attr.Get() not in keep_semantics:
+                        prim.RemoveProperty(type_attr.GetName())
+                        prim.RemoveProperty(data_attr.GetName())
+                        prim.RemoveAPI(Semantics.SemanticsAPI, instance_name)
 
 
 def full_textures_list():
