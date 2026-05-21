@@ -26,6 +26,8 @@ search_space:
   themes:
     - camera-color
     - objects
+    - diversity
+    - scene-objects
   include: []
   exclude:
     - run.data_dir

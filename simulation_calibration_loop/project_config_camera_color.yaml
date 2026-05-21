@@ -23,6 +23,7 @@ isaac:
 search_space:
   themes:
     - camera-color
+    - environment
   include: []
   exclude:
     - run.data_dir

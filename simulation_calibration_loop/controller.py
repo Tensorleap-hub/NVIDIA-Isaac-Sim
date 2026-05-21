@@ -13,6 +13,7 @@ import tempfile
 import time
 from typing import Any
 
+import optuna
 import numpy as np
 import pandas as pd
 import yaml
@@ -215,6 +216,9 @@ class SimulationCalibrationController:
                     ],
                 }
             )
+            param_importances = self._compute_param_importances()
+            if param_importances is not None:
+                state["param_importances"] = param_importances
             self.state_store.save(state)
             self._promote_global_baseline(state)
             self._export_best_runs_to_s3(state)
@@ -798,6 +802,24 @@ class SimulationCalibrationController:
             return "-"
         best_value = min(trial.values[0] for trial in completed_trials)
         return f"{best_value:.6f}"
+
+    def _compute_param_importances(self) -> dict[str, float] | None:
+        """Compute fANOVA parameter importances from the current Optuna study.
+
+        Returns None when fewer than 5 completed trials exist (fANOVA is unreliable
+        below that threshold). The group prefix is stripped from each param name so
+        the result maps directly to Isaac config paths.
+        """
+        study = self.runner.optimizer.study
+        completed = [t for t in study.trials if t.values is not None]
+        if len(completed) < 5:
+            return None
+        raw = optuna.importance.get_param_importances(study)
+        group_prefix = f"{self.group_name}__"
+        return {
+            (k[len(group_prefix):] if k.startswith(group_prefix) else k): float(v)
+            for k, v in raw.items()
+        }
 
     def _copy_synthetic_artifacts_from_base(
         self,

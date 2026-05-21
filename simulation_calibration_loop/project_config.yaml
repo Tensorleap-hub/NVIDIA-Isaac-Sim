@@ -25,6 +25,8 @@ search_space:
     - camera-color
     - noise
     - objects
+    - diversity
+    - scene-objects
     - lighting
     - materials
   include:

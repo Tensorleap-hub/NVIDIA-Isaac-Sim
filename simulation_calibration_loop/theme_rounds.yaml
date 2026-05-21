@@ -16,7 +16,7 @@ common:
 configs:
   - project_config_camera.yaml
   - project_config_noise_lighting.yaml
-  - project_config_camera_noise_light.yaml
-  - project_config_camera_color_objects.yaml
-  - project_config_noise_materials_objects.yaml
-  - project_config_all.yaml
+  - project_config_camera_color.yaml
+  - project_config_materials_objects.yaml
+  - project_config_scene_object.yaml
+  - project_config_diversity.yaml
