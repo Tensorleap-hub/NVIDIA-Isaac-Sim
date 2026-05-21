@@ -62,15 +62,23 @@ def infer_parameter_schema(configs: list[dict[str, Any]]) -> list[ParameterSpec]
 
     Scalars stay as single Optuna parameters, homogeneous fixed-length lists are
     expanded into indexed parameters, and everything else is serialized as JSON.
+
+    Only paths present in ALL configs are included (intersection). Paths absent
+    from some configs (e.g. optional sections set to null) are silently skipped
+    so that flatten_config and validate_configs_against_schema never encounter a
+    missing path.
     """
     observed: dict[str, list[Any]] = {}
     for config in configs:
         for key, value in config.items():
             _collect_specs(value, str(key), observed)
 
+    n_configs = len(configs)
     specs: list[ParameterSpec] = []
     for path in sorted(observed):
         values = observed[path]
+        if len(values) < n_configs:
+            continue
         sample = values[0]
 
         if isinstance(sample, dict):
@@ -227,6 +235,8 @@ def save_yaml_config(path: str | Path, config: dict[str, Any]) -> None:
 def _get_by_path(config: dict[str, Any], path: str) -> Any:
     current: Any = config
     for part in path.split("."):
+        if current is None:
+            raise KeyError(part)
         current = current[part]
     return current
 
@@ -235,6 +245,8 @@ def _set_by_path(config: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
     current = config
     for part in parts[:-1]:
+        if current is None:
+            raise KeyError(part)
         current = current[part]
     current[parts[-1]] = value
 

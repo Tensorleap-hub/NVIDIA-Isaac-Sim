@@ -62,6 +62,15 @@ def _load_cfg(config_path):
     with open(config_path, "r") as f:
         raw_cfg = yaml.safe_load(f)
 
+    distractors_cfg = raw_cfg.get("distractors")
+    if (
+        isinstance(distractors_cfg, dict)
+        and "groups" in distractors_cfg
+        and distractors_cfg["groups"] is None
+    ):
+        # A bare `groups:` entry is a YAML placeholder; don't let it erase inherited groups.
+        distractors_cfg.pop("groups")
+
     if "extends" not in raw_cfg:
         return raw_cfg
 
@@ -262,6 +271,8 @@ def add_palletjacks():
 
 def add_forklifts():
     fl_cfg = CFG["forklifts"]
+    if fl_cfg.get("count_per_model", 1) == 0:
+        return None
     rep_obj_list = [
         rep.create.from_usd(prefix_with_isaac_asset_server(asset), semantics=[("class", "forklift")], count=fl_cfg["count_per_model"])
         for asset in fl_cfg["assets"]
@@ -271,6 +282,8 @@ def add_forklifts():
 
 def add_pallets():
     pa_cfg = CFG["pallets"]
+    if pa_cfg.get("count_per_model", 1) == 0:
+        return None
     rep_obj_list = [
         rep.create.from_usd(prefix_with_isaac_asset_server(asset), semantics=[("class", "pallet")], count=pa_cfg["count_per_model"])
         for asset in pa_cfg["assets"]
@@ -340,7 +353,7 @@ def add_distractors():
 
     For each group:
       - randomly pick `diversity` variants from the asset pool
-      - spawn `max(1, round(occurrence × clutter_level))` instances of each variant
+      - spawn `round(occurrence × clutter_level)` instances of each variant; skip if 0
     Returns a rep group, or None if clutter_level is 0.
     """
     dist_cfg = CFG["distractors"]
@@ -349,16 +362,19 @@ def add_distractors():
         print("clutter_level=0 — no distractors added")
         return None
 
+    groups = dist_cfg.get("groups") or {}
     all_prims = []
-    for group_name, group_cfg in dist_cfg.get("groups", {}).items():
-        if not group_cfg.get("use", True):
-            print(f"  {group_name}: disabled (use=false)")
+    for group_name, group_cfg in groups.items():
+        if group_cfg is None:
             continue
         pool = group_cfg.get("assets", [])
         if not pool:
             continue
         diversity  = min(group_cfg.get("diversity", len(pool)), len(pool))
-        count      = max(1, round(group_cfg.get("occurrence", 1) * clutter))
+        count      = round(group_cfg.get("occurrence", 1) * clutter)
+        if count == 0:
+            print(f"  {group_name}: skipped (occurrence=0)")
+            continue
         selected   = random.sample(pool, diversity)
         for asset in selected:
             all_prims.append(
@@ -542,37 +558,39 @@ def main():
                 ),
             )
 
-        with rep_forklift_group:
-            rep.modify.pose(
-                position=rep_normal(
-                    tuple(fl_cfg["position_mean"]),
-                    tuple(fl_cfg["position_std"]),
-                ),
-                rotation=rep_normal(
-                    tuple(fl_cfg["rotation_mean"]),
-                    tuple(fl_cfg["rotation_std"]),
-                ),
-                scale=rep_normal(
-                    tuple(fl_cfg["scale_mean"]),
-                    tuple(fl_cfg["scale_std"]),
-                ),
-            )
+        if rep_forklift_group is not None:
+            with rep_forklift_group:
+                rep.modify.pose(
+                    position=rep_normal(
+                        tuple(fl_cfg["position_mean"]),
+                        tuple(fl_cfg["position_std"]),
+                    ),
+                    rotation=rep_normal(
+                        tuple(fl_cfg["rotation_mean"]),
+                        tuple(fl_cfg["rotation_std"]),
+                    ),
+                    scale=rep_normal(
+                        tuple(fl_cfg["scale_mean"]),
+                        tuple(fl_cfg["scale_std"]),
+                    ),
+                )
 
-        with rep_pallet_group:
-            rep.modify.pose(
-                position=rep_normal(
-                    tuple(pa_cfg["position_mean"]),
-                    tuple(pa_cfg["position_std"]),
-                ),
-                rotation=rep_normal(
-                    tuple(pa_cfg["rotation_mean"]),
-                    tuple(pa_cfg["rotation_std"]),
-                ),
-                scale=rep_normal(
-                    tuple(pa_cfg["scale_mean"]),
-                    tuple(pa_cfg["scale_std"]),
-                ),
-            )
+        if rep_pallet_group is not None:
+            with rep_pallet_group:
+                rep.modify.pose(
+                    position=rep_normal(
+                        tuple(pa_cfg["position_mean"]),
+                        tuple(pa_cfg["position_std"]),
+                    ),
+                    rotation=rep_normal(
+                        tuple(pa_cfg["rotation_mean"]),
+                        tuple(pa_cfg["rotation_std"]),
+                    ),
+                    scale=rep_normal(
+                        tuple(pa_cfg["scale_mean"]),
+                        tuple(pa_cfg["scale_std"]),
+                    ),
+                )
 
         if stack_randomizer is not None:
             rep.randomizer.randomize_pallet_stacks()
