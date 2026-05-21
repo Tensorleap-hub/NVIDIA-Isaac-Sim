@@ -66,13 +66,18 @@ def load_existing_coco(ann_path: Path):
 
 
 def collect_frames(input_dir: Path):
-    """Return sorted list of frame numbers that have all three files present."""
+    """Return sorted list of frame numbers that have all required files present."""
     rgb_files = {int(f.stem.split("_")[1]): f for f in input_dir.glob("rgb_*.png")}
     bbox_files = {int(f.stem.split("_")[-1]): f for f in input_dir.glob("bounding_box_2d_tight_[0-9]*.npy")}
     label_files = {int(f.stem.split("_")[-1]): f
                    for f in input_dir.glob("bounding_box_2d_tight_labels_[0-9]*.json")}
+    prim_path_files = {int(f.stem.split("_")[-1]): f
+                       for f in input_dir.glob("bounding_box_2d_tight_prim_paths_[0-9]*.json")}
+    if prim_path_files:
+        complete = sorted(set(rgb_files) & set(bbox_files) & set(label_files) & set(prim_path_files))
+        return [(rgb_files[n], bbox_files[n], label_files[n], prim_path_files[n]) for n in complete]
     complete = sorted(set(rgb_files) & set(bbox_files) & set(label_files))
-    return [(rgb_files[n], bbox_files[n], label_files[n]) for n in complete]
+    return [(rgb_files[n], bbox_files[n], label_files[n], None) for n in complete]
 
 
 def frames_to_coco(
@@ -85,7 +90,7 @@ def frames_to_coco(
     next_img_id = max((img["id"] for img in coco["images"]), default=0) + 1
     next_ann_id = max((ann["id"] for ann in coco["annotations"]), default=0) + 1
 
-    for rgb_path, bbox_path, label_path in frames:
+    for rgb_path, bbox_path, label_path, prim_path_file in frames:
         with open(label_path) as f:
             label_map = json.load(f)  # {"0": {"class": "palletjack"}, ...}
 
@@ -101,9 +106,23 @@ def frames_to_coco(
             if mapped in CAT_NAME_TO_ID:
                 sem_to_class[int(sem_str)] = mapped
 
+        # Deduplicate rows using prim paths: keep only root-level entries (no "/Ref/" in path).
+        # Each object instance has exactly one root entry. Child mesh entries (e.g.
+        # /Ref/S_ForkliftBody, /Ref/SM_PaletteA_01) are duplicates of the root bbox.
+        # Without this, forklifts and pallets are double-counted; with a naive "keep only
+        # /Ref/ rows" strategy, palletjacks (which have no child mesh) would be lost entirely.
+        if prim_path_file is not None:
+            with open(prim_path_file) as f:
+                prim_paths = json.load(f)
+            keep_indices = {i for i, path in enumerate(prim_paths) if "/Ref/" not in path}
+        else:
+            keep_indices = set(range(len(bboxes)))
+
         # Collect valid annotations for this frame
         frame_anns = []
-        for row in bboxes:
+        for i, row in enumerate(bboxes):
+            if i not in keep_indices:
+                continue
             sem_id = int(row["semanticId"])
             if sem_id not in sem_to_class:
                 continue
