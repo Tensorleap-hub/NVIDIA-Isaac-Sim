@@ -27,6 +27,9 @@ camera:
   dataset_noise:
     enabled: false
 
+forklifts:
+  count_per_model: 1
+
 palletjacks:
   count_per_model: 1
   position_std: [2.0, 3.0, 0.0]
