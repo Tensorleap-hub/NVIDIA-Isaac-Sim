@@ -27,7 +27,6 @@ camera:
   fov_mean: 78.0
   fov_std: 6.0
   dataset_noise:
-    enabled: true
     mode: jpeg
     jpeg_quality_mean: 65
     jpeg_quality_std: 15

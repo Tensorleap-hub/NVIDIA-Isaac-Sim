@@ -37,7 +37,6 @@ camera:
   motion_blur_strength_mean: 0.8
   motion_blur_strength_std: 0.3
   dataset_noise:
-    enabled: true
     mode: gaussian_jpeg
     sigma_mean: 6.0
     sigma_std: 1.5

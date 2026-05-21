@@ -24,8 +24,6 @@ camera:
   fov_std: 4.0
   motion_blur_strength_mean: 0.0
   motion_blur_strength_std: 0.0
-  dataset_noise:
-    enabled: false
 
 forklifts:
   count_per_model: 1

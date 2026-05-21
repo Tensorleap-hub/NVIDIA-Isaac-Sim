@@ -33,7 +33,6 @@ camera:
   fov_mean: 72.0
   fov_std: 5.0
   dataset_noise:
-    enabled: true
     mode: gaussian
     sigma_mean: 8.0
     sigma_std: 1.5

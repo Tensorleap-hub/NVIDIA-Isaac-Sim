@@ -101,6 +101,29 @@ def set_if_present(target, key, value):
     return True
 
 
+def normalize_dataset_noise(dataset_noise):
+    """Zero out numeric fields that are inactive for the selected mode."""
+    mode = dataset_noise.get("mode", "no-noise")
+    if mode == "no-noise":
+        dataset_noise["sigma_mean"] = 0
+        dataset_noise["sigma_std"] = 0
+        dataset_noise["jpeg_quality_mean"] = 0
+        dataset_noise["jpeg_quality_std"] = 0
+        dataset_noise["shot_scale_mean"] = 0
+        dataset_noise["shot_scale_std"] = 0
+        dataset_noise["seed"] = 0
+        return
+    if mode in ("jpeg", "shot", "shot_jpeg"):
+        dataset_noise["sigma_mean"] = 0
+        dataset_noise["sigma_std"] = 0
+    if mode in ("gaussian", "shot", "gaussian_jpeg"):
+        dataset_noise["jpeg_quality_mean"] = 0
+        dataset_noise["jpeg_quality_std"] = 0
+    if mode in ("gaussian", "jpeg", "gaussian_jpeg"):
+        dataset_noise["shot_scale_mean"] = 0
+        dataset_noise["shot_scale_std"] = 0
+
+
 def build_config(row, extends_path, base_cfg=None):
     cfg = copy.deepcopy(base_cfg) if base_cfg is not None else {}
     cfg.pop("meta", None)
@@ -192,11 +215,6 @@ def build_config(row, extends_path, base_cfg=None):
     has_override |= set_if_present(camera, "jpeg_quality_std", opt_float(row, "synth_jpeg_quality_std"))
 
     dataset_noise = copy.deepcopy(camera.get("dataset_noise") or {})
-    has_override |= set_if_present(
-        dataset_noise,
-        "enabled",
-        opt_bool(row, "synth_dataset_noise_enabled"),
-    )
     has_override |= set_if_present(dataset_noise, "mode", opt_str(row, "synth_dataset_noise_mode"))
     has_override |= set_if_present(
         dataset_noise,
@@ -234,6 +252,7 @@ def build_config(row, extends_path, base_cfg=None):
         opt_int(row, "synth_dataset_noise_seed"),
     )
     if dataset_noise:
+        normalize_dataset_noise(dataset_noise)
         camera["dataset_noise"] = dataset_noise
 
     if camera:

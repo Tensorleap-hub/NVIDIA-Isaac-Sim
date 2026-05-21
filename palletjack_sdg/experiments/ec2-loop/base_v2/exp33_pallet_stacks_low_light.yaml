@@ -25,7 +25,6 @@ camera:
   fov_mean: 76.0
   fov_std: 5.0
   dataset_noise:
-    enabled: true
     mode: shot
     shot_scale_mean: 70.0
     shot_scale_std: 25.0
