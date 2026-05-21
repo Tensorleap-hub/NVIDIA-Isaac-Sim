@@ -128,11 +128,11 @@ forklifts:
   scale_std: [0.0, 0.0, 0.0]
 
 pallets:
-  count_per_model: 0
+  count_per_model: 2
   assets:
-    - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd
-    - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_03.usd
-    - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd
+    - /Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_01.usd
+    - /Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_02.usd
+    - /Isaac/Environments/Simple_Warehouse/Props/SM_PaletteB_01.usd
   position_mean: [0.0, 3.0, 0.0]
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
