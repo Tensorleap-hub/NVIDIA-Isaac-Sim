@@ -169,16 +169,13 @@ distractors:
   groups:
     CardBox:
       assets:
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Cube_A/CubeBox_A02_16cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Cube_A/CubeBox_A05_32cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Cube_A/CubeBox_A08_62cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Flat_A/FlatBox_A03_23x22x11cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Flat_A/FlatBox_A09_32x32x16cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Flat_A/FlatBox_A15_51x63x33cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Multi-Depth_A/MultiDepthBox_A03_25x25x31cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Multi-Depth_A/MultiDepthBox_A09_41x41x42cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/White_A/WhiteCorrugatedBox_A05_20x20x20cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/White_A/WhiteCorrugatedBox_A10_40x41x42cm_PR_NVD_01.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1262.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1268.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1482.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_1683.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxB_01_291.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1454.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_01_1513.usd
       diversity: 3
       occurrence: 2
 
