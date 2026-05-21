@@ -323,23 +323,24 @@ def add_pallet_stacks():
     scale_mean = ps_cfg.get("scale_mean", [1.0, 1.0, 1.0])
     scale_std = ps_cfg.get("scale_std", [0.0, 0.0, 0.0])
     pallet_height = ps_cfg.get("pallet_height_m", 0.144)
+    ground_z_offset = ps_cfg.get("ground_z_offset", 0.06)
 
     @rep.randomizer.register
     def randomize_pallet_stacks():
         for layer_prims in stack_prims:
-            x = random.gauss(pos_mean[0], pos_std[0])
-            y = random.gauss(pos_mean[1], pos_std[1])
-            yaw = random.gauss(rot_mean[2], rot_std[2])
-            sx = random.gauss(scale_mean[0], scale_std[0]) if scale_std[0] > 0 else scale_mean[0]
-            sy = random.gauss(scale_mean[1], scale_std[1]) if scale_std[1] > 0 else scale_mean[1]
-            sz = random.gauss(scale_mean[2], scale_std[2]) if scale_std[2] > 0 else scale_mean[2]
+            # Create distributions once per stack — OmniGraph fan-out ensures all
+            # layers in this stack receive the same sampled XY, yaw, and scale.
+            x_dist = rep.distribution.normal(pos_mean[0], pos_std[0])
+            y_dist = rep.distribution.normal(pos_mean[1], pos_std[1])
+            yaw_dist = rep.distribution.normal(rot_mean[2], rot_std[2])
+            scale_dist = rep_normal(tuple(scale_mean), tuple(scale_std))
             for layer_idx, prim in enumerate(layer_prims):
-                z = layer_idx * pallet_height
+                z = ground_z_offset + layer_idx * pallet_height
                 with prim:
                     rep.modify.pose(
-                        position=(x, y, z),
-                        rotation=(rot_mean[0], rot_mean[1], yaw),
-                        scale=(sx, sy, sz),
+                        position=(x_dist, y_dist, z),
+                        rotation=(rot_mean[0], rot_mean[1], yaw_dist),
+                        scale=scale_dist,
                     )
 
     return randomize_pallet_stacks

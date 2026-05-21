@@ -30,12 +30,17 @@ camera:
 forklifts:
   count_per_model: 1
 
+pallet_stacks:
+  enabled: true
+  num_stacks: 5
+  layers: 6
+
 palletjacks:
   count_per_model: 1
   position_std: [2.0, 3.0, 0.0]
 
 lighting:
-  intensity_mean: 5000.0 #150000.0
+  intensity_mean: 10000.0 #150000.0
   intensity_std: 10.0 #80000.0
   visibility_choices: [false]
 

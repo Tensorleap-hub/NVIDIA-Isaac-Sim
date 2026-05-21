@@ -142,6 +142,7 @@ pallet_stacks:
   num_stacks: 3
   layers: 4
   pallet_height_m: 0.144
+  ground_z_offset: 0.06
   position_mean: [0.0, 3.0, 0.0]
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
