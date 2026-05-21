@@ -18,11 +18,6 @@ distractors:
     PushCart:
       occurrence: 0
   clutter_level: 1.0
-
-    Pallet:
-      occurrence: 0
-    Forklift:
-      occurrence: 0
 camera:
   camera_height_mean: 1.5
   camera_height_std: 0.25

@@ -328,19 +328,22 @@ def add_pallet_stacks():
     @rep.randomizer.register
     def randomize_pallet_stacks():
         for layer_prims in stack_prims:
-            # Create distributions once per stack — OmniGraph fan-out ensures all
-            # layers in this stack receive the same sampled XY, yaw, and scale.
-            x_dist = rep.distribution.normal(pos_mean[0], pos_std[0])
-            y_dist = rep.distribution.normal(pos_mean[1], pos_std[1])
-            yaw_dist = rep.distribution.normal(rot_mean[2], rot_std[2])
-            scale_dist = rep_normal(tuple(scale_mean), tuple(scale_std))
+            # Sample once per stack so all layers share the same XY and yaw.
+            # random.gauss() is re-executed each trigger frame inside a registered
+            # randomizer, giving per-frame variation while keeping layers aligned.
+            x = random.gauss(pos_mean[0], pos_std[0])
+            y = random.gauss(pos_mean[1], pos_std[1])
+            yaw = random.gauss(rot_mean[2], rot_std[2])
+            sx = random.gauss(scale_mean[0], scale_std[0]) if scale_std[0] > 0 else scale_mean[0]
+            sy = random.gauss(scale_mean[1], scale_std[1]) if scale_std[1] > 0 else scale_mean[1]
+            sz = random.gauss(scale_mean[2], scale_std[2]) if scale_std[2] > 0 else scale_mean[2]
             for layer_idx, prim in enumerate(layer_prims):
                 z = ground_z_offset + layer_idx * pallet_height
                 with prim:
                     rep.modify.pose(
-                        position=(x_dist, y_dist, z),
-                        rotation=(rot_mean[0], rot_mean[1], yaw_dist),
-                        scale=scale_dist,
+                        position=(x, y, z),
+                        rotation=(rot_mean[0], rot_mean[1], yaw),
+                        scale=(sx, sy, sz),
                     )
 
     return randomize_pallet_stacks
