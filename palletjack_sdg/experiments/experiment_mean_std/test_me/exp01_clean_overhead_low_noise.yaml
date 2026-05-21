@@ -35,9 +35,9 @@ palletjacks:
   position_std: [2.0, 3.0, 0.0]
 
 lighting:
-  intensity_mean: 10000.0 #150000.0
-  intensity_std: 1000.0 #80000.0
-  visibility_choices: [true]
+  intensity_mean: 1000.0 #150000.0
+  intensity_std: 10.0 #80000.0
+  visibility_choices: [false]
 
 materials:
   textures:
