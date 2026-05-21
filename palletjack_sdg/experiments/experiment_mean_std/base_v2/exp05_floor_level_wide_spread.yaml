@@ -10,9 +10,9 @@ environment:
 distractors:
   groups:
     TrafficSigns:
-      use: false
+      occurrence: 0
     Bucket:
-      use: false
+      occurrence: 0
   clutter_level: 1.2
 
 camera:

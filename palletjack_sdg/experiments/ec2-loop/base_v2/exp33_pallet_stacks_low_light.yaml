@@ -15,16 +15,13 @@ pallet_stacks:
 distractors:
   clutter_level: 0.8
   groups:
-    Forklift:
-      occurrence: 0
-    Pallet:
-      occurrence: 0
 
 camera:
   camera_height_mean: 1.8
   camera_height_std: 0.3
   camera_tilt_mean: -12.0
   camera_tilt_std: 4.0
+  camera_yaw_std: 90
   fov_mean: 76.0
   fov_std: 5.0
   dataset_noise:
@@ -37,3 +34,8 @@ lighting:
   intensity_mean: 15000.0
   intensity_std: 25000.0
   visibility_choices: [true, false, false, false, false, false, false, false, false, false]
+
+forklifts:
+  count_per_model: 0
+pallets:
+  count_per_model: 0

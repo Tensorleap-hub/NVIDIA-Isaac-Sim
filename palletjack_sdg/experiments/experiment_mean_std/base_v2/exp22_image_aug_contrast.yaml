@@ -10,9 +10,9 @@ environment:
 distractors:
   groups:
     Pallet:
-      use: false
+      occurrence: 0
     Forklift:
-      use: false
+      occurrence: 0
   clutter_level: 1.1
 
 camera:
