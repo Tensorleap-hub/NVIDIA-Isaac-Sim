@@ -56,6 +56,9 @@ palletjacks:
   count_per_model: 2
   position_std: [3.2, 4.8, 0.0]
 
+forklifts:
+  count_per_model: 5
+
 lighting:
   intensity_mean: 100000.0
   intensity_std: 240000.0

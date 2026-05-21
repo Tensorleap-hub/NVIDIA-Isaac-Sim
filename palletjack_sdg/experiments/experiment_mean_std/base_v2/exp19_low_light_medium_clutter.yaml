@@ -43,8 +43,8 @@ camera:
     sigma_std: 2.0
 
 lighting:
-  intensity_mean: 35000.0
-  intensity_std: 25000.0
+  intensity_mean: 1000.0
+  intensity_std: 500.0
   visibility_choices: [true]
 
 materials:

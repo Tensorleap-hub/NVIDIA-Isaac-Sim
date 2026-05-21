@@ -45,7 +45,7 @@ palletjacks:
 
 lighting:
   intensity_mean: 110000.0
-  intensity_std: 180000.0
+  intensity_std: 18000.0
 
 materials:
   textures:

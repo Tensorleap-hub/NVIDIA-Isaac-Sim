@@ -42,3 +42,6 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
   emissive_intensity_mean: 0.0
   emissive_intensity_std: 0.0
+
+pallets:
+  count_per_model: 0

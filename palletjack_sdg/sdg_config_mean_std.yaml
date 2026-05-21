@@ -114,7 +114,7 @@ palletjacks:
   color_std: [0.288675, 0.288675, 0.288675]
 
 forklifts:
-  count_per_model: 1
+  count_per_model: 2
   assets:
     - /Isaac/Props/Forklift/forklift.usd
   position_mean: [0.0, 3.0, 0.0]

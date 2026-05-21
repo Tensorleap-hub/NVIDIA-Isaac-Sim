@@ -39,3 +39,6 @@ materials:
   textures:
     - /Isaac/Materials/Textures/Patterns/nv_asphalt_yellow_weathered.jpg
     - /Isaac/Materials/Textures/Patterns/nv_gravel_grey_leaves.jpg
+
+pallets:
+  count_per_model: 7
