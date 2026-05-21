@@ -117,8 +117,7 @@ palletjacks:
 forklifts:
   count_per_model: 1
   assets:
-    - Isaac/Samples/Rigging/Forklift/forklift_b_unrigged_cm.usd
-    - Isaac/Samples/Rigging/Forklift/forklift_b_rigged_cm.usd
+    - /Isaac/Props/Forklift/forklift.usd
   position_mean: [0.0, 3.0, 0.0]
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
