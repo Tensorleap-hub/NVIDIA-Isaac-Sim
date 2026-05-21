@@ -128,12 +128,12 @@ forklifts:
 pallets:
   count_per_model: 2
   assets:
-    - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
-    - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
-    - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Pressed_A/PressedWoodPallet_A01_PR_NVD_01.usd
-    - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Recycled_A/RecycledWoodPallet_A01_PR_NVD_01.usd
-    - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Export_A/ExportPallet_A01_PR_NVD_01.usd
-    - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Rackable_A/RackablePallet_A01_PR_V_NVD_01.usd
+    - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
+    - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
+    - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Pressed_A/PressedWoodPallet_A01_PR_NVD_01.usd
+    - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Recycled_A/RecycledWoodPallet_A01_PR_NVD_01.usd
+    - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Export_A/ExportPallet_A01_PR_NVD_01.usd
+    - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Rackable_A/RackablePallet_A01_PR_V_NVD_01.usd
   position_mean: [0.0, 3.0, 0.0]
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
@@ -247,12 +247,12 @@ distractors:
     Pallet:
       use: false
       assets:
-        - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
-        - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
-        - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Pressed_A/PressedWoodPallet_A01_PR_NVD_01.usd
-        - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Recycled_A/RecycledWoodPallet_A01_PR_NVD_01.usd
-        - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Export_A/ExportPallet_A01_PR_NVD_01.usd
-        - /Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Rackable_A/RackablePallet_A01_PR_V_NVD_01.usd
+        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
+        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
+        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Pressed_A/PressedWoodPallet_A01_PR_NVD_01.usd
+        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Recycled_A/RecycledWoodPallet_A01_PR_NVD_01.usd
+        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Export_A/ExportPallet_A01_PR_NVD_01.usd
+        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Rackable_A/RackablePallet_A01_PR_V_NVD_01.usd
       diversity: 3
       occurrence: 3
 
