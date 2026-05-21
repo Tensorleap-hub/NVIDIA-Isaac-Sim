@@ -125,11 +125,13 @@ from pxr import Semantics
 import omni.replicator.core as rep
 from omni.isaac.core.utils.semantics import get_semantics
 from palletjack_sdg.utils.camera import (
+    euler_yaw_first_xyz,
     fov_to_focal_length,
     get_fisheye_max_fov_mean_std,
     is_fisheye_projection,
     normalize_projection_type,
     rep_normal,
+    sample_camera_rotation_choices,
 )
 from palletjack_sdg.utils.image_effects import (
     apply_post_write_effects_to_saved_rgb,
@@ -520,13 +522,17 @@ def main():
                 yaw_std = cam_cfg.get("camera_yaw_std", 360.0 / math.sqrt(12))
                 roll_mean = cam_cfg.get("camera_roll_mean", 0.0)
                 roll_std = cam_cfg.get("camera_roll_std", 0.0)
-                pose_kwargs["rotation"] = rep_normal(
-                    (cam_cfg["camera_tilt_mean"], roll_mean, yaw_mean),
-                    (
-                        cam_cfg.get("camera_tilt_std", 0.0),
-                        roll_std,
-                        yaw_std,
-                    ),
+                tilt_mean = cam_cfg["camera_tilt_mean"]
+                tilt_std = cam_cfg.get("camera_tilt_std", 0.0)
+                # Pre-compute rotation samples with yaw-first ordering so that
+                # roll=0 always produces a level horizon regardless of yaw.
+                # R = Rz(yaw) * Rx(tilt): yaw around world Z first, then tilt
+                # around the camera's local X post-yaw.
+                _n = max(CFG["run"]["num_frames"] * 2, 1000)
+                pose_kwargs["rotation"] = rep.distribution.choice(
+                    sample_camera_rotation_choices(
+                        tilt_mean, tilt_std, yaw_mean, yaw_std, roll_mean, roll_std, _n
+                    )
                 )
             else:
                 pose_kwargs["look_at"] = tuple(cam_cfg["look_at"])
