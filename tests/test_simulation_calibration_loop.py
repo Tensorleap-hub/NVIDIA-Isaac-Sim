@@ -16,7 +16,7 @@ class ParameterSchemaTest(unittest.TestCase):
             "camera": {
                 "camera_height_mean": 1.0,
                 "camera_height_std": 0.2,
-                "dataset_noise": {"enabled": True, "mode": "gaussian_jpeg"},
+                "dataset_noise": {"mode": "gaussian_jpeg", "sigma_mean": 6.0, "sigma_std": 1.5, "jpeg_quality_mean": 28, "jpeg_quality_std": 5, "shot_scale_mean": 0, "shot_scale_std": 0, "seed": 0},
             },
             "materials": {
                 "textures": ["a.jpg", "b.jpg", "c.jpg"],
@@ -28,7 +28,7 @@ class ParameterSchemaTest(unittest.TestCase):
             "camera": {
                 "camera_height_mean": 2.0,
                 "camera_height_std": 0.5,
-                "dataset_noise": {"enabled": True, "mode": "shot_jpeg"},
+                "dataset_noise": {"mode": "shot_jpeg", "sigma_mean": 0, "sigma_std": 0, "jpeg_quality_mean": 18, "jpeg_quality_std": 3, "shot_scale_mean": 22.0, "shot_scale_std": 3.0, "seed": 0},
             },
             "materials": {
                 "textures": ["d.jpg", "e.jpg", "f.jpg"],
