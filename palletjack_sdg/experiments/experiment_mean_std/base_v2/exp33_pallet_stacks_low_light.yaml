@@ -8,6 +8,7 @@ run:
 # isolate stacks + palletjacks under challenging low-light conditions.
 
 pallet_stacks:
+  enabled: true
   num_stacks: 5
   layers: 5
 
