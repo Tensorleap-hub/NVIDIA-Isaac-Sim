@@ -106,6 +106,7 @@ palletjacks:
     - "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Heavy_Duty_A/HeavyDutyPalletTruck_A01_PR_NVD_01.usd"
     - "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Equipment/Pallet_Trucks/Low_Profile_A/LowProfilePalletTruck_A01_PR_NVD_01.usd"
   position_mean: [0.0, 3.0, 0.0]
+  ground_z_offset: 0.08
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
   rotation_std: [0.0, 0.0, 103.923048]
@@ -137,6 +138,7 @@ pallets:
     - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Export_A/ExportPallet_A01_PR_NVD_01.usd
     - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Rackable_A/RackablePallet_A01_PR_V_NVD_01.usd
   position_mean: [0.0, 3.0, 0.0]
+  ground_z_offset: 0.06
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
   rotation_std: [0.0, 0.0, 103.923048]
@@ -149,6 +151,7 @@ pallet_stacks:
   layers: 4
   pallet_height_m: 0.144
   position_mean: [0.0, 3.0, 0.0]
+  ground_z_offset: 0.06
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
   rotation_std: [0.0, 0.0, 103.923048]
@@ -157,6 +160,7 @@ pallet_stacks:
 
 distractor_randomization:
   position_mean: [0.0, 3.0, 0.0]
+  ground_z_offset: 0.0
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
   rotation_std: [0.0, 0.0, 103.923048]
@@ -181,6 +185,7 @@ distractors:
         - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/White_A/WhiteCorrugatedBox_A10_40x41x42cm_PR_NVD_01.usd
       diversity: 3
       occurrence: 2
+      ground_z_offset: 0.18
 
     BarelPlastic:
       assets:

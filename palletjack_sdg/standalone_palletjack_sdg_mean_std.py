@@ -180,6 +180,18 @@ def full_textures_list():
     return [prefix_with_isaac_asset_server(p) for p in CFG["materials"]["textures"]]
 
 
+def position_mean_with_ground_offset(pose_cfg, object_cfg=None):
+    position_mean = list(pose_cfg["position_mean"])
+    if len(position_mean) < 3:
+        return tuple(position_mean)
+
+    z_offset = pose_cfg.get("ground_z_offset", 0.0)
+    if object_cfg is not None and "ground_z_offset" in object_cfg:
+        z_offset = object_cfg.get("ground_z_offset") or 0.0
+    position_mean[2] += float(z_offset or 0.0)
+    return tuple(position_mean)
+
+
 def resolve_output_cfg():
     """Resolve writer/output modalities with defaults matching the old behavior."""
     output_cfg = (CFG.get("output") or {}).copy()
@@ -320,7 +332,12 @@ def add_pallet_stacks():
             for _ in range(layers)
         ])
 
-    pos_mean = ps_cfg.get("position_mean", [0.0, 3.0, 0.0])
+    pos_mean = position_mean_with_ground_offset(
+        {
+            "position_mean": ps_cfg.get("position_mean", [0.0, 3.0, 0.0]),
+            "ground_z_offset": ps_cfg.get("ground_z_offset", 0.0),
+        }
+    )
     pos_std = ps_cfg.get("position_std", [3.464102, 5.196152, 0.0])
     rot_mean = ps_cfg.get("rotation_mean", [0.0, 0.0, 180.0])
     rot_std = ps_cfg.get("rotation_std", [0.0, 0.0, 103.923048])
@@ -338,7 +355,7 @@ def add_pallet_stacks():
             sy = random.gauss(scale_mean[1], scale_std[1]) if scale_std[1] > 0 else scale_mean[1]
             sz = random.gauss(scale_mean[2], scale_std[2]) if scale_std[2] > 0 else scale_mean[2]
             for layer_idx, prim in enumerate(layer_prims):
-                z = layer_idx * pallet_height
+                z = pos_mean[2] + layer_idx * pallet_height
                 with prim:
                     rep.modify.pose(
                         position=(x, y, z),
@@ -355,7 +372,7 @@ def add_distractors():
     For each group:
       - randomly pick `diversity` variants from the asset pool
       - spawn `round(occurrence × clutter_level)` instances of each variant; skip if 0
-    Returns a rep group, or None if clutter_level is 0.
+    Returns per-source groups, or None if clutter_level is 0.
     """
     dist_cfg = CFG["distractors"]
     clutter = dist_cfg.get("clutter_level", 1.0)
@@ -364,7 +381,7 @@ def add_distractors():
         return None
 
     groups = dist_cfg.get("groups") or {}
-    all_prims = []
+    distractor_groups = []
     for group_name, group_cfg in groups.items():
         if group_cfg is None:
             continue
@@ -377,15 +394,25 @@ def add_distractors():
             print(f"  {group_name}: skipped (occurrence=0)")
             continue
         selected   = random.sample(pool, diversity)
+        group_prims = []
         for asset in selected:
-            all_prims.append(
+            group_prims.append(
                 rep.create.from_usd(prefix_with_isaac_asset_server(asset), count=count)
             )
+        if not group_prims:
+            continue
+        distractor_groups.append(
+            {
+                "name": group_name,
+                "rep_group": rep.create.group(group_prims),
+                "config": group_cfg,
+            }
+        )
         print(f"  {group_name}: {diversity} variant(s) × {count} instance(s)")
 
-    if not all_prims:
+    if not distractor_groups:
         return None
-    return rep.create.group(all_prims)
+    return distractor_groups
 
 
 def run_orchestrator():
@@ -443,7 +470,7 @@ def main():
     rep_pallet_group = add_pallets()
     stack_randomizer = add_pallet_stacks()
 
-    rep_distractor_group = add_distractors()
+    rep_distractor_groups = add_distractors()
 
     update_semantics(stage=stage, keep_semantics=["palletjack", "forklift", "pallet"])
 
@@ -546,7 +573,7 @@ def main():
         with rep_palletjack_group:
             rep.modify.pose(
                 position=rep_normal(
-                    tuple(pj_cfg["position_mean"]),
+                    position_mean_with_ground_offset(pj_cfg),
                     tuple(pj_cfg["position_std"]),
                 ),
                 rotation=rep_normal(
@@ -563,7 +590,7 @@ def main():
             with rep_forklift_group:
                 rep.modify.pose(
                     position=rep_normal(
-                        tuple(fl_cfg["position_mean"]),
+                        position_mean_with_ground_offset(fl_cfg),
                         tuple(fl_cfg["position_std"]),
                     ),
                     rotation=rep_normal(
@@ -580,7 +607,7 @@ def main():
             with rep_pallet_group:
                 rep.modify.pose(
                     position=rep_normal(
-                        tuple(pa_cfg["position_mean"]),
+                        position_mean_with_ground_offset(pa_cfg),
                         tuple(pa_cfg["position_std"]),
                     ),
                     rotation=rep_normal(
@@ -596,22 +623,26 @@ def main():
         if stack_randomizer is not None:
             rep.randomizer.randomize_pallet_stacks()
 
-        if rep_distractor_group is not None:
-            with rep_distractor_group:
-                rep.modify.pose(
-                    position=rep_normal(
-                        tuple(dr_cfg["position_mean"]),
-                        tuple(dr_cfg["position_std"]),
-                    ),
-                    rotation=rep_normal(
-                        tuple(dr_cfg["rotation_mean"]),
-                        tuple(dr_cfg["rotation_std"]),
-                    ),
-                    scale=rep_normal(
-                        dr_cfg["scale_mean"],
-                        dr_cfg["scale_std"],
-                    ),
-                )
+        if rep_distractor_groups is not None:
+            for distractor_group in rep_distractor_groups:
+                with distractor_group["rep_group"]:
+                    rep.modify.pose(
+                        position=rep_normal(
+                            position_mean_with_ground_offset(
+                                dr_cfg,
+                                distractor_group["config"],
+                            ),
+                            tuple(dr_cfg["position_std"]),
+                        ),
+                        rotation=rep_normal(
+                            tuple(dr_cfg["rotation_mean"]),
+                            tuple(dr_cfg["rotation_std"]),
+                        ),
+                        scale=rep_normal(
+                            dr_cfg["scale_mean"],
+                            dr_cfg["scale_std"],
+                        ),
+                    )
 
         with rep.get.prims(path_pattern="RectLight"):
             rep.modify.attribute(

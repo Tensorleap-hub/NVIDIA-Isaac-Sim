@@ -16,11 +16,12 @@ model:
     class_path: rfdetr.config.RFDETRBaseConfig
     init_args:
       num_classes: 3
+      encoder: dinov2_windowed_small
   train_config:
     class_path: rfdetr.config.TrainConfig
     init_args:
-      dataset_dir: /data/warehouse3cls   # required: path to prepared COCO dataset
-      output_dir: output/rfdetr_warehouse3cls
+      dataset_dir: /Users/orram/Tensorleap/data/warehouse/warehouse3cls_real
+      output_dir: /Users/orram/Tensorleap/data/warehouse/warehouse3cls_real/output/rfdetr_base
       epochs: 100
       batch_size: 4
       grad_accum_steps: 4
