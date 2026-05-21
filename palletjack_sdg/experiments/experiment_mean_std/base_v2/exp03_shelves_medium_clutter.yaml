@@ -22,15 +22,15 @@ distractors:
 
 
     BarelPlastic:
-      use: false
+      occurrence: 0
     TrafficSigns:
-      use: false
+      occurrence: 0
     Bucket:
-      use: false
+      occurrence: 0
     RackPile:
-      use: false
+      occurrence: 0
     PushCart:
-      use: false
+      occurrence: 0
 camera:
   camera_height_mean: 2.8
   camera_height_std: 0.4

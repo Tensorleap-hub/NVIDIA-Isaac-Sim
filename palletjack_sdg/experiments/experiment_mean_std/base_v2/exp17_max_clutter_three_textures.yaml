@@ -31,9 +31,9 @@ distractors:
 
 
     TrafficSigns:
-      use: false
+      occurrence: 0
     Bucket:
-      use: false
+      occurrence: 0
 camera:
   camera_height_mean: 1.8
   camera_height_std: 0.3
