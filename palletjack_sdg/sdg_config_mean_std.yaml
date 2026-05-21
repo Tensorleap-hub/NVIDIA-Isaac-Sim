@@ -118,6 +118,8 @@ forklifts:
   count_per_model: 1
   assets:
     - /Isaac/Robots/Forklift/Forklift_A01.usd
+    - /Isaac/Robots/Forklift/Forklift_B01.usd
+    - /Isaac/Robots/Forklift/Forklift_C01.usd
   position_mean: [0.0, 3.0, 0.0]
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
@@ -126,7 +128,7 @@ forklifts:
   scale_std: [0.0, 0.0, 0.0]
 
 pallets:
-  count_per_model: 0
+  count_per_model: 2
   assets:
     - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
     - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
@@ -142,7 +144,7 @@ pallets:
   scale_std: [0.0, 0.0, 0.0]
 
 pallet_stacks:
-  enabled: false
+  enabled: true
   num_stacks: 3
   layers: 4
   pallet_height_m: 0.144
@@ -166,23 +168,16 @@ distractors:
 
   groups:
     CardBox:
-      use: true
       assets:
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Cube_A/CubeBox_A02_16cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Cube_A/CubeBox_A05_32cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Cube_A/CubeBox_A08_62cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Flat_A/FlatBox_A03_23x22x11cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Flat_A/FlatBox_A09_32x32x16cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Flat_A/FlatBox_A15_51x63x33cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Multi-Depth_A/MultiDepthBox_A03_25x25x31cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/Multi-Depth_A/MultiDepthBox_A09_41x41x42cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/White_A/WhiteCorrugatedBox_A05_20x20x20cm_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Cardboard_Boxes/White_A/WhiteCorrugatedBox_A10_40x41x42cm_PR_NVD_01.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_01.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_02.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_03.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_04.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_05.usd
       diversity: 3
       occurrence: 2
 
     BarelPlastic:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_02.usd
@@ -194,7 +189,6 @@ distractors:
       occurrence: 2
 
     BottlePlastic:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticB_01.usd
@@ -204,7 +198,6 @@ distractors:
       occurrence: 3
 
     CratePlastic:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_03.usd
@@ -215,7 +208,6 @@ distractors:
       occurrence: 2
 
     TrafficSigns:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd
         - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
@@ -223,14 +215,12 @@ distractors:
       occurrence: 2
 
     Bucket:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BucketPlastic_B.usd
       diversity: 1
       occurrence: 2
 
     RackPile:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd
@@ -238,30 +228,11 @@ distractors:
       occurrence: 1
 
     PushCart:
-      use: true
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd
       diversity: 1
       occurrence: 1
 
-    Pallet:
-      use: false
-      assets:
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Pressed_A/PressedWoodPallet_A01_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Recycled_A/RecycledWoodPallet_A01_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Export_A/ExportPallet_A01_PR_NVD_01.usd
-        - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Plastic/Rackable_A/RackablePallet_A01_PR_V_NVD_01.usd
-      diversity: 3
-      occurrence: 3
-
-    Forklift:
-      use: false
-      assets:
-        - /Isaac/Robots/Forklift/Forklift_A01.usd
-      diversity: 1
-      occurrence: 1
 
 lighting:
   color_mean: [0.5, 0.5, 0.5]
