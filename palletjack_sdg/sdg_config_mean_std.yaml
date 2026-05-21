@@ -126,7 +126,7 @@ forklifts:
   scale_std: [0.0, 0.0, 0.0]
 
 pallets:
-  count_per_model: 2
+  count_per_model: 0
   assets:
     - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A01_PR_NVD_01.usd
     - http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/DigitalTwin/Assets/Warehouse/Shipping/Pallets/Wood/Block_A/BlockPallet_A04_PR_NVD_01.usd
@@ -142,7 +142,7 @@ pallets:
   scale_std: [0.0, 0.0, 0.0]
 
 pallet_stacks:
-  enabled: true
+  enabled: false
   num_stacks: 3
   layers: 4
   pallet_height_m: 0.144
