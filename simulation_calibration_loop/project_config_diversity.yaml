@@ -1,5 +1,5 @@
 project_name: dinov2_subset3_optuna_loop_objects
-workspace_dir: ./workspace_objects
+workspace_dir: ./workspace_objects_diversity
 baseline_state_path: ./workspace_run3/state.json
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/objects/
 synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_run3/iteration_000/outputs

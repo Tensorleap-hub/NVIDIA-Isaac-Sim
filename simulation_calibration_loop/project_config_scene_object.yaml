@@ -1,5 +1,5 @@
 project_name: dinov2_subset3_optuna_loop_camera
-workspace_dir: ./workspace_camera
+workspace_dir: ./workspace_scene_object
 promoted_baseline_dir: ./promoted_baseline_theme_rounds
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/camera/
 seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2
