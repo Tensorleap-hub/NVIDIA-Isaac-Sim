@@ -20,9 +20,12 @@ Usage:
         --val-imgs   /path/to/dataset/subset-3 \
         --output-dir /data/warehouse3cls
 
-    # Multiple train annotations (merged into one train split)
+    # Multiple train annotations (repeat --train-ann for each subset)
     python scripts/prepare_loco_dataset.py \
-        --train-ann  loco-sub1-v1-val.json loco-sub2-v1-train.json loco-sub4-v1-val.json loco-sub5-v1-train.json \
+        --train-ann  loco-sub1-v1-val.json \
+        --train-ann  loco-sub2-v1-train.json \
+        --train-ann  loco-sub4-v1-val.json \
+        --train-ann  loco-sub5-v1-train.json \
         --train-imgs /path/to/dataset \
         --val-ann    loco-sub3-v1-train.json \
         --val-imgs   /path/to/dataset/subset-3 \
@@ -111,21 +114,16 @@ def _empty_coco(ann_path: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Prepare LOCO subset for RF-DETR (3 warehouse classes)")
-    parser.add_argument("--train-ann", nargs="+", required=True,
-                        help="One or more LOCO train annotation JSONs (merged into one train split)")
-    parser.add_argument("--train-imgs", nargs="+", required=True,
-                        help="Image root dir(s) for train annotations (one per --train-ann, or a single shared root)")
+    parser.add_argument("--train-ann", action="append", dest="train_ann", required=True, metavar="ANN_JSON",
+                        help="LOCO train annotation JSON (repeat for multiple subsets)")
+    parser.add_argument("--train-imgs", required=True, metavar="IMGS_ROOT",
+                        help="Shared root directory containing all train images")
     parser.add_argument("--val-ann", required=True, help="Path to LOCO val annotation JSON")
     parser.add_argument("--val-imgs", required=True, help="Root directory of val images")
     parser.add_argument("--output-dir", required=True, help="Output dataset directory")
     args = parser.parse_args()
 
-    if len(args.train_imgs) == 1:
-        train_imgs_list = args.train_imgs * len(args.train_ann)
-    elif len(args.train_imgs) != len(args.train_ann):
-        parser.error("--train-imgs must be a single shared root or one entry per --train-ann")
-    else:
-        train_imgs_list = args.train_imgs
+    train_imgs_list = [args.train_imgs] * len(args.train_ann)
 
     print(f"Keeping classes: {sorted(KEEP_CLASSES)}")
 
