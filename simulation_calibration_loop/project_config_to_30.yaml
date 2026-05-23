@@ -1,0 +1,30 @@
+project_name: dinov2_subset3_optuna_loop_camera
+workspace_dir: ./workspace_top_30
+s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/top_30/
+seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2_bounded
+real_dataset_root: ../loco_dataset
+real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
+max_iterations: 100
+iteration_batch_size: 4
+random_seed: 42
+top_n_best_trials: 10
+mmd_max_samples: 1000
+dino:
+  model_name: dinov2_vitb14_reg
+  repo: facebookresearch/dinov2
+  batch_size: 32
+  resize_size: 256
+  image_size: 224
+isaac:
+  isaac_sim_path: /opt/IsaacSim
+  script_path: ../palletjack_sdg/standalone_palletjack_sdg_mean_std.py
+  headless: true
+search_space:
+  themes:
+    - camera
+    - environment
+  include: []
+  exclude:
+    - run.data_dir
+    - run.num_frames
+    - run.headless

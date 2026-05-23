@@ -29,6 +29,19 @@ class DINOv2Config:
 
 
 @dataclass
+class RFDETREmbedderConfig:
+    """Settings for using a fine-tuned RF-DETR backbone as the feature extractor."""
+
+    checkpoint_path: str = ""
+    num_classes: int = 3
+    layer_index: int = 3
+    batch_size: int = 16
+    image_size: int = 224
+    resize_size: int = 256
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+@dataclass
 class IsaacConfig:
     """Settings for launching the external Isaac Sim generator."""
 
@@ -150,6 +163,60 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "materials.emissive_intensity_mean",
         "materials.emissive_intensity_std",
     ],
+    "top20_important": [
+        "environment.name",
+        "lighting.visibility_choices",
+        "palletjacks.position_std",
+        "palletjacks.rotation_std",
+        "materials.textures",
+        "forklifts.count_per_model",
+        "pallet_stacks.enabled",
+        "pallets.count_per_model",
+        "materials.emissive_intensity_std",
+        "image_augmentation.color_gain_std",
+        "camera.fov_std",
+        "materials.roughness_mean",
+        "image_augmentation.gamma_mean",
+        "pallet_stacks.layers",
+        "distractors.clutter_level",
+        "materials.roughness_std",
+        "camera.camera_tilt_std",
+        "image_augmentation.contrast_gain_mean",
+        "distractors.groups.CardBox.occurrence",
+        "camera.camera_yaw_mean",
+    ],
+    "top30_important": [
+        "environment.name",
+        "lighting.visibility_choices",
+        "palletjacks.position_std",
+        "palletjacks.rotation_std",
+        "materials.textures",
+        "forklifts.count_per_model",
+        "pallet_stacks.enabled",
+        "pallets.count_per_model",
+        "materials.emissive_intensity_std",
+        "image_augmentation.color_gain_std",
+        "camera.fov_std",
+        "materials.roughness_mean",
+        "image_augmentation.gamma_mean",
+        "pallet_stacks.layers",
+        "distractors.clutter_level",
+        "materials.roughness_std",
+        "camera.camera_tilt_std",
+        "image_augmentation.contrast_gain_mean",
+        "distractors.groups.CardBox.occurrence",
+        "camera.camera_yaw_mean",
+        "materials.emissive_intensity_mean",
+        "lighting.intensity_std",
+        "image_augmentation.contrast_gain_std",
+        "camera.camera_height_mean",
+        "camera.dataset_noise.shot_scale_std",
+        "camera.dataset_noise.mode",
+        "camera.camera_yaw_std",
+        "camera.dataset_noise.jpeg_quality_mean",
+        "image_augmentation.brightness_gain_std",
+        "image_augmentation.brightness_gain_mean",
+    ],
 }
 
 
@@ -171,7 +238,9 @@ class WorkflowConfig:
     top_n_best_trials: int = 3
     mmd_max_samples: int = 1000
     synthetic_rgb_base_dir: str | None = None
+    embedder_backend: str = "dinov2"
     dino: DINOv2Config = field(default_factory=DINOv2Config)
+    rfdetr_embedder: RFDETREmbedderConfig = field(default_factory=RFDETREmbedderConfig)
     isaac: IsaacConfig = field(default_factory=IsaacConfig)
     search_space: SearchSpaceConfig = field(default_factory=SearchSpaceConfig)
     base_pool: BasePoolConfig = field(default_factory=BasePoolConfig)
@@ -228,7 +297,9 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         random_seed=int(raw.get("random_seed", 42)),
         top_n_best_trials=int(raw.get("top_n_best_trials", 3)),
         mmd_max_samples=int(raw.get("mmd_max_samples", 1000)),
+        embedder_backend=str(raw.get("embedder_backend", "dinov2")),
         dino=_load_section(raw.get("dino"), DINOv2Config),
+        rfdetr_embedder=_load_section(raw.get("rfdetr_embedder"), RFDETREmbedderConfig),
         isaac=_load_section(raw.get("isaac"), IsaacConfig),
         search_space=_load_section(raw.get("search_space"), SearchSpaceConfig),
         base_pool=_load_section(raw.get("base_pool"), BasePoolConfig),
@@ -258,4 +329,8 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     workflow.isaac.script_path = str(
         workflow.resolve_path(workflow.isaac.script_path, relative_to_config=config_path)
     )
+    if workflow.rfdetr_embedder.checkpoint_path:
+        workflow.rfdetr_embedder.checkpoint_path = str(
+            workflow.resolve_path(workflow.rfdetr_embedder.checkpoint_path, relative_to_config=config_path)
+        )
     return workflow
