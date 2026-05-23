@@ -24,6 +24,9 @@ from torchvision import transforms
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
 
 @dataclass
 class RunArtifact:
@@ -109,6 +112,97 @@ class DINOv2Embedder:
 
     def _load_image(self, path: Path) -> torch.Tensor:
         """Load one image and apply the DINOv2 preprocessing pipeline."""
+        with Image.open(path) as image:
+            return self.transform(image.convert("RGB"))
+
+
+class RFDETREmbedder:
+    """RF-DETR backbone feature extractor using global-average-pool on a selected scale.
+
+    The WindowedDinov2WithRegistersBackbone returns 4 multi-scale feature maps of shape
+    (B, 384, H, W). ``layer_index`` (0-3) selects which scale; default 3 uses the
+    deepest features. GAP over (H, W) yields a (B, 384) embedding per image.
+    """
+
+    def __init__(
+        self,
+        checkpoint_path: str,
+        num_classes: int,
+        layer_index: int,
+        device: str,
+        resize_size: int,
+        image_size: int,
+    ):
+        from rfdetr import RFDETRBase  # lazy import – only needed when backend="rfdetr"
+
+        self.device = torch.device(device)
+        self.layer_index = layer_index
+
+        rfdetr = RFDETRBase(num_classes=num_classes)
+        lwdetr = self._unwrap_lwdetr(rfdetr)
+
+        if checkpoint_path:
+            ckpt = torch.load(checkpoint_path, map_location=str(self.device), weights_only=False)
+            state_dict = ckpt.get("model", ckpt.get("state_dict", ckpt))
+            if isinstance(state_dict, dict):
+                lwdetr.load_state_dict(state_dict, strict=False)
+
+        # backbone[0].encoder.encoder is WindowedDinov2WithRegistersBackbone
+        self._backbone = lwdetr.backbone[0].encoder.encoder
+        self._backbone.eval()
+        self._backbone.to(self.device)
+
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize(resize_size, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.CenterCrop(image_size),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
+            ]
+        )
+
+    @staticmethod
+    def _unwrap_lwdetr(rfdetr_instance: Any) -> Any:
+        m = rfdetr_instance
+        for _ in range(5):
+            if hasattr(m, "backbone"):
+                return m
+            if hasattr(m, "model"):
+                m = m.model
+            else:
+                break
+        raise RuntimeError("Cannot locate LWDETR backbone in RF-DETR model hierarchy.")
+
+    def embed_paths(
+        self,
+        image_paths: list[Path],
+        *,
+        batch_size: int,
+        cache_path: Path,
+        manifest: dict[str, Any],
+    ) -> np.ndarray:
+        """Embed a list of images using the RF-DETR backbone, reusing a cache entry when the manifest matches."""
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path = cache_path.with_suffix(".manifest.json")
+        if cache_path.exists() and manifest_path.exists():
+            cached_manifest = json.loads(manifest_path.read_text())
+            if cached_manifest == manifest:
+                return np.load(cache_path)
+
+        batches = []
+        with torch.inference_mode():
+            for start in range(0, len(image_paths), batch_size):
+                batch_paths = image_paths[start : start + batch_size]
+                images = torch.stack([self._load_image(p) for p in batch_paths], dim=0).to(self.device)
+                feat_maps, *_ = self._backbone(images)
+                feat = feat_maps[self.layer_index]  # (B, C, H, W)
+                batches.append(feat.mean(dim=[2, 3]).cpu().numpy())  # (B, C)
+        embeddings = np.concatenate(batches, axis=0)
+        np.save(cache_path, embeddings)
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+        return embeddings
+
+    def _load_image(self, path: Path) -> torch.Tensor:
         with Image.open(path) as image:
             return self.transform(image.convert("RGB"))
 

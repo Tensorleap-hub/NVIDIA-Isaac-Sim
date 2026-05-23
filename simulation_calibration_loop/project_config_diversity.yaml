@@ -3,7 +3,7 @@ workspace_dir: ./workspace_objects_diversity
 baseline_state_path: ./workspace_run3/state.json
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/objects/
 synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_run3/iteration_000/outputs
-seed_config_dir: ../palletjack_sdg/experiments/ec2-loop/base_v2
+seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
 max_iterations: 5

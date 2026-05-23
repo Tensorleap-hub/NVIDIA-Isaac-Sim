@@ -227,13 +227,17 @@ def _upload_theme_best_runs(workspace_dir: Path, s3_prefix: str, top_n: int) -> 
 
 def _apply_common_overrides(raw: dict, common: dict) -> None:
     """Merge common section from theme_rounds.yaml into a per-theme config dict."""
-    for key in ("promoted_baseline_dir", "max_iterations", "iteration_batch_size"):
+    for key in ("promoted_baseline_dir", "max_iterations", "iteration_batch_size", "embedder_backend"):
         if key in common:
             raw[key] = common[key]
     if "base_pool" in common:
         existing = raw.get("base_pool") or {}
         existing.update(common["base_pool"])
         raw["base_pool"] = existing
+    if "rfdetr_embedder" in common:
+        existing = raw.get("rfdetr_embedder") or {}
+        existing.update(common["rfdetr_embedder"])
+        raw["rfdetr_embedder"] = existing
     if "sample_number" in common:
         isaac_cfg = raw.setdefault("isaac", {})
         isaac_cfg["num_frames_override"] = int(common["sample_number"])
@@ -315,6 +319,10 @@ def _absolutize_workflow_paths(raw: dict, source_config_dir: Path) -> None:
     isaac_cfg = raw.get("isaac")
     if isinstance(isaac_cfg, dict) and isaac_cfg.get("script_path"):
         isaac_cfg["script_path"] = str(_resolve_config_path(isaac_cfg["script_path"], source_config_dir))
+
+    rfdetr_cfg = raw.get("rfdetr_embedder")
+    if isinstance(rfdetr_cfg, dict) and rfdetr_cfg.get("checkpoint_path"):
+        rfdetr_cfg["checkpoint_path"] = str(_resolve_config_path(rfdetr_cfg["checkpoint_path"], source_config_dir))
 
 
 def _resolve_config_path(value: str, source_config_dir: Path) -> Path:

@@ -26,6 +26,7 @@ from .base_pool import BasePoolManager, PoolEntry
 from .config import WorkflowConfig
 from .data import (
     DINOv2Embedder,
+    RFDETREmbedder,
     RunArtifact,
     StateStore,
     discover_generated_images,
@@ -123,13 +124,34 @@ class SimulationCalibrationController:
             param_bounds=self.param_bounds,
             param_type=self.param_type,
         )
-        self.embedder = DINOv2Embedder(
-            repo=config.dino.repo,
-            model_name=config.dino.model_name,
-            device=config.dino.device,
-            image_size=config.dino.image_size,
-            resize_size=config.dino.resize_size,
-        )
+        if config.embedder_backend == "rfdetr":
+            ckpt_stem = (
+                Path(config.rfdetr_embedder.checkpoint_path).stem
+                if config.rfdetr_embedder.checkpoint_path
+                else "pretrained"
+            )
+            self._embedder_id = f"rfdetr_{ckpt_stem}"
+            self._embedder_repo = ""
+            self._embedder_batch_size = config.rfdetr_embedder.batch_size
+            self.embedder: DINOv2Embedder | RFDETREmbedder = RFDETREmbedder(
+                checkpoint_path=config.rfdetr_embedder.checkpoint_path,
+                num_classes=config.rfdetr_embedder.num_classes,
+                layer_index=config.rfdetr_embedder.layer_index,
+                device=config.rfdetr_embedder.device,
+                image_size=config.rfdetr_embedder.image_size,
+                resize_size=config.rfdetr_embedder.resize_size,
+            )
+        else:
+            self._embedder_id = config.dino.model_name
+            self._embedder_repo = config.dino.repo
+            self._embedder_batch_size = config.dino.batch_size
+            self.embedder = DINOv2Embedder(
+                repo=config.dino.repo,
+                model_name=config.dino.model_name,
+                device=config.dino.device,
+                image_size=config.dino.image_size,
+                resize_size=config.dino.resize_size,
+            )
         self.base_pool = BasePoolManager(
             state_path=self.base_pool_state_path,
             enabled=config.base_pool.enabled,
@@ -242,21 +264,21 @@ class SimulationCalibrationController:
         cache_dir = self.workspace_dir / "cache" / "real"
         cache_key = make_cache_key(
             [
-                self.config.dino.model_name,
+                self._embedder_id,
                 *(str(path) for path in real_image_paths),
             ]
         )
         cache_path = cache_dir / f"{cache_key}.npy"
         manifest = {
-            "model_name": self.config.dino.model_name,
-            "repo": self.config.dino.repo,
+            "model_name": self._embedder_id,
+            "repo": self._embedder_repo,
             "image_paths": [str(path) for path in real_image_paths],
         }
         status = "hit" if cache_path.exists() else "miss"
         self.ui.set_status(real_cache_status=status)
         return self.embedder.embed_paths(
             real_image_paths,
-            batch_size=self.config.dino.batch_size,
+            batch_size=self._embedder_batch_size,
             cache_path=cache_path,
             manifest=manifest,
         )
@@ -582,7 +604,7 @@ class SimulationCalibrationController:
             run_fingerprint = self._make_run_fingerprint(config_dict)
             output_dir = outputs_dir / f"{run_id}__{run_fingerprint[:12]}"
             log_path = output_dir / "isaac.log"
-            embedding_path = cache_dir / f"{run_id}__{run_fingerprint[:12]}_{self.config.dino.model_name}.npy"
+            embedding_path = cache_dir / f"{run_id}__{run_fingerprint[:12]}_{self._embedder_id}.npy"
             # Keep the generated YAML self-contained so Isaac writes into the
             # iteration-specific output directory even if the base template had a
             # different `run.data_dir`.
@@ -631,8 +653,8 @@ class SimulationCalibrationController:
                 raise ValueError(f"No generated images discovered under {output_dir}")
             self._write_run_manifest(output_dir, run_id, run_fingerprint, yaml_path)
             manifest = {
-                "model_name": self.config.dino.model_name,
-                "repo": self.config.dino.repo,
+                "model_name": self._embedder_id,
+                "repo": self._embedder_repo,
                 "image_paths": [str(path) for path in image_paths],
                 "yaml_path": str(yaml_path),
                 "run_fingerprint": run_fingerprint,
@@ -644,7 +666,7 @@ class SimulationCalibrationController:
             else:
                 self.embedder.embed_paths(
                     image_paths,
-                    batch_size=self.config.dino.batch_size,
+                    batch_size=self._embedder_batch_size,
                     cache_path=embedding_path,
                     manifest=manifest,
                 )
@@ -852,8 +874,8 @@ class SimulationCalibrationController:
             return [], False
 
         expected_manifest = {
-            "model_name": self.config.dino.model_name,
-            "repo": self.config.dino.repo,
+            "model_name": self._embedder_id,
+            "repo": self._embedder_repo,
             "image_paths": [str(path) for path in image_paths],
             "yaml_path": str(yaml_path),
             "run_fingerprint": run_fingerprint,
@@ -867,9 +889,9 @@ class SimulationCalibrationController:
             return image_paths, False
 
         source_manifest = json.loads(source_manifest_path.read_text())
-        if source_manifest.get("model_name") != self.config.dino.model_name:
+        if source_manifest.get("model_name") != self._embedder_id:
             return image_paths, False
-        if source_manifest.get("repo") != self.config.dino.repo:
+        if source_manifest.get("repo") != self._embedder_repo:
             return image_paths, False
         if source_manifest.get("run_fingerprint") != run_fingerprint:
             return image_paths, False
@@ -908,7 +930,7 @@ class SimulationCalibrationController:
         if not cache_dir.exists():
             return None
 
-        preferred_name = f"{source_output_dir.name}_{self.config.dino.model_name}.npy"
+        preferred_name = f"{source_output_dir.name}_{self._embedder_id}.npy"
         preferred_path = cache_dir / preferred_name
         if preferred_path.exists():
             return preferred_path
