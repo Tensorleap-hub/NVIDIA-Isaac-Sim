@@ -102,8 +102,15 @@ def main() -> None:
 
     output_dir_arg = args.output_dir or str(root / f"top{args.top}_dataset")
 
+    # Use the loop venv Python (same as run_with_loop_venv.sh) so that numpy/PIL
+    # are available. Fall back to sys.executable if the venv is absent.
+    import os
+    venv_dir = Path(os.environ.get("LOOP_VENV_DIR", repo_root / ".sim_loop_venv"))
+    venv_python = venv_dir / "bin" / "python"
+    python_exe = str(venv_python) if venv_python.exists() else sys.executable
+
     cmd = [
-        sys.executable,
+        python_exe,
         str(prepare_script),
         "--input-dirs", *[str(d) for d in input_dirs],
         "--output-dir", output_dir_arg,
