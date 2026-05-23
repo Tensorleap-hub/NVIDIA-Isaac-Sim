@@ -22,8 +22,7 @@ isaac:
   headless: true
 search_space:
   themes:
-    - camera
-    - environment
+    - top30_important
   include: []
   exclude:
     - run.data_dir
