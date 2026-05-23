@@ -42,7 +42,7 @@ def _make_additional_sample_id(r: dict) -> str:
         return f"run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
     elif r["subset"] == "extended":
         return f"ext_iter{r.get('iteration', 0)}_run{r['run_number']}_{r['experiment']}_frame{r['image_id']}"
-    elif r["subset"] == "optuna":
+    elif r["subset"] == "Tensorleap-Optimized":
         if r.get("optuna_selected_cycle") is not None:
             return (
                 f"optuna_selected_{r.get('optuna_theme', 'flat')}_"
@@ -66,6 +66,8 @@ def _make_additional_sample_id(r: dict) -> str:
             f"optuna_tests_{r.get('optuna_test_name', 'unknown')}_"
             f"{r.get('run_name', 'unknown')}_{r['experiment']}_frame{r['image_id']}"
         )
+    elif r["subset"] == "Synthetic_Base":
+        return f"base_synth_{r['experiment']}_frame{r['image_id']}"
     else:
         raise ValueError(f"Unsupported additional subset {r['subset']!r}")
 
@@ -126,6 +128,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
             val_records.append(record)
 
     synth_records = _load_synth_records()
+    base_synth_records = _load_base_synth_records()
     extended_records = _load_extended_records()
     optuna_records = _load_optuna_records()
     optuna_test_records = _load_optuna_test_records()
@@ -136,6 +139,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         val_records   = val_records[:max_samples]
 
     synth_records.sort(key=lambda r: r["run_number"])
+    base_synth_records.sort(key=lambda r: (r["experiment"], r["image_id"]))
     extended_records.sort(key=lambda r: (r.get("iteration", 0), r["run_number"], r["experiment"]))
     optuna_records.sort(
         key=lambda r: (
@@ -156,7 +160,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         )
     )
 
-    additional_records = synth_records + extended_records + optuna_records + optuna_test_records
+    additional_records = synth_records + base_synth_records + extended_records + optuna_records + optuna_test_records
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
@@ -272,8 +276,12 @@ def _preprocess_custom_latent_space(custom_cfg: dict) -> List[PreprocessResponse
 # Synthetic data loading (KITTI annotations, Isaac Sim)
 # ---------------------------------------------------------------------------
 
-# KITTI class name → LOCO category index
-_SYNTH_CLASS_TO_IDX = {"palletjack": 4}  # pallet_truck
+# Synthetic class name → COCO category_id (matched to the 3-class warehouse config)
+_SYNTH_CLASS_TO_IDX = {
+    "palletjack": 3,   # small_load_carrier (idx 0)
+    "forklift":    5,  # forklift           (idx 1)
+    "pallet":      7,  # pallet             (idx 2)
+}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -398,6 +406,73 @@ def _load_synth_records() -> list:
     return records
 
 
+def _load_base_synth_records() -> list:
+    """
+    Load frames from a flat directory of named experiments:
+      base_path/
+        exp01_clean_overhead_low_noise/
+          run_config.yaml
+          rgb_0000.png
+          bounding_box_2d_tight_0000.npy
+          bounding_box_2d_tight_labels_0000.json
+        exp02_full_warehouse_bright/ ...
+
+    Configured via `base_synth_data` in project_config.yaml.
+    """
+    cfg = CONFIG.get("base_synth_data", {})
+    if not cfg.get("additional", True):
+        return []
+
+    base = cfg.get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    base_path = Path(base)
+    records = []
+
+    for exp_path in sorted(path for path in base_path.iterdir() if path.is_dir()):
+        run_config_path = exp_path / "run_config.yaml"
+        if not run_config_path.is_file():
+            continue
+
+        with run_config_path.open("r") as f:
+            exp_config = yaml.safe_load(f)
+        run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+        orig_w = int(run_config.get("render", {}).get("width", 960))
+        orig_h = int(run_config.get("render", {}).get("height", 544))
+        frame_records = _read_supported_frame_records(exp_path, run_config)
+
+        for image_id, img_path, anns in frame_records:
+            records.append({
+                "image_id": image_id,
+                "path": str(img_path),
+                "width": orig_w,
+                "height": orig_h,
+                "subset": "Synthetic_Base",
+                "anns": anns,
+                "run_config": run_config,
+                "experiment": exp_path.name,
+            })
+
+    num_samples = cfg.get("num_samples")
+    if num_samples is not None:
+        by_exp = {}
+        for r in records:
+            by_exp.setdefault(r["experiment"], []).append(r)
+        sampled = []
+        rng = random.Random(42)
+        for exp_records in by_exp.values():
+            if len(exp_records) > num_samples:
+                rng.shuffle(exp_records)
+                sampled.extend(exp_records[:num_samples])
+            else:
+                sampled.extend(exp_records)
+        records = sampled
+
+    return records
+
+
 def _load_extended_records() -> list:
     """
     Load frames from extended/{name}-{iter}/{run_name}/ directories.
@@ -494,7 +569,7 @@ def _load_extended_records() -> list:
 
 
 _EXTENDED_ITER_DIR_RE = re.compile(r"^.+-(\d+)$")
-_OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
+_OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)(?:__[0-9a-f]+)?$")
 _OPTUNA_TRIAL_DIR_RE = re.compile(r"^trial_(?P<trial>\d+)$")
 _OPTUNA_FLAT_RGB_RE = re.compile(r"^rgb_(?P<frame>\d+)\.png$")
 _OPTUNA_CYCLE_RE = re.compile(r"^cycle_(?P<cycle>\d+)_(?P<timestamp>\d{8}T\d{6}Z)$")
@@ -511,11 +586,12 @@ def _parse_kitti_annotation_file(annotation_path: str) -> list[dict]:
             parts = line.strip().split()
             if len(parts) < 8:
                 continue
-            if parts[0].lower() not in _SYNTH_CLASS_TO_IDX:
+            class_name = parts[0].lower()
+            if class_name not in _SYNTH_CLASS_TO_IDX:
                 continue
             x1, y1, x2, y2 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
             anns.append({
-                "category_id": 11,
+                "category_id": _SYNTH_CLASS_TO_IDX[class_name],
                 "bbox": [x1, y1, x2 - x1, y2 - y1],
             })
     return anns
@@ -546,7 +622,7 @@ def _parse_basic_writer_bbox_annotations(annotation_path: Path, label_path: Path
             continue
 
         anns.append({
-            "category_id": 11,
+            "category_id": _SYNTH_CLASS_TO_IDX[class_name],
             "bbox": [x1, y1, x2 - x1, y2 - y1],
         })
     return anns
@@ -676,7 +752,7 @@ def _append_optuna_experiment_records(
             "path": str(img_path),
             "width": orig_w,
             "height": orig_h,
-            "subset": "optuna",
+            "subset": "Tensorleap-Optimized",
             "anns": anns,
             "run_config": run_config,
             "run_number": run_number,
@@ -827,7 +903,7 @@ def _load_optuna_selected_records() -> list:
     Load frames from the warehouse tree shaped like:
       optuna-ec2/<category>/cycle_XX_<timestamp>/<best|worst>_*/
     """
-    optuna_cfg = CONFIG.get("optuna_data", {})
+    optuna_cfg = CONFIG.get("Tensorleap-Optimized", {})
     if not optuna_cfg.get("additional", True):
         return []
 
@@ -886,7 +962,7 @@ def _load_optuna_records() -> list:
       - themed repetition trial folders like camera-color/repetition_0/trial_28/outputs/iter001_run000
       - worst folders like worst/camera/iter004_run007/outputs/iter004_run007
     """
-    optuna_cfg = CONFIG.get("optuna_data", {})
+    optuna_cfg = CONFIG.get("Tensorleap-Optimized", {})
     if not optuna_cfg.get("additional", True):
         return []
 
