@@ -118,6 +118,9 @@ class SimulationCalibrationController:
         self.optimizer_config["top_n_best_trials"] = config.top_n_best_trials
         self.optimizer_config["mmd_max_samples"] = config.mmd_max_samples
         self.optimizer_config["random_seed"] = config.random_seed
+        self.optimizer_config["optimizer"]["multivariate"] = config.tpe_sampler.multivariate
+        self.optimizer_config["optimizer"]["group"] = config.tpe_sampler.group
+        self.optimizer_config["optimizer"]["constant_liar"] = config.tpe_sampler.constant_liar
 
         self.runner = ExperimentRunner(
             config=self.optimizer_config,

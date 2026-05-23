@@ -28,3 +28,5 @@ search_space:
     - run.data_dir
     - run.num_frames
     - run.headless
+  tpe_sampler:
+    group: true

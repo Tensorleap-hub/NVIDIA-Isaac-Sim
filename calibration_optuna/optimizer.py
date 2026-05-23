@@ -101,6 +101,8 @@ class OptunaOptimizer:
         # Get optimizer config
         optimizer_config = config.get('optimizer', {})
         multivariate = optimizer_config.get('multivariate', True)
+        group = optimizer_config.get('group', False)
+        constant_liar = optimizer_config.get('constant_liar', True)
 
         # Set n_startup_trials: higher for joint optimization due to larger search space
         # Default: 50 trials (more than per-group mode due to ~18 params)
@@ -123,7 +125,9 @@ class OptunaOptimizer:
                 seed=config.get('random_seed', 42),
                 n_startup_trials=n_startup_trials,
                 multivariate=multivariate,
-                warn_independent_sampling=False
+                group=group,
+                constant_liar=constant_liar,
+                warn_independent_sampling=False,
             )
         )
 

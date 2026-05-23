@@ -52,6 +52,15 @@ class IsaacConfig:
 
 
 @dataclass
+class TPESamplerConfig:
+    """Optuna TPE sampler settings exposed to per-theme project configs."""
+
+    multivariate: bool = True
+    group: bool = False
+    constant_liar: bool = True
+
+
+@dataclass
 class SearchSpaceConfig:
     """Controls which flattened Isaac parameters are exposed to Optuna."""
 
@@ -244,6 +253,7 @@ class WorkflowConfig:
     isaac: IsaacConfig = field(default_factory=IsaacConfig)
     search_space: SearchSpaceConfig = field(default_factory=SearchSpaceConfig)
     base_pool: BasePoolConfig = field(default_factory=BasePoolConfig)
+    tpe_sampler: TPESamplerConfig = field(default_factory=TPESamplerConfig)
 
     def resolve_path(self, candidate: str, *, relative_to_config: Path) -> Path:
         """Resolve a config path relative to the YAML file when needed."""
@@ -303,6 +313,7 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         isaac=_load_section(raw.get("isaac"), IsaacConfig),
         search_space=_load_section(raw.get("search_space"), SearchSpaceConfig),
         base_pool=_load_section(raw.get("base_pool"), BasePoolConfig),
+        tpe_sampler=_load_section(raw.get("tpe_sampler"), TPESamplerConfig),
     )
     workflow.search_space = _expand_search_space(workflow.search_space)
 

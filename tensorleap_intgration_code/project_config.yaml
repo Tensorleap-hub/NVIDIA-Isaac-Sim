@@ -1,20 +1,13 @@
-image_size: 640
+image_size: 560
 
 data:
   data_path: "/Users/orram/Tensorleap/data/warehouse"
   annotations_file: "dataset/labels/loco-all-v1.json"
 
-model_path: "yolo11s.onnx"
-model_type: "YOLO11"
+model_path: "rfdetr-base.onnx"
+model_type: "RFDETR"
 
-output_indices:
-  labels: 0
-  boxes: 1
-  scores: 2
-  pred_logits: 3
-  pred_boxes: 4
-
-max_num_of_objects: 400
+max_num_of_objects: 300
 
 split:
   train_subsets:
@@ -29,8 +22,6 @@ categories:
   - {coco_id: 3,  name: small_load_carrier, idx: 0}
   - {coco_id: 5,  name: forklift,           idx: 1}
   - {coco_id: 7,  name: pallet,             idx: 2}
-  - {coco_id: 10, name: stillage,           idx: 3}
-  - {coco_id: 11, name: pallet_truck,       idx: 4}
 
 loss:
   map_coco_category_to_label: false
