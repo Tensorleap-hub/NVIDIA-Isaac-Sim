@@ -1,3 +1,5 @@
+extends: ../../../sdg_config_mean_std.yaml
+
 run:
   headless: true
   num_frames: 128

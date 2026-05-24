@@ -1,3 +1,5 @@
+extends: ../../../sdg_config_mean_std.yaml
+
 camera:
   camera_height_mean: 1.616750106671126
   camera_height_std: 0.15828988359820356
