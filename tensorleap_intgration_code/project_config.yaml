@@ -12,9 +12,9 @@ max_num_of_objects: 300
 split:
   train_subsets:
     - "subset-2"
-    - "subset-4"
-    - "subset-5"
-    - "subset-1"
+#    - "subset-4"
+#    - "subset-5"
+#    - "subset-1"
   val_subsets:
     - "subset-3"
 
@@ -77,6 +77,6 @@ optuna_tests_data:
   num_samples:              # null = no limit; per-run cap after deterministic shuffle
 
 custom_latent_space:
-#  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"  # path to .manifest.json from population_view/cache/ for real images
-#  base_cache_manifest: "simulation_calibration_loop/population_view/cache/base_3684769ec526f1c4_dinov2_vitb14_reg.manifest.json"  # path to .manifest.json from population_view/cache/ for base images
-#  runs_root: "/Users/orram/Tensorleap/data/warehouse/selected_trial_downloads"            # root dir of downloaded selected runs (e.g. selected_trial_downloads/optuna-ec2)
+  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"
+  base_cache_manifest: "simulation_calibration_loop/population_view/cache/base_9a2b9d15e33c5661_dinov2_vitb14_reg.manifest.json"  # base_v2_final, 4160 images
+  runs_root: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"

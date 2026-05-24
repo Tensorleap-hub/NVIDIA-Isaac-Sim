@@ -212,12 +212,67 @@ def _load_manifest_image_records(manifest_path: str, subset_name: str) -> list:
     ]
 
 
+def _load_flat_run_records(runs_path: Path) -> list:
+    """Handle flat layout: {runs_root}/{category}/{trial_id}/outputs/{iter_run__{fp}/"""
+    records: list = []
+    for category_dir in sorted(p for p in runs_path.iterdir() if p.is_dir()):
+        category = category_dir.name
+        for trial_dir in sorted(p for p in category_dir.iterdir() if p.is_dir()):
+            outputs_root = trial_dir / "outputs"
+            if not outputs_root.is_dir():
+                continue
+            for experiment_dir in sorted(
+                p for p in outputs_root.iterdir()
+                if p.is_dir() and _FLAT_OUTPUTS_DIR_RE.match(p.name)
+            ):
+                match = _FLAT_OUTPUTS_DIR_RE.match(experiment_dir.name)
+                iteration = int(match.group("iteration"))
+                run_number = int(match.group("run"))
+                yaml_name = f"iter{iteration:03d}_run{run_number:03d}.yaml"
+                run_config_path = trial_dir / "yamls" / yaml_name
+                if not run_config_path.is_file():
+                    continue
+                with run_config_path.open("r") as f:
+                    exp_config = yaml.safe_load(f)
+                run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+                orig_w = int(run_config.get("render", {}).get("width", 960))
+                orig_h = int(run_config.get("render", {}).get("height", 544))
+                frame_records = _read_supported_frame_records(experiment_dir, run_config)
+                for image_id, img_path, anns in frame_records:
+                    records.append({
+                        "image_id": image_id,
+                        "path": str(img_path),
+                        "width": orig_w,
+                        "height": orig_h,
+                        "subset": "optuna",
+                        "anns": anns,
+                        "run_config": run_config,
+                        "run_number": run_number,
+                        "iteration": iteration,
+                        "experiment": experiment_dir.name,
+                        "optuna_bucket": "selected",
+                        "optuna_theme": category,
+                        "optuna_repetition": trial_dir.name,
+                        "trial_number": None,
+                        "optuna_rank": None,
+                        "optuna_objective_value": None,
+                        "optuna_selected_kind": "",
+                        "optuna_selected_label": trial_dir.name,
+                        "optuna_selected_cycle": None,
+                        "optuna_selected_timestamp": "",
+                    })
+    return records
+
+
 def _load_custom_run_records(runs_root: str) -> list:
     if not os.path.isabs(runs_root):
         runs_root = abs_path_from_root(runs_root)
     runs_path = Path(runs_root)
     if not runs_path.is_dir():
         raise ValueError(f"custom_latent_space.runs_root does not exist: {runs_root}")
+    has_cycles = any(_OPTUNA_CYCLE_RE.match(p.name) for p in runs_path.rglob("*") if p.is_dir())
+    if not has_cycles:
+        return _load_flat_run_records(runs_path)
     records: list = []
     for cycle_dir in sorted(p for p in runs_path.rglob("*") if p.is_dir() and _OPTUNA_CYCLE_RE.match(p.name)):
         cycle_match = _OPTUNA_CYCLE_RE.match(cycle_dir.name)
@@ -573,6 +628,7 @@ def _load_extended_records() -> list:
 
 _EXTENDED_ITER_DIR_RE = re.compile(r"^.+-(\d+)$")
 _OPTUNA_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)$")
+_FLAT_OUTPUTS_DIR_RE = re.compile(r"^iter(?P<iteration>\d+)_run(?P<run>\d+)(__.*)?$")
 _OPTUNA_TRIAL_DIR_RE = re.compile(r"^trial_(?P<trial>\d+)$")
 _OPTUNA_FLAT_RGB_RE = re.compile(r"^rgb_(?P<frame>\d+)\.png$")
 _OPTUNA_CYCLE_RE = re.compile(r"^cycle_(?P<cycle>\d+)_(?P<timestamp>\d{8}T\d{6}Z)$")
