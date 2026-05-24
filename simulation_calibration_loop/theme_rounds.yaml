@@ -4,7 +4,7 @@ rounds: 2
 # Any key here wins over the value in the individual project_config_*.yaml.
 # promoted_baseline_dir is resolved relative to this file's location.
 common:
-  promoted_baseline_dir: ./promoted_baseline_theme_rounds
+  promoted_baseline_dir: ./promoted_baseline_rfdetr
   max_iterations: 15
   iteration_batch_size: 4
   sample_number: 64     # maps to isaac.num_frames_override in each config
