@@ -3,6 +3,7 @@ workspace_dir: ./workspace_top_30_groups
 promoted_baseline_dir: ./promoted_baseline_theme_rounds
 s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/top_30/
 seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2_bounded
+synthetic_rgb_base_dir: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/workspace_top_30/iteration_000/outputs
 real_dataset_root: ../loco_dataset
 real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
 max_iterations: 100
