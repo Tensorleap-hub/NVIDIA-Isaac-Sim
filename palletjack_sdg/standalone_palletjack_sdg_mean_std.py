@@ -356,6 +356,20 @@ def sample_vector_normal(mean, std):
     return np.random.normal(loc=mean_arr, scale=std_arr)
 
 
+def sample_once_or_rep_normal(mean, std, sample_once=False, lower=None):
+    if not sample_once:
+        return rep_normal(mean, std)
+    if isinstance(mean, (list, tuple)):
+        return tuple(sample_vector_normal(mean, std).tolist())
+    return sample_normal(mean, std, lower=lower)
+
+
+def choice_once_or_distribution(choices, sample_once=False):
+    if sample_once:
+        return random.choice(choices)
+    return rep.distribution.choice(choices)
+
+
 def build_actor_position_sequence(spawn_cfg, motion_cfg, num_frames):
     base_position = sample_vector_normal(
         spawn_cfg["position_mean"],
@@ -377,6 +391,12 @@ def build_actor_position_sequence(spawn_cfg, motion_cfg, num_frames):
             cycle_frame = frame_idx % cycle_frames
             motion_frame = cycle_frame if cycle_frame <= reverse_every else cycle_frames - cycle_frame
         positions.append((base_position + velocity * motion_frame).tolist())
+    print(
+        "Actor path sequence:",
+        f"base={base_position.tolist()}",
+        f"velocity={velocity.tolist()}",
+        f"reverse_every_frames={reverse_every}",
+    )
     return rep.distribution.sequence(positions)
 
 
@@ -432,6 +452,12 @@ def apply_kinematic_actor_motion(actor_groups):
             continue
 
         if "velocity_mean" in motion_cfg and "velocity_std" in motion_cfg:
+            print(
+                f"Kinematic actor motion enabled for {key}:",
+                f"velocity_mean={motion_cfg['velocity_mean']}",
+                f"velocity_std={motion_cfg['velocity_std']}",
+                f"reverse_every_frames={motion_cfg.get('reverse_every_frames')}",
+            )
             apply_actor_path_motion(actor_group, spawn_cfg, motion_cfg, num_frames)
         else:
             apply_legacy_actor_pose_randomization(actor_group, spawn_cfg)
@@ -466,6 +492,12 @@ def build_camera_position_sequence(cam_cfg, num_frames):
             cycle_frame = frame_idx % cycle_frames
             motion_frame = cycle_frame if cycle_frame <= reverse_every else cycle_frames - cycle_frame
         positions.append((base_position + velocity * motion_frame).tolist())
+    print(
+        "Camera path sequence:",
+        f"base={base_position.tolist()}",
+        f"velocity={velocity.tolist()}",
+        f"reverse_every_frames={reverse_every}",
+    )
     return rep.distribution.sequence(positions)
 
 
@@ -583,12 +615,18 @@ def main():
     dr_cfg  = CFG["distractor_randomization"]
     lt_cfg  = CFG["lighting"]
     mat_cfg = CFG["materials"]
+    num_frames = CFG["run"]["num_frames"]
+    temporal_sequence = bool(CFG.get("run", {}).get("temporal_sequence", False))
+    if temporal_sequence:
+        print(
+            "Temporal sequence enabled: static scene randomization is sampled once; "
+            "camera and kinematic actor motion run for every frame."
+        )
 
-    with rep.trigger.on_frame(num_frames=CFG["run"]["num_frames"]):
-
+    def apply_camera_frame():
         with cam:
             pose_kwargs = {
-                "position": build_camera_position_sequence(cam_cfg, CFG["run"]["num_frames"])
+                "position": build_camera_position_sequence(cam_cfg, num_frames)
             }
             if cam_cfg.get("camera_tilt_mean") is not None:
                 yaw_mean = cam_cfg.get("camera_yaw_mean", 180.0)
@@ -608,95 +646,127 @@ def main():
             rep.modify.pose(**pose_kwargs)
 
             if not is_fisheye_projection(projection_type) and fl_mean is not None:
-                rep.modify.attribute("focalLength", rep_normal(fl_mean, fl_std))
+                rep.modify.attribute(
+                    "focalLength",
+                    sample_once_or_rep_normal(fl_mean, fl_std, temporal_sequence),
+                )
 
+    def apply_static_scene_frame():
         with rep.get.prims(path_pattern="SteerAxles"):
             rep.randomizer.color(
-                colors=rep_normal(
+                colors=sample_once_or_rep_normal(
                     tuple(pj_cfg["color_mean"]),
                     tuple(pj_cfg["color_std"]),
-                )
+                    temporal_sequence,
+                ),
             )
 
         with rep_palletjack_group:
             rep.modify.pose(
-                position=rep_normal(
+                position=sample_once_or_rep_normal(
                     tuple(pj_cfg["position_mean"]),
                     tuple(pj_cfg["position_std"]),
+                    temporal_sequence,
                 ),
-                rotation=rep_normal(
+                rotation=sample_once_or_rep_normal(
                     tuple(pj_cfg["rotation_mean"]),
                     tuple(pj_cfg["rotation_std"]),
+                    temporal_sequence,
                 ),
-                scale=rep_normal(
+                scale=sample_once_or_rep_normal(
                     tuple(pj_cfg["scale_mean"]),
                     tuple(pj_cfg["scale_std"]),
+                    temporal_sequence,
                 ),
             )
 
         if rep_distractor_group is not None:
             with rep_distractor_group:
                 rep.modify.pose(
-                    position=rep_normal(
+                    position=sample_once_or_rep_normal(
                         tuple(dr_cfg["position_mean"]),
                         tuple(dr_cfg["position_std"]),
+                        temporal_sequence,
                     ),
-                    rotation=rep_normal(
+                    rotation=sample_once_or_rep_normal(
                         tuple(dr_cfg["rotation_mean"]),
                         tuple(dr_cfg["rotation_std"]),
+                        temporal_sequence,
                     ),
-                    scale=rep_normal(
+                    scale=sample_once_or_rep_normal(
                         dr_cfg["scale_mean"],
                         dr_cfg["scale_std"],
+                        temporal_sequence,
+                        lower=0.01,
                     ),
                 )
-
-        apply_kinematic_actor_motion(actor_groups)
 
         with rep.get.prims(path_pattern="RectLight"):
             rep.modify.attribute(
                 "color",
-                rep_normal(tuple(lt_cfg["color_mean"]), tuple(lt_cfg["color_std"])),
+                sample_once_or_rep_normal(
+                    tuple(lt_cfg["color_mean"]),
+                    tuple(lt_cfg["color_std"]),
+                    temporal_sequence,
+                ),
             )
             rep.modify.attribute(
                 "intensity",
-                rep.distribution.normal(lt_cfg["intensity_mean"], lt_cfg["intensity_std"]),
+                sample_once_or_rep_normal(
+                    lt_cfg["intensity_mean"],
+                    lt_cfg["intensity_std"],
+                    temporal_sequence,
+                    lower=0.0,
+                ),
             )
             rep.modify.visibility(
-                rep.distribution.choice(lt_cfg["visibility_choices"])
+                choice_once_or_distribution(lt_cfg["visibility_choices"], temporal_sequence)
             )
 
         random_mat_floor = rep.create.material_omnipbr(
-            diffuse_texture=rep.distribution.choice(textures),
-            roughness=rep_normal(
+            diffuse_texture=choice_once_or_distribution(textures, temporal_sequence),
+            roughness=sample_once_or_rep_normal(
                 mat_cfg["roughness_mean"],
                 mat_cfg["roughness_std"],
+                temporal_sequence,
+                lower=0.0,
             ),
-            metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
-            emissive_texture=rep.distribution.choice(textures),
-            emissive_intensity=rep_normal(
+            metallic=choice_once_or_distribution(mat_cfg["metallic_choices"], temporal_sequence),
+            emissive_texture=choice_once_or_distribution(textures, temporal_sequence),
+            emissive_intensity=sample_once_or_rep_normal(
                 mat_cfg["emissive_intensity_mean"],
                 mat_cfg["emissive_intensity_std"],
+                temporal_sequence,
+                lower=0.0,
             ),
         )
         with rep.get.prims(path_pattern="SM_Floor"):
             rep.randomizer.materials(random_mat_floor)
 
         random_mat_wall = rep.create.material_omnipbr(
-            diffuse_texture=rep.distribution.choice(textures),
-            roughness=rep_normal(
+            diffuse_texture=choice_once_or_distribution(textures, temporal_sequence),
+            roughness=sample_once_or_rep_normal(
                 mat_cfg["roughness_mean"],
                 mat_cfg["roughness_std"],
+                temporal_sequence,
+                lower=0.0,
             ),
-            metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
-            emissive_texture=rep.distribution.choice(textures),
-            emissive_intensity=rep_normal(
+            metallic=choice_once_or_distribution(mat_cfg["metallic_choices"], temporal_sequence),
+            emissive_texture=choice_once_or_distribution(textures, temporal_sequence),
+            emissive_intensity=sample_once_or_rep_normal(
                 mat_cfg["emissive_intensity_mean"],
                 mat_cfg["emissive_intensity_std"],
+                temporal_sequence,
+                lower=0.0,
             ),
         )
         with rep.get.prims(path_pattern="SM_Wall"):
             rep.randomizer.materials(random_mat_wall)
+
+    with rep.trigger.on_frame(num_frames=num_frames):
+        apply_camera_frame()
+        apply_static_scene_frame()
+        apply_kinematic_actor_motion(actor_groups)
 
     # ── Writer ────────────────────────────────────────────────────────────────
     output_directory = CFG["run"]["data_dir"]

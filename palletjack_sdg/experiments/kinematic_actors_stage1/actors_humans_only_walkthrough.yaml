@@ -3,6 +3,7 @@ extends: ../../sdg_config_mean_std.yaml
 run:
   data_dir: /isaac-sim/palletjack_sdg/palletjack_data/kinematic_actors_stage1/humans_only_walkthrough
   num_frames: 600
+  temporal_sequence: true
 
 environment:
   name: full_warehouse
@@ -23,9 +24,9 @@ camera:
   fov_std: 0.0
   motion:
     enabled: true
-    velocity_mean: [0.018, 0.012, 0.0]
-    velocity_std: [0.003, 0.003, 0.0]
-    reverse_every_frames: 120
+    velocity_mean: [0.055, 0.035, 0.0]
+    velocity_std: [0.006, 0.006, 0.0]
+    reverse_every_frames: 45
   motion_blur_strength_mean: 5.0
   motion_blur_strength_std: 0.0
 
@@ -45,13 +46,13 @@ actors:
       - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
     spawn:
       position_mean: [0.0, 3.5, 0.0]
-      position_std: [2.0, 2.5, 0.0]
+      position_std: [0.9, 1.1, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 180.0]
       scale_mean: 1.6
       scale_std: 0.1
     motion:
       enabled: true
-      velocity_mean: [0.035, 0.018, 0.0]
-      velocity_std: [0.012, 0.012, 0.0]
-      reverse_every_frames: 90
+      velocity_mean: [0.16, 0.07, 0.0]
+      velocity_std: [0.025, 0.018, 0.0]
+      reverse_every_frames: 35

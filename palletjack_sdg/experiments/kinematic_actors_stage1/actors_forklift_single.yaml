@@ -3,6 +3,7 @@ extends: ../../sdg_config_mean_std.yaml
 run:
   data_dir: /isaac-sim/palletjack_sdg/palletjack_data/kinematic_actors_stage1/forklift_single
   num_frames: 500
+  temporal_sequence: true
 
 environment:
   name: warehouse_with_forklifts
@@ -23,9 +24,9 @@ camera:
   fov_std: 0.0
   motion:
     enabled: true
-    velocity_mean: [0.020, 0.015, 0.0]
-    velocity_std: [0.003, 0.003, 0.0]
-    reverse_every_frames: 120
+    velocity_mean: [0.070, 0.040, 0.0]
+    velocity_std: [0.006, 0.006, 0.0]
+    reverse_every_frames: 45
   motion_blur_strength_mean: 5.0
   motion_blur_strength_std: 0.0
 
@@ -41,15 +42,15 @@ actors:
       - /Isaac/Robots/Forklift/Forklift_A01.usd
     spawn:
       position_mean: [0.0, 3.0, 0.0]
-      position_std: [5.0, 6.0, 0.0]
+      position_std: [1.0, 1.5, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 160.0]
       scale_mean: 1.0
       scale_std: 0.0
     motion:
       enabled: true
-      velocity_mean: [0.060, 0.025, 0.0]
-      velocity_std: [0.010, 0.010, 0.0]
-      reverse_every_frames: 80
+      velocity_mean: [0.22, 0.08, 0.0]
+      velocity_std: [0.020, 0.015, 0.0]
+      reverse_every_frames: 30
   humans:
     enabled: false

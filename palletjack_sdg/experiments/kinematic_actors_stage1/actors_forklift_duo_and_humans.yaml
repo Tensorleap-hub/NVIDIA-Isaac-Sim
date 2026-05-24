@@ -3,6 +3,7 @@ extends: ../../sdg_config_mean_std.yaml
 run:
   data_dir: /isaac-sim/palletjack_sdg/palletjack_data/kinematic_actors_stage1/forklift_duo_and_humans
   num_frames: 800
+  temporal_sequence: true
 
 environment:
   name: warehouse_with_forklifts
@@ -23,9 +24,9 @@ camera:
   fov_std: 0.0
   motion:
     enabled: true
-    velocity_mean: [0.018, 0.012, 0.0]
-    velocity_std: [0.003, 0.003, 0.0]
-    reverse_every_frames: 120
+    velocity_mean: [0.060, 0.035, 0.0]
+    velocity_std: [0.006, 0.006, 0.0]
+    reverse_every_frames: 45
   motion_blur_strength_mean: 5.0
   motion_blur_strength_std: 0.0
 
@@ -41,16 +42,16 @@ actors:
       - /Isaac/Robots/Forklift/Forklift_A01.usd
     spawn:
       position_mean: [0.0, 4.0, 0.0]
-      position_std: [5.0, 6.5, 0.0]
+      position_std: [1.2, 1.6, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 140.0]
       scale_mean: 1.6
       scale_std: 0.0
     motion:
       enabled: true
-      velocity_mean: [0.055, 0.025, 0.0]
-      velocity_std: [0.010, 0.010, 0.0]
-      reverse_every_frames: 90
+      velocity_mean: [0.20, 0.08, 0.0]
+      velocity_std: [0.020, 0.015, 0.0]
+      reverse_every_frames: 32
   humans:
     enabled: true
     # NOTE: using a warehouse prop as a visible surrogate until a valid human USD is available in your asset server.
@@ -62,13 +63,13 @@ actors:
       - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
     spawn:
       position_mean: [0.0, 4.0, 0.0]
-      position_std: [3.0, 4.0, 0.0]
+      position_std: [1.0, 1.4, 0.0]
       rotation_mean: [0.0, 0.0, 180.0]
       rotation_std: [0.0, 0.0, 180.0]
       scale_mean: 1.6
       scale_std: 0.1
     motion:
       enabled: true
-      velocity_mean: [0.035, -0.018, 0.0]
-      velocity_std: [0.012, 0.012, 0.0]
-      reverse_every_frames: 75
+      velocity_mean: [0.14, -0.07, 0.0]
+      velocity_std: [0.025, 0.018, 0.0]
+      reverse_every_frames: 36
