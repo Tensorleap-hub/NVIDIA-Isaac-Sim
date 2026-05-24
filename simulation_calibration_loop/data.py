@@ -117,11 +117,11 @@ class DINOv2Embedder:
 
 
 class RFDETREmbedder:
-    """RF-DETR backbone feature extractor using global-average-pool on a selected scale.
+    """RF-DETR feature extractor with three extraction levels.
 
-    The WindowedDinov2WithRegistersBackbone returns 4 multi-scale feature maps of shape
-    (B, 384, H, W). ``layer_index`` (0-3) selects which scale; default 3 uses the
-    deepest features. GAP over (H, W) yields a (B, 384) embedding per image.
+    extraction_mode="encoder": GAP over ViT backbone feature maps (384-dim).
+    extraction_mode="neck": mean-pool over transformer input tokens (d_model-dim projected features).
+    extraction_mode="decoder": mean-pool over last decoder layer query outputs (d_model-dim).
     """
 
     def __init__(
@@ -132,11 +132,13 @@ class RFDETREmbedder:
         device: str,
         resize_size: int,
         image_size: int,
+        extraction_mode: str = "encoder",
     ):
         from rfdetr import RFDETRBase  # lazy import – only needed when backend="rfdetr"
 
         self.device = torch.device(device)
         self.layer_index = layer_index
+        self.extraction_mode = extraction_mode
 
         rfdetr = RFDETRBase(num_classes=num_classes)
         lwdetr = self._unwrap_lwdetr(rfdetr)
@@ -151,6 +153,11 @@ class RFDETREmbedder:
         self._backbone = lwdetr.backbone[0].encoder.encoder
         self._backbone.eval()
         self._backbone.to(self.device)
+
+        if extraction_mode in ("neck", "decoder"):
+            self._lwdetr = lwdetr
+            self._lwdetr.eval()
+            self._lwdetr.to(self.device)
 
         self.transform = transforms.Compose(
             [
@@ -181,7 +188,7 @@ class RFDETREmbedder:
         cache_path: Path,
         manifest: dict[str, Any],
     ) -> np.ndarray:
-        """Embed a list of images using the RF-DETR backbone, reusing a cache entry when the manifest matches."""
+        """Embed a list of images using the configured extraction mode, with disk caching."""
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path = cache_path.with_suffix(".manifest.json")
         if cache_path.exists() and manifest_path.exists():
@@ -190,17 +197,58 @@ class RFDETREmbedder:
                 return np.load(cache_path)
 
         batches = []
-        with torch.inference_mode():
-            for start in range(0, len(image_paths), batch_size):
-                batch_paths = image_paths[start : start + batch_size]
-                images = torch.stack([self._load_image(p) for p in batch_paths], dim=0).to(self.device)
-                feat_maps, *_ = self._backbone(images)
-                feat = feat_maps[self.layer_index]  # (B, C, H, W)
-                batches.append(feat.mean(dim=[2, 3]).cpu().numpy())  # (B, C)
+        for start in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[start : start + batch_size]
+            images = torch.stack([self._load_image(p) for p in batch_paths], dim=0).to(self.device)
+            if self.extraction_mode == "encoder":
+                batch_emb = self._embed_batch_encoder(images)
+            elif self.extraction_mode == "neck":
+                batch_emb = self._embed_batch_neck(images)
+            elif self.extraction_mode == "decoder":
+                batch_emb = self._embed_batch_decoder(images)
+            else:
+                raise ValueError(f"Unknown extraction_mode: {self.extraction_mode!r}")
+            batches.append(batch_emb)
+
         embeddings = np.concatenate(batches, axis=0)
         np.save(cache_path, embeddings)
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
         return embeddings
+
+    def _embed_batch_encoder(self, images: torch.Tensor) -> np.ndarray:
+        with torch.inference_mode():
+            feat_maps, *_ = self._backbone(images)
+            feat = feat_maps[self.layer_index]  # (B, C, H, W)
+            return feat.mean(dim=[2, 3]).cpu().numpy()  # (B, C)
+
+    def _embed_batch_neck(self, images: torch.Tensor) -> np.ndarray:
+        """Capture projected backbone features at the transformer input (d_model-dim)."""
+        captured: dict[str, torch.Tensor] = {}
+
+        def _pre_hook(module: Any, args: tuple) -> None:
+            srcs = args[0]  # list of (B, C, H, W) projected feature maps
+            parts = [src.flatten(2).transpose(1, 2) for src in srcs]  # [(B, HW, C), ...]
+            captured["memory"] = torch.cat(parts, dim=1).detach()  # (B, sum_HW, C)
+
+        handle = self._lwdetr.transformer.register_forward_pre_hook(_pre_hook)
+        with torch.inference_mode():
+            self._lwdetr(images)
+        handle.remove()
+        return captured["memory"].mean(dim=1).cpu().numpy()  # (B, d_model)
+
+    def _embed_batch_decoder(self, images: torch.Tensor) -> np.ndarray:
+        """Capture last decoder layer query outputs (d_model-dim)."""
+        captured: dict[str, torch.Tensor] = {}
+
+        def _hook(module: Any, args: tuple, output: Any) -> None:
+            hs = output[0]  # (dec_layers, B, nq, d_model)
+            captured["hs"] = hs[-1].detach()  # last layer: (B, nq, d_model)
+
+        handle = self._lwdetr.transformer.register_forward_hook(_hook)
+        with torch.inference_mode():
+            self._lwdetr(images)
+        handle.remove()
+        return captured["hs"].mean(dim=1).cpu().numpy()  # (B, d_model)
 
     def _load_image(self, path: Path) -> torch.Tensor:
         with Image.open(path) as image:

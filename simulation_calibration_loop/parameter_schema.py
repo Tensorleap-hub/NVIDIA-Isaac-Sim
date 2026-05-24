@@ -241,6 +241,16 @@ def _get_by_path(config: dict[str, Any], path: str) -> Any:
     return current
 
 
+def path_exists_in_config(config: dict[str, Any], path: str) -> bool:
+    """Return True if all path segments exist in the nested config dict."""
+    current: Any = config
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return False
+        current = current[part]
+    return True
+
+
 def _set_by_path(config: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
     current = config

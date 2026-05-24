@@ -41,6 +41,7 @@ from .parameter_schema import (
     infer_parameter_schema,
     load_yaml_configs,
     materialize_config,
+    path_exists_in_config,
     save_yaml_config,
     validate_configs_against_schema,
 )
@@ -481,7 +482,8 @@ class SimulationCalibrationController:
             all_embeddings.append(embedding_array)
             end_index = start_index + len(embedding_array)
             params = {f"shape_logit_{self.group_name}": 0.0}
-            theme_params = flatten_config(entry.config, self.schema)
+            entry_schema = [s for s in self.schema if path_exists_in_config(entry.config, s.path)]
+            theme_params = flatten_config(entry.config, entry_schema)
             for key, value in theme_params.items():
                 params[f"{self.group_name}__{key}"] = value
             current_distributions.append((entry.entry_id, params))
