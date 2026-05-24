@@ -1,0 +1,47 @@
+extends: ../../sdg_config_mean_std.yaml
+
+run:
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/kinematic_actors_stage1/humans_only_walkthrough
+  num_frames: 600
+
+environment:
+  name: full_warehouse
+
+camera:
+  look_at: [0.0, 3.5, 1.0]
+  position_mean: [-2.0, 0.5]
+  position_std: [0.0, 0.0]
+  camera_height_mean: 2.2
+  camera_height_std: 0.0
+  camera_tilt_mean: null
+  camera_tilt_std: 0.0
+  camera_yaw_mean: 180.0
+  camera_yaw_std: 0.0
+  camera_roll_mean: 0.0
+  camera_roll_std: 0.0
+  fov_mean: 82.0
+  fov_std: 0.0
+
+
+actors:
+  enabled: true
+  forklifts:
+    enabled: false
+  humans:
+    enabled: true
+    # NOTE: using a warehouse prop as a visible surrogate until a valid human USD is available in your asset server.
+    count_mean: 3.0
+    count_std: 1.0
+    count_min: 2
+    count_max: 5
+    assets:
+      - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
+    spawn:
+      position_mean: [0.0, 3.5, 0.0]
+      position_std: [2.0, 2.5, 0.0]
+      rotation_mean: [0.0, 0.0, 180.0]
+      rotation_std: [0.0, 0.0, 180.0]
+      scale_mean: 1.6
+      scale_std: 0.1
+    motion:
+      enabled: true

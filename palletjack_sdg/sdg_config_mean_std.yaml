@@ -64,6 +64,14 @@ camera:
   focus_distance: null
   f_stop: null
 
+  # Optional camera trajectory to produce physically meaningful motion blur.
+  # When enabled, camera randomization is sampled once and then advanced by a
+  # per-frame linear velocity (m/frame) for the whole capture sequence.
+  motion:
+    enabled: false
+    velocity_mean: [0.0, 0.0, 0.0]
+    velocity_std: [0.0, 0.0, 0.0]
+
   color_mean: null
   color_std: [0.0, 0.0, 0.0]
 
@@ -233,3 +241,46 @@ materials:
     - /Isaac/Materials/Textures/Patterns/nv_stone_red_hatch.jpg
     - /Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg
     - /Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg
+
+
+# Optional kinematic actor spawning (no physics)
+actors:
+  enabled: false
+
+  forklifts:
+    enabled: false
+    count_mean: 1.5
+    count_std: 0.5
+    count_min: 1
+    count_max: 2
+    semantics: [["class", "forklift"]]
+    assets:
+      - /Isaac/Robots/Forklift/Forklift_A01.usd
+    spawn:
+      position_mean: [0.0, 3.0, 0.0]
+      position_std: [4.0, 6.0, 0.0]
+      rotation_mean: [0.0, 0.0, 180.0]
+      rotation_std: [0.0, 0.0, 90.0]
+      scale_mean: 1.0
+      scale_std: 0.0
+    motion:
+      enabled: true
+
+  humans:
+    enabled: false
+    count_mean: 2.0
+    count_std: 1.0
+    count_min: 0
+    count_max: 4
+    semantics: [["class", "person"]]
+    assets:
+      - /Isaac/People/Characters/Worker_A.usd
+    spawn:
+      position_mean: [0.0, 3.0, 0.0]
+      position_std: [5.0, 8.0, 0.0]
+      rotation_mean: [0.0, 0.0, 180.0]
+      rotation_std: [0.0, 0.0, 180.0]
+      scale_mean: 1.0
+      scale_std: 0.02
+    motion:
+      enabled: true

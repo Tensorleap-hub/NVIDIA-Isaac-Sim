@@ -291,6 +291,108 @@ def add_distractors():
     return rep.create.group(all_prims)
 
 
+
+def sample_count_from_mean_std(cfg, default=0):
+    mean = cfg.get("count_mean", default)
+    std = cfg.get("count_std", 0.0)
+    minimum = int(cfg.get("count_min", 0))
+    maximum = cfg.get("count_max")
+    value = sample_normal(mean, std, lower=minimum, upper=maximum, integer=True)
+    return int(max(minimum, value))
+
+
+def resolve_usd_path(asset_path):
+    if asset_path.startswith("/Isaac/"):
+        return prefix_with_isaac_asset_server(asset_path)
+    return asset_path
+
+
+def add_actor_group(group_cfg, default_semantics):
+    if not group_cfg.get("enabled", False):
+        return None
+
+    assets = group_cfg.get("assets", [])
+    if not assets:
+        return None
+
+    count = sample_count_from_mean_std(group_cfg, default=0)
+    if count <= 0:
+        return None
+
+    semantics = group_cfg.get("semantics", default_semantics)
+    actor_prims = []
+    for _ in range(count):
+        asset = random.choice(assets)
+        actor_prims.append(rep.create.from_usd(resolve_usd_path(asset), semantics=semantics, count=1))
+    return rep.create.group(actor_prims) if actor_prims else None
+
+
+def add_kinematic_actors():
+    actors_cfg = CFG.get("actors") or {}
+    if not actors_cfg.get("enabled", False):
+        return {}
+
+    groups = {
+        "forklifts": add_actor_group(actors_cfg.get("forklifts", {}), [["class", "forklift"]]),
+        "humans": add_actor_group(actors_cfg.get("humans", {}), [["class", "person"]]),
+    }
+    for name, group in groups.items():
+        if group is not None:
+            print(f"Spawned kinematic actor group: {name}")
+    return groups
+
+
+def apply_kinematic_actor_motion(actor_groups):
+    actors_cfg = CFG.get("actors") or {}
+    if not actors_cfg.get("enabled", False):
+        return
+
+    for key in ("forklifts", "humans"):
+        group = actor_groups.get(key)
+        group_cfg = actors_cfg.get(key, {})
+        motion_cfg = group_cfg.get("motion", {})
+        spawn_cfg = group_cfg.get("spawn", {})
+        if group is None or not motion_cfg.get("enabled", False):
+            continue
+
+        with group:
+            rep.modify.pose(
+                position=rep_normal(
+                    tuple(spawn_cfg.get("position_mean", [0.0, 0.0, 0.0])),
+                    tuple(spawn_cfg.get("position_std", [0.0, 0.0, 0.0])),
+                ),
+                rotation=rep_normal(
+                    tuple(spawn_cfg.get("rotation_mean", [0.0, 0.0, 0.0])),
+                    tuple(spawn_cfg.get("rotation_std", [0.0, 0.0, 0.0])),
+                ),
+                scale=rep_normal(
+                    spawn_cfg.get("scale_mean", 1.0),
+                    spawn_cfg.get("scale_std", 0.0),
+                ),
+            )
+
+
+def build_camera_position_sequence(cam_cfg, num_frames):
+    motion_cfg = cam_cfg.get("motion", {})
+    pos_mean = tuple(cam_cfg["position_mean"]) + (cam_cfg["camera_height_mean"],)
+    pos_std = tuple(cam_cfg.get("position_std", (0.0, 0.0))) + (
+        cam_cfg.get("camera_height_std", 0.0),
+    )
+    if not motion_cfg.get("enabled", False):
+        return rep_normal(pos_mean, pos_std)
+
+    base_position = np.random.normal(
+        loc=np.array(pos_mean, dtype=np.float32),
+        scale=np.array(pos_std, dtype=np.float32),
+    )
+    velocity = np.random.normal(
+        loc=np.array(motion_cfg.get("velocity_mean", [0.0, 0.0, 0.0]), dtype=np.float32),
+        scale=np.array(motion_cfg.get("velocity_std", [0.0, 0.0, 0.0]), dtype=np.float32),
+    )
+    positions = [(base_position + velocity * frame_idx).tolist() for frame_idx in range(num_frames)]
+    return rep.distribution.sequence(positions)
+
+
 def run_orchestrator():
     rep.orchestrator.run()
     while not rep.orchestrator.get_is_started():
@@ -344,8 +446,9 @@ def main():
     rep_palletjack_group = add_palletjacks()
 
     rep_distractor_group = add_distractors()
+    actor_groups = add_kinematic_actors()
 
-    update_semantics(stage=stage, keep_semantics=["palletjack"])
+    update_semantics(stage=stage, keep_semantics=["palletjack", "forklift", "person"])
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cam_cfg = CFG["camera"]
@@ -408,11 +511,9 @@ def main():
     with rep.trigger.on_frame(num_frames=CFG["run"]["num_frames"]):
 
         with cam:
-            pos_mean = tuple(cam_cfg["position_mean"]) + (cam_cfg["camera_height_mean"],)
-            pos_std = tuple(cam_cfg.get("position_std", (0.0, 0.0))) + (
-                cam_cfg.get("camera_height_std", 0.0),
-            )
-            pose_kwargs = {"position": rep_normal(pos_mean, pos_std)}
+            pose_kwargs = {
+                "position": build_camera_position_sequence(cam_cfg, CFG["run"]["num_frames"])
+            }
             if cam_cfg.get("camera_tilt_mean") is not None:
                 yaw_mean = cam_cfg.get("camera_yaw_mean", 180.0)
                 yaw_std = cam_cfg.get("camera_yaw_std", 360.0 / math.sqrt(12))
@@ -473,6 +574,8 @@ def main():
                         dr_cfg["scale_std"],
                     ),
                 )
+
+        apply_kinematic_actor_motion(actor_groups)
 
         with rep.get.prims(path_pattern="RectLight"):
             rep.modify.attribute(
