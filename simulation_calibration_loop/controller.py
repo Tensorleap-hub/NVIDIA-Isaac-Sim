@@ -468,6 +468,7 @@ class SimulationCalibrationController:
         scored = [
             e for e in self.base_pool.entries
             if e.score is not None and e.embedding_path and Path(e.embedding_path).exists()
+            and all(path_exists_in_config(e.config, s.path) for s in self.schema)
         ]
         if not scored:
             return []
@@ -482,8 +483,7 @@ class SimulationCalibrationController:
             all_embeddings.append(embedding_array)
             end_index = start_index + len(embedding_array)
             params = {f"shape_logit_{self.group_name}": 0.0}
-            entry_schema = [s for s in self.schema if path_exists_in_config(entry.config, s.path)]
-            theme_params = flatten_config(entry.config, entry_schema)
+            theme_params = flatten_config(entry.config, self.schema)
             for key, value in theme_params.items():
                 params[f"{self.group_name}__{key}"] = value
             current_distributions.append((entry.entry_id, params))

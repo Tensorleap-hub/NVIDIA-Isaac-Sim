@@ -19,10 +19,10 @@ max_num_of_objects: 400
 split:
   train_subsets:
     - "subset-2"
-#    - "subset-4"
-#    - "subset-5"
+    - "subset-4"
+    - "subset-5"
+    - "subset-1"
   val_subsets:
-#    - "subset-1"
     - "subset-3"
 
 categories:
@@ -74,6 +74,6 @@ optuna_data:
   num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
 
 custom_latent_space:
-  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"
-  base_cache_manifest: "simulation_calibration_loop/population_view/cache/base_9a2b9d15e33c5661_dinov2_vitb14_reg.manifest.json"  # base_v2_final, 4160 images
-  runs_root: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
+#  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"
+#  base_cache_manifest: "simulation_calibration_loop/population_view/cache/base_9a2b9d15e33c5661_dinov2_vitb14_reg.manifest.json"  # base_v2_final, 4160 images
+#  runs_root: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
