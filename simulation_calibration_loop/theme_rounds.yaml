@@ -5,7 +5,7 @@ rounds: 2
 # promoted_baseline_dir is resolved relative to this file's location.
 common:
   promoted_baseline_dir: ./promoted_baseline_theme_rounds
-  max_iterations: 30
+  max_iterations: 15
   iteration_batch_size: 4
   sample_number: 64     # maps to isaac.num_frames_override in each config
   base_pool:
