@@ -51,14 +51,14 @@ def _extract_targets(
 
 
 def compute_rtdetr_native_losses(
-    pred_logits: np.ndarray,
-    pred_boxes: np.ndarray,
+    labels: np.ndarray,
+    dets: np.ndarray,
     gt_boxes: np.ndarray,
     gt_labels: np.ndarray,
     gt_valid_mask: np.ndarray,
 ) -> Dict[str, float]:
-    logits = pred_logits if pred_logits.ndim == 3 else np.expand_dims(pred_logits, 0)
-    boxes = pred_boxes if pred_boxes.ndim == 3 else np.expand_dims(pred_boxes, 0)
+    logits = labels if labels.ndim == 3 else np.expand_dims(labels, 0)
+    boxes = dets if dets.ndim == 3 else np.expand_dims(dets, 0)
 
     outputs = {
         "pred_logits": torch.from_numpy(logits.astype(np.float32)),
@@ -97,13 +97,13 @@ def compute_rtdetr_native_losses(
 
 @tensorleap_custom_loss("rtdetr_total_loss")
 def rtdetr_total_loss_native(
-    pred_logits: np.ndarray,
-    pred_boxes: np.ndarray,
+    labels: np.ndarray,
+    dets: np.ndarray,
     gt_boxes: np.ndarray,
     gt_labels: np.ndarray,
     gt_valid_mask: np.ndarray,
 ) -> np.ndarray:
-    losses = compute_rtdetr_native_losses(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid_mask)
+    losses = compute_rtdetr_native_losses(labels, dets, gt_boxes, gt_labels, gt_valid_mask)
     return np.array([losses["total"]], dtype=np.float32)
 
 
@@ -117,11 +117,11 @@ def rtdetr_total_loss_native(
     },
 )
 def rtdetr_loss_components_native(
-    pred_logits: np.ndarray,
-    pred_boxes: np.ndarray,
+    labels: np.ndarray,
+    dets: np.ndarray,
     gt_boxes: np.ndarray,
     gt_labels: np.ndarray,
     gt_valid_mask: np.ndarray,
 ) -> Dict[str, np.ndarray]:
-    losses = compute_rtdetr_native_losses(pred_logits, pred_boxes, gt_boxes, gt_labels, gt_valid_mask)
+    losses = compute_rtdetr_native_losses(labels, dets, gt_boxes, gt_labels, gt_valid_mask)
     return {k: np.array([v], dtype=np.float32) for k, v in losses.items()}

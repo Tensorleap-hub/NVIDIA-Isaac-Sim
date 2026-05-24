@@ -1,10 +1,10 @@
 """
-Tensorleap integration — YOLO11s on LOCO Warehouse dataset.
-Model : yolo11s.onnx — outputs:
-  output0: (1, 84, 8400) — 4 bbox (cx,cy,w,h pixels, DFL-decoded) + 80 COCO class scores (sigmoid)
-  output1/2/3: (1, 144, H, W) — raw feature maps at strides 8/16/32
-Data  : LOCO warehouse (COCO format) — 5 classes
-        small_load_carrier | forklift | pallet | stillage | pallet_truck
+Tensorleap integration — RF-DETR on LOCO Warehouse dataset.
+Model : rfdetr-base.onnx — outputs:
+  dets:   (1, 300, 4) — cxcywh normalized bounding boxes
+  labels: (1, 300, 4) — class logits (3 foreground + 1 background)
+Data  : LOCO warehouse (COCO format) — 3 classes
+        small_load_carrier | forklift | pallet
 """
 import numpy as np
 import onnxruntime as ort
@@ -16,32 +16,30 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 )
 
 from tensorleap_intgration_code import (
+    bb_decoder,
+    confusion_matrix_metric,
     data_type_metadata,
+    get_per_sample_metrics,
     gt_boxes_encoder,
     gt_encoder,
     gt_labels_encoder,
     gt_valid_mask_encoder,
     image_visualizer,
     input_encoder,
+    pred_bb_decoder,
     preprocess_func_leap,
+    rtdetr_loss_components_native,
+    rtdetr_total_loss_native,
     sample_metadata,
-    synth_metadata,
-    yolo_bb_decoder,
-    yolo_confusion_matrix,
-    yolo_loss_components,
-    yolo_per_sample_metrics,
-    yolo_pred_bb_decoder,
-    yolo_total_loss,
+    # synth_metadata_mean_std,
 )
 from tensorleap_intgration_code.config import CONFIG, abs_path_from_root
 
-prediction_type0 = PredictionTypeHandler(name="output0",  labels=[str(i) for i in range(84)],  channel_dim=1)
-prediction_type1 = PredictionTypeHandler(name="output1",  labels=[str(i) for i in range(144)], channel_dim=1)
-prediction_type2 = PredictionTypeHandler(name="output2",  labels=[str(i) for i in range(144)], channel_dim=1)
-prediction_type3 = PredictionTypeHandler(name="output3",  labels=[str(i) for i in range(144)], channel_dim=1)
+prediction_type_dets   = PredictionTypeHandler(name="dets",   labels=[str(i) for i in range(4)], channel_dim=2)
+prediction_type_labels = PredictionTypeHandler(name="labels", labels=[str(i) for i in range(4)], channel_dim=2)
 
 
-@tensorleap_load_model([prediction_type0, prediction_type1, prediction_type2, prediction_type3])
+@tensorleap_load_model([prediction_type_dets, prediction_type_labels])
 def load_model():
     model_path = abs_path_from_root(CONFIG["model_path"])
     sess_options = ort.SessionOptions()
@@ -57,18 +55,21 @@ def check_integration(idx, subset):
     gt_boxes  = gt_boxes_encoder(idx, subset)
     gt_labels = gt_labels_encoder(idx, subset)
     gt_valid  = gt_valid_mask_encoder(idx, subset)
-    raw       = model.run(None, {"images": image})
+
+    raw = model.run(None, {"input": image})
+    dets_out   = raw[0]  # (1, 300, 4)
+    labels_out = raw[1]  # (1, 300, 4)
 
     _ = image_visualizer(image)
-    # _ = yolo_pred_bb_decoder(image, raw[0])
-    # _ = yolo_bb_decoder(image, gt, raw[0])
-    _ = yolo_total_loss(raw[0], gt_boxes, gt_labels, gt_valid)
-    # _ = yolo_loss_components(raw[0], gt_boxes, gt_labels, gt_valid)
-    _ = yolo_per_sample_metrics(raw[0], gt)
-    # _ = yolo_confusion_matrix(raw[0], gt)
+    _ = pred_bb_decoder(image, dets_out, labels_out)
+    _ = bb_decoder(image, gt, dets_out, labels_out)
+    _ = rtdetr_total_loss_native(labels_out, dets_out, gt_boxes, gt_labels, gt_valid)
+    _ = rtdetr_loss_components_native(labels_out, dets_out, gt_boxes, gt_labels, gt_valid)
+    _ = get_per_sample_metrics(dets_out, labels_out, gt)
+    _ = confusion_matrix_metric(dets_out, labels_out, gt)
     _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
-    _ = synth_metadata(idx, subset)
+    # _ = synth_metadata_mean_std(idx, subset)
 
 
 if __name__ == "__main__":

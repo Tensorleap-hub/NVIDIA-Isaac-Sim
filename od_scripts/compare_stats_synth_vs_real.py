@@ -67,73 +67,77 @@ def _box_record(cls, x0, y0, x1, y1, img_w, img_h, source, **extra) -> dict:
     }
 
 
-def collect_synth_stats(synth_root: Path, source_label: str = "synth") -> list[dict]:
-    """Walk best_* Isaac Sim run directories (npy+json format)."""
+def _read_run_dir(run_dir: Path, source_label: str, theme: str) -> list[dict]:
+    """Read one Isaac Sim outputs/<run_dir> and return box records."""
     from PIL import Image as PILImage
 
+    rgb_files   = {f.stem.split("_")[-1]: f for f in run_dir.glob("rgb_*.png")}
+    bbox_files  = {f.stem.split("_")[-1]: f for f in run_dir.glob("bounding_box_2d_tight_[0-9]*.npy")}
+    label_files = {f.stem.split("_")[-1]: f for f in run_dir.glob("bounding_box_2d_tight_labels_[0-9]*.json")}
+    complete = sorted(set(rgb_files) & set(bbox_files) & set(label_files))
+
     records = []
-    for theme_dir in sorted(synth_root.iterdir()):
-        if not theme_dir.is_dir():
+    for n in complete:
+        bboxes = np.load(bbox_files[n], allow_pickle=True)
+        with open(label_files[n]) as f:
+            label_map = json.load(f)
+
+        sem_to_class = {
+            int(k): SYNTH_CLASS_MAP[v["class"]]
+            for k, v in label_map.items()
+            if SYNTH_CLASS_MAP.get(v.get("class", "")) in KEEP_CLASSES
+        }
+        if not sem_to_class:
             continue
-        for cycle_dir in sorted(theme_dir.iterdir()):
-            if not cycle_dir.is_dir():
+
+        with PILImage.open(rgb_files[n]) as img:
+            img_w, img_h = img.size
+
+        for row in bboxes:
+            sem_id = int(row["semanticId"])
+            if sem_id not in sem_to_class:
                 continue
-            for trial_dir in sorted(cycle_dir.iterdir()):
-                if not trial_dir.is_dir() or not trial_dir.name.startswith("best_"):
-                    continue
-                outputs_dir = trial_dir / "outputs"
-                if not outputs_dir.is_dir():
-                    continue
-                for run_dir in sorted(outputs_dir.iterdir()):
-                    if not run_dir.is_dir():
-                        continue
+            x0, y0 = int(row["x_min"]), int(row["y_min"])
+            x1, y1 = int(row["x_max"]), int(row["y_max"])
+            if x1 - x0 <= 0 or y1 - y0 <= 0:
+                continue
+            records.append(_box_record(
+                sem_to_class[sem_id], x0, y0, x1, y1, img_w, img_h,
+                source_label,
+                occlusionRatio=float(row["occlusionRatio"]),
+                theme=theme,
+            ))
+    return records
 
-                    rgb_files   = {int(f.stem.split("_")[1]): f for f in run_dir.glob("rgb_*.png")}
-                    bbox_files  = {int(f.stem.split("_")[-1]): f for f in run_dir.glob("bounding_box_2d_tight_[0-9]*.npy")}
-                    label_files = {int(f.stem.split("_")[-1]): f for f in run_dir.glob("bounding_box_2d_tight_labels_[0-9]*.json")}
-                    complete = sorted(set(rgb_files) & set(bbox_files) & set(label_files))
 
-                    for n in complete:
-                        bboxes = np.load(bbox_files[n], allow_pickle=True)
-                        with open(label_files[n]) as f:
-                            label_map = json.load(f)
-
-                        sem_to_class = {
-                            int(k): SYNTH_CLASS_MAP[v["class"]]
-                            for k, v in label_map.items()
-                            if SYNTH_CLASS_MAP.get(v.get("class", "")) in KEEP_CLASSES
-                        }
-                        if not sem_to_class:
-                            continue
-
-                        with PILImage.open(rgb_files[n]) as img:
-                            img_w, img_h = img.size
-
-                        for row in bboxes:
-                            sem_id = int(row["semanticId"])
-                            if sem_id not in sem_to_class:
-                                continue
-                            x0, y0 = int(row["x_min"]), int(row["y_min"])
-                            x1, y1 = int(row["x_max"]), int(row["y_max"])
-                            if x1 - x0 <= 0 or y1 - y0 <= 0:
-                                continue
-                            records.append(_box_record(
-                                sem_to_class[sem_id], x0, y0, x1, y1, img_w, img_h,
-                                source_label,
-                                occlusionRatio=float(row["occlusionRatio"]),
-                                theme=theme_dir.name,
-                            ))
+def collect_synth_stats(synth_root: Path, source_label: str = "synth") -> list[dict]:
+    """
+    Walk Isaac Sim outputs in any layout by finding all 'outputs/<run_dir>'
+    subtrees under synth_root.  Follows symlinks. Handles:
+      - root/theme/cycle/best_*/outputs/run_dir/
+      - root/workspace/trial_N/outputs/run_dir/
+      - root/<symlink_to_trial>/outputs/run_dir/
+    """
+    import os
+    records = []
+    for dirpath, dirnames, _ in os.walk(synth_root, followlinks=True):
+        dirnames.sort()
+        if Path(dirpath).name == "outputs":
+            theme = Path(dirpath).parent.name
+            for run_name in sorted(dirnames):
+                run_dir = Path(dirpath) / run_name
+                records.extend(_read_run_dir(run_dir, source_label, theme))
+            dirnames.clear()  # don't recurse further into outputs
     return records
 
 
 def collect_base_stats(base_dir: Path, source_label: str = "base",
                        exp_filter: list[str] | None = None) -> list[dict]:
     """
-    Walk base_dir/<exp>/Camera/object_detection/<n>.txt with matching
-    base_dir/<exp>/Camera/rgb/<n>.png.
-
-    Label format (KITTI-style, 15 fields):
-        class trunc occ alpha x_min y_min x_max y_max h3d w3d l3d x3d y3d z3d ry
+    Walk base_dir/<exp>/ in Isaac Sim npy+json format:
+        rgb_XXXX.png
+        bounding_box_2d_tight_XXXX.npy
+        bounding_box_2d_tight_labels_XXXX.json
 
     exp_filter: if given, only include experiments whose name contains any of
                 these strings (case-insensitive).
@@ -146,37 +150,42 @@ def collect_base_stats(base_dir: Path, source_label: str = "base",
             continue
         if exp_filter and not any(f.lower() in exp_dir.name.lower() for f in exp_filter):
             continue
-        det_dir = exp_dir / "Camera" / "object_detection"
-        rgb_dir = exp_dir / "Camera" / "rgb"
-        if not det_dir.is_dir():
-            continue
 
-        for txt_path in sorted(det_dir.glob("*.txt")):
-            frame_id = txt_path.stem
-            rgb_path = rgb_dir / f"{frame_id}.png"
-            if not rgb_path.exists():
+        rgb_files   = {f.stem.split("_")[-1]: f for f in exp_dir.glob("rgb_*.png")}
+        bbox_files  = {f.stem.split("_")[-1]: f for f in exp_dir.glob("bounding_box_2d_tight_[0-9]*.npy")}
+        label_files = {f.stem.split("_")[-1]: f for f in exp_dir.glob("bounding_box_2d_tight_labels_[0-9]*.json")}
+        complete = sorted(set(rgb_files) & set(bbox_files) & set(label_files))
+
+        for n in complete:
+            bboxes = np.load(bbox_files[n], allow_pickle=True)
+            with open(label_files[n]) as f:
+                label_map = json.load(f)
+
+            sem_to_class = {
+                int(k): SYNTH_CLASS_MAP[v["class"]]
+                for k, v in label_map.items()
+                if SYNTH_CLASS_MAP.get(v.get("class", "")) in KEEP_CLASSES
+            }
+            if not sem_to_class:
                 continue
 
-            with PILImage.open(rgb_path) as img:
+            with PILImage.open(rgb_files[n]) as img:
                 img_w, img_h = img.size
 
-            with open(txt_path) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) < 8:
-                        continue
-                    raw_cls = parts[0]
-                    mapped = SYNTH_CLASS_MAP.get(raw_cls, raw_cls)
-                    if mapped not in KEEP_CLASSES:
-                        continue
-                    x0, y0, x1, y1 = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
-                    if x1 - x0 <= 0 or y1 - y0 <= 0:
-                        continue
-                    records.append(_box_record(
-                        mapped, x0, y0, x1, y1, img_w, img_h,
-                        source_label,
-                        exp=exp_dir.name,
-                    ))
+            for row in bboxes:
+                sem_id = int(row["semanticId"])
+                if sem_id not in sem_to_class:
+                    continue
+                x0, y0 = int(row["x_min"]), int(row["y_min"])
+                x1, y1 = int(row["x_max"]), int(row["y_max"])
+                if x1 - x0 <= 0 or y1 - y0 <= 0:
+                    continue
+                records.append(_box_record(
+                    sem_to_class[sem_id], x0, y0, x1, y1, img_w, img_h,
+                    source_label,
+                    occlusionRatio=float(row["occlusionRatio"]),
+                    exp=exp_dir.name,
+                ))
     return records
 
 
@@ -205,6 +214,196 @@ def collect_loco_stats(ann_path: Path, source_label: str = "real") -> list[dict]
             source_label,
         ))
     return records
+
+
+# ---------------------------------------------------------------------------
+# Image-level statistics
+# ---------------------------------------------------------------------------
+
+def _box_blur(a: np.ndarray, k: int) -> np.ndarray:
+    H, W = a.shape
+    padded = np.pad(a, k // 2, mode='reflect')        # shape (H+k-1, W+k-1) for odd k
+    cs = np.zeros((padded.shape[0] + 1, padded.shape[1] + 1), dtype=np.float64)
+    cs[1:, 1:] = padded.cumsum(0).cumsum(1)
+    return (cs[k:k+H, k:k+W] - cs[0:H, k:k+W] - cs[k:k+H, 0:W] + cs[0:H, 0:W]) / (k * k)
+
+
+def compute_image_stats(img: np.ndarray) -> dict:
+    """H×W×3 uint8 → dict of scalar image statistics."""
+    rgb = img.astype(np.float32) / 255.0
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    luma = 0.299 * r + 0.587 * g + 0.114 * b
+
+    cmax = np.maximum(np.maximum(r, g), b)
+    cmin = np.minimum(np.minimum(r, g), b)
+    sat = np.where(cmax > 0, (cmax - cmin) / cmax, 0.0)
+
+    lap = (
+        -4 * luma[1:-1, 1:-1]
+        + luma[:-2, 1:-1] + luma[2:, 1:-1]
+        + luma[1:-1, :-2] + luma[1:-1, 2:]
+    )
+
+    hp = luma - _box_blur(luma, 15)
+    hp_rms = float(np.sqrt((hp ** 2).mean()))
+    luma_rms = float(np.sqrt((luma ** 2).mean()))
+
+    noise = luma - _box_blur(luma, 3)
+
+    gf = luma * 255.0
+    sx = (gf[:-2, 2:] - gf[:-2, :-2] + 2*gf[1:-1, 2:] - 2*gf[1:-1, :-2] + gf[2:, 2:] - gf[2:, :-2]) / 8.0
+    sy = (gf[2:, :-2] - gf[:-2, :-2] + 2*gf[2:, 1:-1] - 2*gf[:-2, 1:-1] + gf[2:, 2:] - gf[:-2, 2:]) / 8.0
+
+    bp5, bp50, bp95 = np.percentile(luma, [5, 50, 95])
+
+    return {
+        "mean_r": float(r.mean()), "mean_g": float(g.mean()), "mean_b": float(b.mean()),
+        "std_r":  float(r.std()),  "std_g":  float(g.std()),  "std_b":  float(b.std()),
+        "bright_p5": float(bp5), "bright_p50": float(bp50), "bright_p95": float(bp95),
+        "sat_mean": float(sat.mean()), "sat_std": float(sat.std()),
+        "contrast":       float(luma.std()),
+        "laplacian_var":  float(lap.var()),
+        "highpass_ratio": hp_rms / (luma_rms + 1e-8),
+        "noise_residual": float(noise.std()),
+        "edge_density":   float((np.sqrt(sx**2 + sy**2) > 10.0).mean()),
+    }
+
+
+def collect_loco_image_stats(ann_path: Path, img_root: Path,
+                             source_label: str = "real") -> list[dict]:
+    """Compute image stats for every image referenced in a LOCO COCO JSON."""
+    from PIL import Image as PILImage
+
+    with open(ann_path) as f:
+        coco = json.load(f)
+
+    stats = []
+    for img_meta in coco["images"]:
+        rel = img_meta["path"].removeprefix("/dataset/")
+        img_path = img_root / rel
+        if not img_path.exists():
+            continue
+        arr = np.array(PILImage.open(img_path).convert("RGB"))
+        s = compute_image_stats(arr)
+        s["source"] = source_label
+        stats.append(s)
+    return stats
+
+
+def collect_synth_image_stats(synth_root: Path,
+                              source_label: str = "synth") -> list[dict]:
+    """Compute image stats for all rgb_*.png files in an Isaac Sim outputs tree."""
+    import os
+    from PIL import Image as PILImage
+
+    stats = []
+    for dirpath, dirnames, _ in os.walk(synth_root, followlinks=True):
+        dirnames.sort()
+        if Path(dirpath).name == "outputs":
+            for run_name in sorted(os.listdir(dirpath)):
+                run_dir = Path(dirpath) / run_name
+                if not run_dir.is_dir():
+                    continue
+                for png in sorted(run_dir.glob("rgb_*.png")):
+                    arr = np.array(PILImage.open(png).convert("RGB"))
+                    s = compute_image_stats(arr)
+                    s["source"] = source_label
+                    stats.append(s)
+            dirnames.clear()
+    return stats
+
+
+def collect_base_image_stats(base_dir: Path, source_label: str = "base",
+                             exp_filter: list[str] | None = None) -> list[dict]:
+    """Compute image stats for rgb_*.png files in a base-run exp directory tree."""
+    from PIL import Image as PILImage
+
+    stats = []
+    for exp_dir in sorted(base_dir.iterdir()):
+        if not exp_dir.is_dir():
+            continue
+        if exp_filter and not any(f.lower() in exp_dir.name.lower() for f in exp_filter):
+            continue
+        for png in sorted(exp_dir.glob("rgb_*.png")):
+            arr = np.array(PILImage.open(png).convert("RGB"))
+            s = compute_image_stats(arr)
+            s["source"] = source_label
+            stats.append(s)
+    return stats
+
+
+IMAGE_STAT_PANELS = [
+    ("mean_r",         "Mean R",                  (0.0, 1.0)),
+    ("mean_g",         "Mean G",                  (0.0, 1.0)),
+    ("mean_b",         "Mean B",                  (0.0, 1.0)),
+    ("contrast",       "Contrast (luma std)",      (0.0, 0.5)),
+    ("std_r",          "Std R",                   (0.0, 0.5)),
+    ("std_g",          "Std G",                   (0.0, 0.5)),
+    ("std_b",          "Std B",                   (0.0, 0.5)),
+    ("laplacian_var",  "Sharpness (Laplacian var)", None),
+    ("bright_p5",      "Brightness p5",            (0.0, 1.0)),
+    ("bright_p50",     "Brightness p50",           (0.0, 1.0)),
+    ("bright_p95",     "Brightness p95",           (0.0, 1.0)),
+    ("highpass_ratio", "High-pass energy ratio",   (0.0, 0.5)),
+    ("sat_mean",       "Saturation mean",          (0.0, 1.0)),
+    ("sat_std",        "Saturation std",           (0.0, 0.5)),
+    ("noise_residual", "Noise residual",           (0.0, 0.1)),
+    ("edge_density",   "Edge density",             (0.0, 1.0)),
+]
+
+
+def print_image_stats_summary(all_img_sources: list[tuple[str, list[dict]]]):
+    for source_name, records in all_img_sources:
+        if not records:
+            continue
+        print(f"\n{'='*100}")
+        print(f"  {source_name}  —  {len(records)} images")
+        print(f"{'='*100}")
+        for key, label, _ in IMAGE_STAT_PANELS:
+            vals = np.array([r[key] for r in records])
+            print(_prow(vals, label))
+
+
+def plot_image_stats(all_img_sources: list[tuple[str, list[dict]]], output: Path,
+                     bins: int = 40):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    colors = {name: SOURCE_PALETTE[i % len(SOURCE_PALETTE)]
+              for i, (name, _) in enumerate(all_img_sources)}
+
+    ncols, nrows = 4, 4
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.5 * nrows))
+    fig.patch.set_facecolor("#111111")
+
+    for idx, (key, label, xlim) in enumerate(IMAGE_STAT_PANELS):
+        ax = axes[idx // ncols, idx % ncols]
+        ax.set_facecolor("#1a1a1a")
+        ax.tick_params(colors="white")
+        ax.spines[:].set_color("#444")
+
+        for src_name, records in all_img_sources:
+            vals = np.array([r[key] for r in records])
+            if len(vals) == 0:
+                continue
+            if xlim is not None:
+                vals = vals[vals <= xlim[1]]
+            plot_range = (float(vals.min()), float(vals.max())) if xlim is None else xlim
+            ax.hist(vals, bins=bins, range=plot_range, density=True,
+                    color=colors[src_name], alpha=0.5, label=src_name)
+            ax.axvline(float(np.median(vals)), color=colors[src_name],
+                       linewidth=1.5, linestyle="--", alpha=0.9)
+
+        ax.set_title(label, color="white", fontsize=9, fontweight="bold")
+        ax.set_ylabel("Density", color="white", fontsize=7)
+        ax.legend(facecolor="#222", labelcolor="white", fontsize=7)
+
+    plt.tight_layout(pad=1.0)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=120, facecolor="#111111")
+    plt.close(fig)
+    print(f"Saved → {output}")
 
 
 # ---------------------------------------------------------------------------
@@ -416,10 +615,6 @@ def plot_comparison(all_sources: list[tuple[str, list[dict]]], output: Path, bin
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.5 * nrows))
     fig.patch.set_facecolor("#111111")
 
-    col_titles = ["All classes"] + CLASS_ORDER
-    for col, title in enumerate(col_titles):
-        axes[0, col].set_title(title, color="white", fontsize=11, fontweight="bold")
-
     # ── Row 0: class distribution ──────────────────────────────────────────
     ax0 = axes[0, 0]
     ax0.set_facecolor("#1a1a1a")
@@ -440,6 +635,8 @@ def plot_comparison(all_sources: list[tuple[str, list[dict]]], output: Path, bin
     for col in range(1, ncols):
         axes[0, col].set_visible(False)
 
+    col_titles = ["All classes"] + CLASS_ORDER
+
     # ── Rows 1..n: metric histograms ──────────────────────────────────────
     for row, (metric, label, xlim) in enumerate(metrics, start=1):
         for col, cls_filter in enumerate([None] + CLASS_ORDER):
@@ -447,6 +644,9 @@ def plot_comparison(all_sources: list[tuple[str, list[dict]]], output: Path, bin
             ax.set_facecolor("#1a1a1a")
             ax.tick_params(colors="white")
             ax.spines[:].set_color("#444")
+
+            if row == 1:
+                ax.set_title(col_titles[col], color="white", fontsize=11, fontweight="bold")
 
             for src_name, records in all_sources:
                 subset = records if cls_filter is None else [r for r in records if r["class"] == cls_filter]
@@ -461,8 +661,7 @@ def plot_comparison(all_sources: list[tuple[str, list[dict]]], output: Path, bin
 
             ax.set_xlabel(label, color="white", fontsize=8)
             ax.set_ylabel("Density", color="white", fontsize=8)
-            if col == 0:
-                ax.legend(facecolor="#222", labelcolor="white", fontsize=7)
+            ax.legend(facecolor="#222", labelcolor="white", fontsize=7)
 
     plt.tight_layout(pad=1.0)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -488,7 +687,10 @@ def main():
                         help="Rank all base experiments by MMD distance to LOCO real data")
     parser.add_argument("--loco-ann", default=None,
                         help="LOCO COCO annotation JSON")
+    parser.add_argument("--img-stats", action="store_true",
+                        help="Compute and plot per-image pixel statistics")
     parser.add_argument("--output", default="output/stats_all_sources.png")
+    parser.add_argument("--img-output", default="output/image_stats.png")
     parser.add_argument("--bins", type=int, default=40)
     args = parser.parse_args()
 
@@ -535,6 +737,33 @@ def main():
     print("\nGenerating plots ...")
     plot_comparison(all_sources, Path(args.output), bins=args.bins)
     print(f"Saved → {args.output}")
+
+    if args.img_stats:
+        all_img_sources = []
+        if args.loco_ann:
+            loco_img_root = Path(args.loco_ann).parents[2] / "loco_dataset"
+            print(f"\nComputing LOCO image statistics (images: {loco_img_root}) ...")
+            img_stats = collect_loco_image_stats(
+                Path(args.loco_ann), loco_img_root, source_label="real-LOCO")
+            print(f"  {len(img_stats)} images")
+            all_img_sources.append(("real-LOCO", img_stats))
+        if args.synth_root:
+            print("Computing synth image statistics ...")
+            img_stats = collect_synth_image_stats(
+                Path(args.synth_root), source_label="synth-best")
+            print(f"  {len(img_stats)} images")
+            all_img_sources.append(("synth-best", img_stats))
+        if args.base_dir:
+            label = f"base({','.join(args.base_exps)})" if args.base_exps else "base"
+            print(f"Computing base image statistics ...")
+            img_stats = collect_base_image_stats(
+                Path(args.base_dir), source_label=label, exp_filter=args.base_exps)
+            print(f"  {len(img_stats)} images")
+            all_img_sources.append((label, img_stats))
+        if all_img_sources:
+            print_image_stats_summary(all_img_sources)
+            print("\nGenerating image stats plots ...")
+            plot_image_stats(all_img_sources, Path(args.img_output), bins=args.bins)
 
 
 if __name__ == "__main__":

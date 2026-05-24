@@ -6,7 +6,15 @@ from code_loader.contract.visualizer_classes import LeapImageWithBBox
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_custom_visualizer
 from code_loader.visualizers.default_visualizers import LeapImage
 
-from tensorleap_intgration_code.common import format_rtdetr_predictions, label_names, prediction_rows, xyxy2xywh
+from tensorleap_intgration_code.common import (
+    decode_rfdetr_outputs,
+    format_rtdetr_predictions,
+    label_names,
+    prediction_rows,
+)
+
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def _image_to_uint8(image: np.ndarray) -> np.ndarray:
@@ -18,7 +26,9 @@ def _image_to_uint8(image: np.ndarray) -> np.ndarray:
         image = image.transpose(1, 2, 0)
     if image.dtype == np.uint8:
         return image
-    return (image * 255).astype(np.uint8)
+    # Denormalize ImageNet normalization before converting to uint8
+    image = image * _IMAGENET_STD + _IMAGENET_MEAN
+    return np.clip(image * 255, 0, 255).astype(np.uint8)
 
 
 def _squeeze_boxes(boxes: np.ndarray) -> np.ndarray:
@@ -34,14 +44,13 @@ def image_visualizer(image: np.ndarray) -> LeapImage:
 @tensorleap_custom_visualizer("bb_decoder", LeapDataType.ImageWithBBox)
 def bb_decoder(
     image: np.ndarray,
-    bb_gt: np.ndarray,
-    pred_labels: np.ndarray,
-    boxes_xyxy: np.ndarray,
-    scores: np.ndarray,
+    classes: np.ndarray,
+    dets: np.ndarray,
+    labels: np.ndarray,
 ) -> LeapImageWithBBox:
     """Overlay both ground-truth (suffix _GT) and predictions (suffix _PRED) on image."""
     image_data = _image_to_uint8(image)
-    bb_gt = _squeeze_boxes(bb_gt)
+    bb_gt = _squeeze_boxes(classes)
     mask = ~(bb_gt == -1).any(axis=1)
     bb_gt = bb_gt[mask]
 
@@ -61,36 +70,36 @@ def bb_decoder(
             label=label,
         ))
 
-    pred_bboxes = _make_pred_bboxes(image_data, pred_labels, boxes_xyxy, scores)
+    pred_bboxes = _make_pred_bboxes(image_data, dets, labels)
     return LeapImageWithBBox(data=image_data, bounding_boxes=bboxes + pred_bboxes)
 
 
 @tensorleap_custom_visualizer("pred_bb_decoder", LeapDataType.ImageWithBBox)
 def pred_bb_decoder(
     image: np.ndarray,
+    dets: np.ndarray,
     labels: np.ndarray,
-    boxes_xyxy: np.ndarray,
-    scores: np.ndarray,
 ) -> LeapImageWithBBox:
     """Overlay predictions only on image."""
     image_data = _image_to_uint8(image)
     return LeapImageWithBBox(
         data=image_data,
-        bounding_boxes=_make_pred_bboxes(image_data, labels, boxes_xyxy, scores),
+        bounding_boxes=_make_pred_bboxes(image_data, dets, labels),
     )
 
 
 def _make_pred_bboxes(
     image_data: np.ndarray,
+    dets: np.ndarray,
     labels: np.ndarray,
-    boxes_xyxy: np.ndarray,
-    scores: np.ndarray,
 ) -> list:
     """
-    Build BoundingBox list from RT-DETR raw outputs.
-    boxes_xyxy are in pixel space (image_size units); normalize by image dims.
+    Build BoundingBox list from RF-DETR raw ONNX outputs.
+    dets: (..., 300, 4) cxcywh normalized
+    labels: (..., 300, 4) class logits
     """
-    predictions = format_rtdetr_predictions(labels, boxes_xyxy, scores)
+    decoded_labels, boxes_xyxy, scores = decode_rfdetr_outputs(dets, labels)
+    predictions = format_rtdetr_predictions(decoded_labels, boxes_xyxy, scores)
     pred_rows = prediction_rows(predictions)
     preds = pred_rows[0].numpy() if len(pred_rows) > 0 else np.zeros((0, 6), dtype=np.float32)
 

@@ -12,11 +12,11 @@ max_num_of_objects: 300
 split:
   train_subsets:
     - "subset-2"
-    - "subset-3"
-    - "subset-5"
-  val_subsets:
-    - "subset-1"
     - "subset-4"
+    - "subset-5"
+    - "subset-1"
+  val_subsets:
+    - "subset-3"
 
 categories:
   - {coco_id: 3,  name: small_load_carrier, idx: 0}
@@ -46,9 +46,14 @@ plot_visualizers: true
 check_subset_index: 0
 check_sample_index: 0
 
+base_synth_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse/base_v2_final"
+  additional: true          # flat exp*/ directory structure (no palletjack_run_* wrapper needed)
+  num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
+
 synth_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse"
-  additional: True # set to false to exclude synthetic data entirely
+  additional: false # set to false to exclude synthetic data entirely
 #  run_numbers: [0,1,2,3,4,5] # null = include all runs; list of ints to include specific runs e.g. [1, 3, 5]
   run_numbers: [0,1,2,3,4,5]
   num_samples:            # null = no limit; set to e.g. 500 to cap additional dataset size

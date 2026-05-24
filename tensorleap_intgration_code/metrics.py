@@ -5,7 +5,13 @@ from code_loader.contract.datasetclasses import ConfusionMatrixElement
 from code_loader.contract.enums import ConfusionMatrixValue, MetricDirection
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_custom_metric
 
-from tensorleap_intgration_code.common import format_rtdetr_predictions, label_names, prediction_rows, xywh2xyxy
+from tensorleap_intgration_code.common import (
+    decode_rfdetr_outputs,
+    format_rtdetr_predictions,
+    label_names,
+    prediction_rows,
+    xywh2xyxy,
+)
 from tensorleap_intgration_code.config import CONFIG
 
 
@@ -90,9 +96,10 @@ def _batched_targets(targets: np.ndarray) -> np.ndarray:
     },
 )
 def get_per_sample_metrics(
-    labels: np.ndarray, boxes_xyxy: np.ndarray, scores: np.ndarray, targets: np.ndarray
+    dets: np.ndarray, labels: np.ndarray, classes: np.ndarray
 ):
-    y_preds = format_rtdetr_predictions(labels, boxes_xyxy, scores)
+    decoded_labels, boxes_xyxy, scores = decode_rfdetr_outputs(dets, labels)
+    y_preds = format_rtdetr_predictions(decoded_labels, boxes_xyxy, scores)
 
     metrics = {k: np.array([], dtype=np.float32) for k in
                ["precision", "recall", "f1", "iou", "accuracy"]}
@@ -110,7 +117,7 @@ def get_per_sample_metrics(
 
     image_size = float(CONFIG["image_size"])
     preds = prediction_rows(y_preds)
-    for pred_t, gt in zip(preds, _batched_targets(targets)):
+    for pred_t, gt in zip(preds, _batched_targets(classes)):
         mask = ~(gt == -1).any(axis=1)
         gt = torch.from_numpy(gt[mask])
         pred = pred_t.numpy()
@@ -144,16 +151,17 @@ def get_per_sample_metrics(
 
 @tensorleap_custom_metric("Confusion Matrix")
 def confusion_matrix_metric(
-    labels: np.ndarray, boxes_xyxy: np.ndarray, scores: np.ndarray, targets: np.ndarray
+    dets: np.ndarray, labels: np.ndarray, classes: np.ndarray
 ):
-    y_preds = format_rtdetr_predictions(labels, boxes_xyxy, scores)
+    decoded_labels, boxes_xyxy, scores = decode_rfdetr_outputs(dets, labels)
+    y_preds = format_rtdetr_predictions(decoded_labels, boxes_xyxy, scores)
     threshold = 0.1
     confusion_matrices = []
     names = label_names()
     image_size = float(CONFIG["image_size"])
     preds = prediction_rows(y_preds)
 
-    for pred_t, gt in zip(preds, _batched_targets(targets)):
+    for pred_t, gt in zip(preds, _batched_targets(classes)):
         confusion_matrix_elements = []
         mask = ~(gt == -1).any(axis=1)
         gt = torch.from_numpy(gt[mask])
