@@ -21,6 +21,13 @@ camera:
   camera_roll_std: 0.0
   fov_mean: 125.0
   fov_std: 0.0
+  motion:
+    enabled: true
+    velocity_mean: [0.020, 0.015, 0.0]
+    velocity_std: [0.003, 0.003, 0.0]
+    reverse_every_frames: 120
+  motion_blur_strength_mean: 5.0
+  motion_blur_strength_std: 0.0
 
 actors:
   enabled: true
@@ -41,5 +48,8 @@ actors:
       scale_std: 0.0
     motion:
       enabled: true
+      velocity_mean: [0.060, 0.025, 0.0]
+      velocity_std: [0.010, 0.010, 0.0]
+      reverse_every_frames: 80
   humans:
     enabled: false

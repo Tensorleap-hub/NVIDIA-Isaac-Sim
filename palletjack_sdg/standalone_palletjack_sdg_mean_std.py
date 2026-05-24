@@ -28,6 +28,7 @@ import argparse
 import sys
 import yaml
 import datetime
+import numpy as np
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 # All run-level args default to None so we can detect explicit overrides.
@@ -324,7 +325,12 @@ def add_actor_group(group_cfg, default_semantics):
     for _ in range(count):
         asset = random.choice(assets)
         actor_prims.append(rep.create.from_usd(resolve_usd_path(asset), semantics=semantics, count=1))
-    return rep.create.group(actor_prims) if actor_prims else None
+    if not actor_prims:
+        return None
+    return {
+        "group": rep.create.group(actor_prims),
+        "prims": actor_prims,
+    }
 
 
 def add_kinematic_actors():
@@ -336,10 +342,79 @@ def add_kinematic_actors():
         "forklifts": add_actor_group(actors_cfg.get("forklifts", {}), [["class", "forklift"]]),
         "humans": add_actor_group(actors_cfg.get("humans", {}), [["class", "person"]]),
     }
-    for name, group in groups.items():
-        if group is not None:
+    for name, actor_group in groups.items():
+        if actor_group is not None:
             print(f"Spawned kinematic actor group: {name}")
     return groups
+
+
+def sample_vector_normal(mean, std):
+    mean_arr = np.array(mean, dtype=np.float32)
+    std_arr = np.array(std, dtype=np.float32)
+    if std_arr.ndim == 0:
+        std_arr = np.full(mean_arr.shape, float(std_arr), dtype=np.float32)
+    return np.random.normal(loc=mean_arr, scale=std_arr)
+
+
+def build_actor_position_sequence(spawn_cfg, motion_cfg, num_frames):
+    base_position = sample_vector_normal(
+        spawn_cfg["position_mean"],
+        spawn_cfg["position_std"],
+    )
+    velocity = sample_vector_normal(
+        motion_cfg["velocity_mean"],
+        motion_cfg["velocity_std"],
+    )
+    reverse_every = motion_cfg.get("reverse_every_frames")
+    if reverse_every is not None:
+        reverse_every = max(1, int(reverse_every))
+
+    positions = []
+    for frame_idx in range(num_frames):
+        motion_frame = frame_idx
+        if reverse_every is not None:
+            cycle_frames = reverse_every * 2
+            cycle_frame = frame_idx % cycle_frames
+            motion_frame = cycle_frame if cycle_frame <= reverse_every else cycle_frames - cycle_frame
+        positions.append((base_position + velocity * motion_frame).tolist())
+    return rep.distribution.sequence(positions)
+
+
+def apply_legacy_actor_pose_randomization(actor_group, spawn_cfg):
+    with actor_group["group"]:
+        rep.modify.pose(
+            position=rep_normal(
+                tuple(spawn_cfg["position_mean"]),
+                tuple(spawn_cfg["position_std"]),
+            ),
+            rotation=rep_normal(
+                tuple(spawn_cfg["rotation_mean"]),
+                tuple(spawn_cfg["rotation_std"]),
+            ),
+            scale=rep_normal(
+                spawn_cfg["scale_mean"],
+                spawn_cfg["scale_std"],
+            ),
+        )
+
+
+def apply_actor_path_motion(actor_group, spawn_cfg, motion_cfg, num_frames):
+    for actor_item in actor_group["prims"]:
+        rotation = sample_vector_normal(
+            spawn_cfg["rotation_mean"],
+            spawn_cfg["rotation_std"],
+        ).tolist()
+        scale = sample_normal(
+            spawn_cfg["scale_mean"],
+            spawn_cfg["scale_std"],
+            lower=0.01,
+        )
+        with actor_item:
+            rep.modify.pose(
+                position=build_actor_position_sequence(spawn_cfg, motion_cfg, num_frames),
+                rotation=rotation,
+                scale=scale,
+            )
 
 
 def apply_kinematic_actor_motion(actor_groups):
@@ -347,29 +422,19 @@ def apply_kinematic_actor_motion(actor_groups):
     if not actors_cfg.get("enabled", False):
         return
 
+    num_frames = CFG["run"]["num_frames"]
     for key in ("forklifts", "humans"):
-        group = actor_groups.get(key)
+        actor_group = actor_groups.get(key)
         group_cfg = actors_cfg.get(key, {})
         motion_cfg = group_cfg.get("motion", {})
         spawn_cfg = group_cfg.get("spawn", {})
-        if group is None or not motion_cfg.get("enabled", False):
+        if actor_group is None or not motion_cfg.get("enabled", False):
             continue
 
-        with group:
-            rep.modify.pose(
-                position=rep_normal(
-                    tuple(spawn_cfg.get("position_mean", [0.0, 0.0, 0.0])),
-                    tuple(spawn_cfg.get("position_std", [0.0, 0.0, 0.0])),
-                ),
-                rotation=rep_normal(
-                    tuple(spawn_cfg.get("rotation_mean", [0.0, 0.0, 0.0])),
-                    tuple(spawn_cfg.get("rotation_std", [0.0, 0.0, 0.0])),
-                ),
-                scale=rep_normal(
-                    spawn_cfg.get("scale_mean", 1.0),
-                    spawn_cfg.get("scale_std", 0.0),
-                ),
-            )
+        if "velocity_mean" in motion_cfg and "velocity_std" in motion_cfg:
+            apply_actor_path_motion(actor_group, spawn_cfg, motion_cfg, num_frames)
+        else:
+            apply_legacy_actor_pose_randomization(actor_group, spawn_cfg)
 
 
 def build_camera_position_sequence(cam_cfg, num_frames):
@@ -389,7 +454,18 @@ def build_camera_position_sequence(cam_cfg, num_frames):
         loc=np.array(motion_cfg.get("velocity_mean", [0.0, 0.0, 0.0]), dtype=np.float32),
         scale=np.array(motion_cfg.get("velocity_std", [0.0, 0.0, 0.0]), dtype=np.float32),
     )
-    positions = [(base_position + velocity * frame_idx).tolist() for frame_idx in range(num_frames)]
+    reverse_every = motion_cfg.get("reverse_every_frames")
+    if reverse_every is not None:
+        reverse_every = max(1, int(reverse_every))
+
+    positions = []
+    for frame_idx in range(num_frames):
+        motion_frame = frame_idx
+        if reverse_every is not None:
+            cycle_frames = reverse_every * 2
+            cycle_frame = frame_idx % cycle_frames
+            motion_frame = cycle_frame if cycle_frame <= reverse_every else cycle_frames - cycle_frame
+        positions.append((base_position + velocity * motion_frame).tolist())
     return rep.distribution.sequence(positions)
 
 
