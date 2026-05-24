@@ -225,6 +225,7 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "camera.dataset_noise.jpeg_quality_mean",
         "image_augmentation.brightness_gain_std",
         "image_augmentation.brightness_gain_mean",
+        "image_augmentation.enabled"
     ],
 }
 
