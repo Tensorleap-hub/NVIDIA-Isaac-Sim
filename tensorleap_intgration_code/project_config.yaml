@@ -45,7 +45,7 @@ loss:
     alpha: 0.25
     gamma: 2.0
 
-max_samples:   # null = no limit; set to e.g. 100 to cap each subset
+max_samples:    # null = no limit; set to e.g. 100 to cap each subset
 
 score_threshold: 0.3
 max_detections: 300
@@ -56,7 +56,7 @@ check_sample_index: 0
 base_synth_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/base_v2_final"
   additional: true          # flat exp*/ directory structure (no palletjack_run_* wrapper needed)
-  num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
+  num_samples:            # null = no limit; per-experiment cap after deterministic shuffle
 
 extended_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/extended"
@@ -67,11 +67,14 @@ extended_data:
 Tensorleap-Optimized:
   base_path: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
   additional: true          # set to false to exclude optuna-generated data entirely
+  num_samples:
 
 optuna_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/optuna-ec2"
   additional: false          # set to false to exclude optuna-generated data entirely
   num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
+
+dino_distances_csv: "simulation_calibration_loop/population_view/dino-population_top_performance.csv"
 
 custom_latent_space:
 #  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"

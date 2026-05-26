@@ -1,7 +1,9 @@
+import csv
 import os
 
 from code_loader.contract.datasetclasses import PreprocessResponse
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_metadata
+from tensorleap_intgration_code.config import CONFIG, abs_path_from_root
 
 # Fixed number of texture slots — matches the base sdg_config.yaml texture pool
 _NUM_TEXTURES = 25
@@ -13,6 +15,154 @@ _DISTRACTOR_GROUPS = [
 ]
 
 _NAN = float("nan")
+
+_DINO_PERF_CSV = CONFIG.get(
+    "dino_distances_csv",
+    "simulation_calibration_loop/population_view/dino-population_performance.csv",
+)
+
+_DINO_METRIC_COLS = {
+    "synth_dino_mmd_rbf":               "mmd_rbf_to_real",
+    "synth_dino_centroid_l2":           "centroid_l2_to_real",
+    "synth_dino_centroid_cosine":       "centroid_cosine_to_real",
+    "synth_dino_pca_centroid_l2":       "pca_centroid_l2_to_real",
+    "synth_dino_syn_to_real_nn_mean":   "syn_to_real_nn_mean",
+    "synth_dino_syn_to_real_nn_median": "syn_to_real_nn_median",
+    "synth_dino_real_to_syn_nn_mean":   "real_to_syn_nn_mean",
+}
+
+_OPT_RUN_SPLITS = (5, 10, 20)
+_OPT_RUN_GROUP_KEYS = [f"synth_dino_{n}_opt_run_id" for n in _OPT_RUN_SPLITS]
+_OPT_RUN_ORDER = CONFIG.get("dino_opt_run_order", [])
+
+_DINO_NAN_ROW = {**{k: _NAN for k in _DINO_METRIC_COLS}, **{k: _NAN for k in _OPT_RUN_GROUP_KEYS}}
+
+
+
+def _load_dino_lookups() -> tuple:
+    csv_path = abs_path_from_root(_DINO_PERF_CSV)
+    optuna_lookup = {}
+    base_lookup = {}
+    if not os.path.isfile(csv_path):
+        return optuna_lookup, base_lookup
+
+    base_rows = []
+    optuna_pending = []  # (rank, lookup_key, metrics)
+
+    with open(csv_path, newline="") as f:
+        for row in csv.DictReader(f):
+            metrics = {}
+            for meta_key, csv_col in _DINO_METRIC_COLS.items():
+                val = row.get(csv_col, "")
+                try:
+                    metrics[meta_key] = float(val)
+                except (ValueError, TypeError):
+                    metrics[meta_key] = _NAN
+
+            category = row.get("category", "")
+            trial_id = row.get("trial_id", "")
+            run_id = row.get("run_id", "")
+
+            if category and trial_id and run_id:
+                cache_path = row.get("cache_path", "")
+                label = row.get("label", "")
+                optuna_pending.append(((category, trial_id, run_id), metrics))
+            else:
+                exp_name = os.path.basename(row.get("cache_path", ""))
+                if exp_name:
+                    for k in _OPT_RUN_GROUP_KEYS:
+                        metrics[k] = 0
+                    base_rows.append((exp_name, metrics))
+
+    # When order list is set: listed runs get group IDs, unlisted get "".
+    # When order list is empty: fall back to assigning groups to all rows by rank.
+    if _OPT_RUN_ORDER:
+        listed   = [(r, k, m) for r, k, m in optuna_pending if r >= 0]
+        unlisted = [(r, k, m) for r, k, m in optuna_pending if r < 0]
+    else:
+        listed   = optuna_pending
+        unlisted = []
+
+    listed.sort(key=lambda x: x[0])
+    total = len(listed)
+    for i, (key, metrics) in enumerate(listed):
+        for n in _OPT_RUN_SPLITS:
+            group = i * n // total + 1
+            metrics[f"synth_dino_{n}_opt_run_id"] = group
+        optuna_lookup[key] = metrics
+
+    for _, key, metrics in unlisted:
+        for k in _OPT_RUN_GROUP_KEYS:
+            metrics[k] = _NAN
+        optuna_lookup[key] = metrics
+
+    for exp_name, metrics in base_rows:
+        base_lookup[exp_name] = metrics
+
+    return optuna_lookup, base_lookup
+
+
+_DINO_OPTUNA_LOOKUP, _DINO_BASE_LOOKUP = _load_dino_lookups()
+
+
+# ---------------------------------------------------------------------------
+# Collection CSVs — live ratio metadata
+# ---------------------------------------------------------------------------
+
+_COLLECTIONS_DIR = "tensorleap_intgration_code/collections"
+
+
+def _load_collections() -> dict:
+    """Returns {csv_stem: (ratio, frozenset_of_ids)}"""
+    dir_path = abs_path_from_root(_COLLECTIONS_DIR)
+    result = {}
+    if not os.path.isdir(dir_path):
+        return result
+    for fname in sorted(os.listdir(dir_path)):
+        if not fname.endswith(".csv"):
+            continue
+        stem = fname[:-4]
+        ids = set()
+        with open(os.path.join(dir_path, fname), newline="") as f:
+            for row in csv.DictReader(f):
+                val = row.get("Index", "").strip()
+                if val:
+                    ids.add(val)
+        if ids:
+            result[stem] = (1.0 / len(ids), frozenset(ids))
+    return result
+
+
+_COLLECTIONS = _load_collections()
+_COLLECTION_KEYS = [f"{stem}_ratio" for stem in _COLLECTIONS]
+
+
+def _get_collection_meta(idx: str) -> dict:
+    idx_str = str(idx)
+    return {
+        f"{stem}_ratio": ratio if idx_str in ids else _NAN
+        for stem, (ratio, ids) in _COLLECTIONS.items()
+    }
+
+
+def _get_dino_metrics(record: dict) -> dict:
+    experiment = record.get("experiment", "")
+    if not experiment:
+        return _DINO_NAN_ROW
+    theme = record.get("optuna_theme", "")
+    if not theme:
+        # base_synth: experiment is the exp dir name, keyed directly
+        return _DINO_BASE_LOOKUP.get(experiment, _DINO_NAN_ROW)
+    # Tensorleap-Optimized: optuna_repetition is set by _load_flat_run_records
+    # ("trial_132"), but empty by _load_optuna_records which sets trial_number.
+    rep = record.get("optuna_repetition", "")
+    if not rep:
+        trial_num = record.get("trial_number")
+        if trial_num is None:
+            return _DINO_NAN_ROW
+        rep = f"trial_{trial_num}"
+    run_id = experiment.split("__")[0]
+    return _DINO_OPTUNA_LOOKUP.get((theme, rep, run_id), _DINO_NAN_ROW)
 
 
 def _float_or_nan(value):
@@ -85,55 +235,6 @@ def _distractor_group_metadata(dist: dict) -> dict:
             for g in _DISTRACTOR_GROUPS
         },
     }
-
-
-_SENTINEL = {
-    "synth_source":                      "",
-    "synth_optuna_bucket":               "",
-    "synth_optuna_theme":                "",
-    "synth_optuna_repetition":           "",
-    "synth_optuna_trial_number":         _NAN,
-    "synth_optuna_rank":                 _NAN,
-    "synth_optuna_objective_value":      _NAN,
-    "synth_iteration":                   _NAN,
-    "synth_run_number":                  _NAN,
-    "synth_experiment":                  "",
-    "synth_render_width":                _NAN,
-    "synth_render_height":               _NAN,
-    "synth_env_name":                    "",
-    "synth_camera_type":                 "",
-    "synth_camera_height_min":           _NAN,
-    "synth_camera_height_max":           _NAN,
-    "synth_camera_tilt_min":             _NAN,
-    "synth_camera_tilt_max":             _NAN,
-    "synth_camera_yaw_min":              _NAN,
-    "synth_camera_yaw_max":              _NAN,
-    "synth_camera_roll_min":             _NAN,
-    "synth_camera_roll_max":             _NAN,
-    "synth_fov_min":                     _NAN,
-    "synth_fov_max":                     _NAN,
-    "synth_noise_std_min":               _NAN,
-    "synth_noise_std_max":               _NAN,
-    "synth_motion_blur_min":             _NAN,
-    "synth_motion_blur_max":             _NAN,
-    "synth_jpeg_quality_min":            _NAN,
-    "synth_jpeg_quality_max":            _NAN,
-    "synth_distractors":                 "",
-    "synth_clutter_level":               _NAN,
-    "synth_palletjack_count_per_model":  _NAN,
-    "synth_palletjack_rotation_max_z":   _NAN,
-    "synth_palletjack_color_randomized": _NAN,
-    "synth_lighting_intensity_mean":     _NAN,
-    "synth_lighting_intensity_std":      _NAN,
-    "synth_materials_roughness_min":     _NAN,
-    "synth_materials_roughness_max":     _NAN,
-    **{f"synth_texture_{i + 1}": "" for i in range(_NUM_TEXTURES)},
-    "synth_num_distractor_instances":    _NAN,
-    **{f"synth_dist_{g}_diversity":  _NAN for g in _DISTRACTOR_GROUPS},
-    **{f"synth_dist_{g}_occurrence": _NAN for g in _DISTRACTOR_GROUPS},
-    **{f"synth_dist_{g}_instances":  _NAN for g in _DISTRACTOR_GROUPS},
-    "synth_num_objects":                 _NAN,
-}
 
 
 _MEAN_STD_SENTINEL = {
@@ -241,83 +342,18 @@ _MEAN_STD_SENTINEL = {
     **{f"synth_dist_{g}_occurrence": _NAN for g in _DISTRACTOR_GROUPS},
     **{f"synth_dist_{g}_instances":  _NAN for g in _DISTRACTOR_GROUPS},
     "synth_num_objects":                          _NAN,
+    **{k: _NAN for k in _DINO_METRIC_COLS},
+    **{k: _NAN for k in _OPT_RUN_GROUP_KEYS},
+    **{k: _NAN for k in _COLLECTION_KEYS},
 }
-
 
 @tensorleap_metadata("synth_metadata")
 def synth_metadata(idx: str, preprocess: PreprocessResponse) -> dict:
     record, rc = _get_record_and_config(idx, preprocess)
+    collection_meta = _get_collection_meta(idx)
 
     if not rc:
-        return _SENTINEL.copy()
-
-    cam = rc.get("camera", {})
-    pj = rc.get("palletjacks", {})
-    light = rc.get("lighting", {})
-    mat = rc.get("materials", {})
-    render = rc.get("render", {})
-    dist = rc.get("distractors", {})
-    textures = mat.get("textures", [])
-
-    tilt_min = cam.get("camera_tilt_min")
-    tilt_max = cam.get("camera_tilt_max")
-
-    return {
-        "synth_source":                      str(record.get("subset", "")),
-        "synth_optuna_bucket":               str(record.get("optuna_bucket", "")),
-        "synth_optuna_theme":                str(record.get("optuna_theme", "")),
-        "synth_optuna_repetition":           str(record.get("optuna_repetition", "")),
-        "synth_optuna_trial_number":         _float_or_nan(record.get("trial_number")),
-        "synth_optuna_rank":                 _float_or_nan(record.get("optuna_rank")),
-        "synth_optuna_objective_value":      _float_or_nan(record.get("optuna_objective_value")),
-        "synth_iteration":                   _float_or_nan(record.get("iteration")),
-        "synth_run_number":                  int(record.get("run_number", 0)),
-        "synth_experiment":                  str(record.get("experiment", "")),
-        "synth_render_width":                int(render.get("width", 0)),
-        "synth_render_height":               int(render.get("height", 0)),
-        "synth_env_name":                    str(rc.get("environment", {}).get("name", "")),
-        "synth_camera_type":                 str(cam.get("camera_type", "pinhole")),
-        "synth_camera_height_min":           float(cam.get("camera_height_min", _NAN)),
-        "synth_camera_height_max":           float(cam.get("camera_height_max", _NAN)),
-        "synth_camera_tilt_min":             float(tilt_min) if tilt_min is not None else _NAN,
-        "synth_camera_tilt_max":             float(tilt_max) if tilt_max is not None else _NAN,
-        "synth_camera_yaw_min":              float(cam.get("camera_yaw_min", _NAN)),
-        "synth_camera_yaw_max":              float(cam.get("camera_yaw_max", _NAN)),
-        "synth_camera_roll_min":             float(cam.get("camera_roll_min", _NAN)),
-        "synth_camera_roll_max":             float(cam.get("camera_roll_max", _NAN)),
-        "synth_fov_min":                     float(cam.get("fov_min", _NAN)),
-        "synth_fov_max":                     float(cam.get("fov_max", _NAN)),
-        "synth_noise_std_min":               float(cam.get("noise_std_min", _NAN)),
-        "synth_noise_std_max":               float(cam.get("noise_std_max", _NAN)),
-        "synth_motion_blur_min":             float(cam.get("motion_blur_strength_min", _NAN)),
-        "synth_motion_blur_max":             float(cam.get("motion_blur_strength_max", _NAN)),
-        "synth_jpeg_quality_min":            float(cam.get("jpeg_quality_min", _NAN)),
-        "synth_jpeg_quality_max":            float(cam.get("jpeg_quality_max", _NAN)),
-        "synth_distractors":                 str(rc.get("run", {}).get("distractors", "")),
-        "synth_clutter_level":               float(dist.get("clutter_level", _NAN)),
-        "synth_palletjack_count_per_model":  int(pj.get("count_per_model", 0)),
-        "synth_palletjack_rotation_max_z":   float((pj.get("rotation_max") or [_NAN, _NAN, _NAN])[2]),
-        "synth_palletjack_color_randomized": float(any(v > 0 for v in (pj.get("color_max") or [0, 0, 0]))),
-        "synth_lighting_intensity_mean":     float(light.get("intensity_mean", _NAN)),
-        "synth_lighting_intensity_std":      float(light.get("intensity_std", _NAN)),
-        "synth_materials_roughness_min":     float(mat.get("roughness_min", _NAN)),
-        "synth_materials_roughness_max":     float(mat.get("roughness_max", _NAN)),
-        **{
-            f"synth_texture_{i + 1}": _basename_or_empty(textures, i)
-            for i in range(_NUM_TEXTURES)
-        },
-        "synth_num_distractor_instances":    _count_distractor_instances(rc),
-        **_distractor_group_metadata(dist),
-        "synth_num_objects":                 len(record.get("anns", [])),
-    }
-
-
-@tensorleap_metadata("synth_metadata_mean_std")
-def synth_metadata_mean_std(idx: str, preprocess: PreprocessResponse) -> dict:
-    record, rc = _get_record_and_config(idx, preprocess)
-
-    if not rc:
-        return _MEAN_STD_SENTINEL.copy()
+        return {**_MEAN_STD_SENTINEL, **collection_meta}
 
     cam = rc.get("camera", {})
     pj = rc.get("palletjacks", {})
@@ -447,4 +483,6 @@ def synth_metadata_mean_std(idx: str, preprocess: PreprocessResponse) -> dict:
         "synth_num_distractor_instances":          _count_distractor_instances(rc),
         **_distractor_group_metadata(dist),
         "synth_num_objects":                       len(record.get("anns", [])),
+        **_get_dino_metrics(record),
+        **collection_meta,
     }

@@ -8,4 +8,5 @@ include:
     - tensorleap_intgration_code/*.py
     - tensorleap_intgration_code/project_config.yaml
     - simulation_calibration_loop/population_view/cache/*
+    - simulation_calibration_loop/population_view/dino-population_top_performance.csv
 pythonVersion: py310

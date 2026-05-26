@@ -31,7 +31,7 @@ from tensorleap_intgration_code import (
     yolo_loss_components,
     yolo_per_sample_metrics,
     yolo_pred_bb_decoder,
-    yolo_total_loss,
+    yolo_total_loss, synth_metadata,
 )
 from tensorleap_intgration_code.config import CONFIG, abs_path_from_root
 
@@ -68,12 +68,14 @@ def check_integration(idx, subset):
     # _ = yolo_confusion_matrix(raw[0], gt)
     _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
-    _ = synth_metadata(idx, subset)
+    # synth_meta = synth_metadata(idx, subset)
+    other_synth = synth_metadata(idx, subset)
 
 
 if __name__ == "__main__":
     subsets = preprocess_func_leap()
     subset_idx = int(CONFIG.get("check_subset_index", 0))
+    subset_idx = 2
     print(f"Subsets: {[len(s.data) for s in subsets]}")
     sample_idx = subsets[subset_idx].sample_ids[0]
     check_integration(sample_idx, subsets[subset_idx])

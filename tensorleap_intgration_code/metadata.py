@@ -54,8 +54,18 @@ def sample_metadata(idx: int, preprocessing: PreprocessResponse) -> dict:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
+    gray_f = gray.astype(np.float32)
+    brightness_p50 = float(np.percentile(gray_f, 50))
+    brightness_p95 = float(np.percentile(gray_f, 95))
+    blurred = cv2.GaussianBlur(gray_f, (0, 0), sigmaX=2.0)
+    high_pass = gray_f - blurred
+    high_pass_energy = float(np.mean(high_pass ** 2))
+
     return {
         "image_sharpness": sharpness,
+        "brightness_p50": brightness_p50,
+        "brightness_p95": brightness_p95,
+        "high_pass_energy": high_pass_energy,
         "subset": record["subset"],
         "optuna_bucket": str(record.get("optuna_bucket", "")),
         "optuna_theme": str(record.get("optuna_theme", "")),

@@ -1,3 +1,5 @@
+from typing_extensions import Unpack
+
 import json
 import os
 import random
@@ -135,6 +137,9 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
 
     max_samples = CONFIG.get("max_samples")
     if max_samples is not None:
+        import random
+        random.Random(42).shuffle(train_records)
+        random.Random(42).shuffle(val_records)
         train_records = train_records[:max_samples]
         val_records   = val_records[:max_samples]
 
@@ -170,6 +175,11 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     _validate_unique_sample_ids(additional_ids, "additional split")
     _validate_unique_sample_ids(train_ids + val_ids + additional_ids, "all splits")
     if len(additional_ids) > 0:
+        if max_samples is not None:
+            combined = list(zip(additional_records, additional_ids))
+            random.Random(42).shuffle(combined)
+            combined = combined[:max_samples]
+            additional_records, additional_ids = zip(*combined) if combined else ([], [])
         return [
             PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
             PreprocessResponse(data={sid: r for sid, r in zip(val_ids,   val_records)},   sample_ids=val_ids,   state=DataStateType.validation),
@@ -512,18 +522,9 @@ def _load_base_synth_records() -> list:
 
     num_samples = cfg.get("num_samples")
     if num_samples is not None:
-        by_exp = {}
-        for r in records:
-            by_exp.setdefault(r["experiment"], []).append(r)
-        sampled = []
         rng = random.Random(42)
-        for exp_records in by_exp.values():
-            if len(exp_records) > num_samples:
-                rng.shuffle(exp_records)
-                sampled.extend(exp_records[:num_samples])
-            else:
-                sampled.extend(exp_records)
-        records = sampled
+        rng.shuffle(records)
+        records = records[:num_samples]
 
     return records
 
@@ -1118,18 +1119,9 @@ def _load_optuna_records() -> list:
 
     num_samples = optuna_cfg.get("num_samples")
     if num_samples is not None:
-        by_experiment = {}
-        for record in records:
-            by_experiment.setdefault(record["experiment"], []).append(record)
-        sampled = []
         rng = random.Random(42)
-        for experiment_records in by_experiment.values():
-            if len(experiment_records) > num_samples:
-                rng.shuffle(experiment_records)
-                sampled.extend(experiment_records[:num_samples])
-            else:
-                sampled.extend(experiment_records)
-        records = sampled
+        rng.shuffle(records)
+        records = records[:num_samples]
 
     return records
 
