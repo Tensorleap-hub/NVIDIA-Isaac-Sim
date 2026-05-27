@@ -129,7 +129,6 @@ pallets:
   assets:
     - /Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_01.usd
     - /Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_02.usd
-    - /Isaac/Environments/Simple_Warehouse/Props/SM_PaletteB_01.usd
   position_mean: [0.0, 3.0, 0.0]
   position_std: [3.464102, 5.196152, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
@@ -164,11 +163,8 @@ distractors:
   groups:
     CardBox:
       assets:
-        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_01.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_02.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_03.usd
-        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_04.usd
-        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_05.usd
       diversity: 3
       occurrence: 2
 

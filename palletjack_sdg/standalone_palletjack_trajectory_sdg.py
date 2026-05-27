@@ -1,9 +1,13 @@
-"""Stage-1 trajectory SDG entry point.
+"""Stage-2 trajectory SDG entry point.
 
-Loads a warehouse environment once, moves a ghost ego camera along a
-deterministic waypoint list, and writes ordered RGB frames plus per-frame
-pose metadata.  Uses explicit simulation/capture stepping instead of
-rep.trigger.on_frame to guarantee temporal consistency.
+Loads a warehouse environment once, randomizes scene objects (palletjacks,
+forklifts, pallets, distractors, lighting, materials) once per episode, then
+moves a ghost ego camera along a deterministic waypoint list and writes ordered
+RGB frames plus per-frame pose metadata.
+
+Scene randomization uses a single rep.trigger.on_frame(num_frames=1) block
+fired during orchestrator.preview() so objects are placed before capture and
+remain fixed for the entire trajectory.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import json
 import math
 import os
 from pathlib import Path
+import random
 import subprocess
 import sys
 from typing import Any
@@ -39,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num_frames", type=int, default=None)
     parser.add_argument("--environment", type=str, default=None)
     parser.add_argument("--data_dir", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None)
     return parser
 
 
@@ -88,13 +94,16 @@ def apply_cli_overrides(cfg: dict[str, Any], args: argparse.Namespace) -> None:
         cfg["environment"]["name"] = args.environment
     if args.data_dir is not None:
         cfg["run"]["data_dir"] = args.data_dir
+    if args.seed is not None:
+        cfg.setdefault("simulation", {})
+        cfg["simulation"]["seed"] = args.seed
 
 
 def resolve_output_dir(cfg: dict[str, Any]) -> Path:
     data_dir = cfg.get("run", {}).get("data_dir")
     if data_dir is None:
-        data_dir = SCRIPT_DIR / "palletjack_data" / "trajectory_stage1"
-    return Path(data_dir)
+        return SCRIPT_DIR / "palletjack_data" / "trajectory_stage2"
+    return Path(data_dir).resolve()
 
 
 def prepare_output_tree(output_dir: Path) -> dict[str, Path]:
@@ -131,7 +140,7 @@ def write_run_config(output_dir: Path, cfg: dict[str, Any], config_path: Path) -
         "meta": {
             "timestamp": utc_timestamp(),
             "generator": "standalone_palletjack_trajectory_sdg.py",
-            "generator_stage": "stage_1",
+            "generator_stage": "stage_2",
             "config_file": str(config_path.resolve()),
             "git_commit": git_commit(),
         },
@@ -159,7 +168,7 @@ def write_manifest(
 ) -> Path:
     manifest = {
         "generator": "standalone_palletjack_trajectory_sdg.py",
-        "generator_stage": "stage_1",
+        "generator_stage": "stage_2",
         "timestamp": utc_timestamp(),
         "config_file": str(config_path.resolve()),
         "output_dir": str(output_dir.resolve()),
@@ -260,10 +269,14 @@ def _interpolate_waypoints(
     return result
 
 
-def run_stage1(args: argparse.Namespace) -> None:
+def run_stage2(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     cfg = load_cfg(config_path)
     apply_cli_overrides(cfg, args)
+
+    seed = int(cfg.get("simulation", {}).get("seed", 0))
+    random.seed(seed)
+
     output_dir = resolve_output_dir(cfg)
     paths = prepare_output_tree(output_dir)
     events_path = paths["trajectory"] / "events.jsonl"
@@ -272,8 +285,8 @@ def run_stage1(args: argparse.Namespace) -> None:
     write_run_config(output_dir, cfg, config_path)
     append_event(
         events_path,
-        "stage1_output_tree_created",
-        {"output_dir": str(output_dir.resolve())},
+        "stage2_output_tree_created",
+        {"output_dir": str(output_dir.resolve()), "seed": seed},
     )
 
     if str(PROJECT_ROOT) not in sys.path:
@@ -287,8 +300,10 @@ def run_stage1(args: argparse.Namespace) -> None:
     import omni.replicator.core as rep
     import omni.usd
     from omni.isaac.core.utils.stage import open_stage
-    from pxr import Gf, UsdGeom
+    from pxr import Gf, Semantics, UsdGeom
+    from palletjack_sdg.utils.camera import rep_normal
 
+    # ── Environment ───────────────────────────────────────────────────────────
     environment_url = resolve_environment_url(cfg)
     print(f"Loading environment: {environment_url}")
     open_stage(environment_url)
@@ -296,11 +311,191 @@ def run_stage1(args: argparse.Namespace) -> None:
 
     append_event(
         events_path,
-        "stage1_environment_loaded",
+        "stage2_environment_loaded",
         {"environment": cfg["environment"]["name"], "environment_url": environment_url},
     )
 
-    # Camera parameters
+    stage = omni.usd.get_context().get_stage()
+
+    # ── Scene objects — spawn once ────────────────────────────────────────────
+    def _add_palletjacks():
+        pj_cfg = cfg.get("palletjacks", {})
+        assets = pj_cfg.get("assets", [])
+        count = pj_cfg.get("count_per_model", 0)
+        if not assets or count == 0:
+            return None
+        groups = [
+            rep.create.from_usd(asset, semantics=[("class", "palletjack")], count=count)
+            for asset in assets
+        ]
+        return rep.create.group(groups)
+
+    def _add_forklifts():
+        fl_cfg = cfg.get("forklifts", {})
+        assets = fl_cfg.get("assets", [])
+        count = fl_cfg.get("count_per_model", 0)
+        if not assets or count == 0:
+            return None
+        groups = [
+            rep.create.from_usd(
+                prefix_with_isaac_asset_server(asset),
+                semantics=[("class", "forklift")],
+                count=count,
+            )
+            for asset in assets
+        ]
+        return rep.create.group(groups)
+
+    def _add_pallets():
+        pa_cfg = cfg.get("pallets", {})
+        assets = pa_cfg.get("assets", [])
+        count = pa_cfg.get("count_per_model", 0)
+        if not assets or count == 0:
+            return None
+        groups = [
+            rep.create.from_usd(
+                prefix_with_isaac_asset_server(asset),
+                semantics=[("class", "pallet")],
+                count=count,
+            )
+            for asset in assets
+        ]
+        return rep.create.group(groups)
+
+    def _add_distractors():
+        dist_cfg = cfg.get("distractors", {})
+        clutter = dist_cfg.get("clutter_level", 1.0)
+        if clutter <= 0:
+            print("clutter_level=0 — no distractors")
+            return None
+        groups = dist_cfg.get("groups") or {}
+        all_prims = []
+        for group_name, group_cfg in groups.items():
+            if not group_cfg:
+                continue
+            pool = group_cfg.get("assets", [])
+            if not pool:
+                continue
+            diversity = min(group_cfg.get("diversity", len(pool)), len(pool))
+            count = round(group_cfg.get("occurrence", 1) * clutter)
+            if count == 0:
+                continue
+            selected = random.sample(pool, diversity)
+            for asset in selected:
+                all_prims.append(
+                    rep.create.from_usd(prefix_with_isaac_asset_server(asset), count=count)
+                )
+            print(f"  distractor {group_name}: {diversity} variant(s) × {count}")
+        return rep.create.group(all_prims) if all_prims else None
+
+    def _update_semantics(keep=("palletjack", "forklift", "pallet")):
+        for prim in stage.Traverse():
+            if not prim.HasAPI(Semantics.SemanticsAPI):
+                continue
+            seen = set()
+            for prop in prim.GetProperties():
+                if not Semantics.SemanticsAPI.IsSemanticsAPIPath(prop.GetPath()):
+                    continue
+                inst = prop.SplitName()[1]
+                if inst in seen:
+                    continue
+                seen.add(inst)
+                sem = Semantics.SemanticsAPI.Get(prim, inst)
+                if sem.GetSemanticDataAttr().Get() not in keep:
+                    prim.RemoveProperty(sem.GetSemanticTypeAttr().GetName())
+                    prim.RemoveProperty(sem.GetSemanticDataAttr().GetName())
+                    prim.RemoveAPI(Semantics.SemanticsAPI, inst)
+
+    print("Spawning scene objects...")
+    pj_group = _add_palletjacks()
+    fl_group = _add_forklifts()
+    pa_group = _add_pallets()
+    dist_group = _add_distractors()
+    _update_semantics()
+
+    append_event(events_path, "stage2_scene_spawned", {
+        "palletjacks": pj_group is not None,
+        "forklifts": fl_group is not None,
+        "pallets": pa_group is not None,
+        "distractors": dist_group is not None,
+    })
+
+    # ── One-shot scene randomization via on_frame(num_frames=1) ──────────────
+    # This fires once during orchestrator.preview() and is exhausted before
+    # the trajectory capture loop begins, so the scene stays fixed per episode.
+    pj_cfg = cfg.get("palletjacks", {})
+    fl_cfg = cfg.get("forklifts", {})
+    pa_cfg = cfg.get("pallets", {})
+    dr_cfg = cfg.get("distractor_randomization", {})
+    lt_cfg = cfg.get("lighting", {})
+    mat_cfg = cfg.get("materials", {})
+    textures = [prefix_with_isaac_asset_server(p) for p in mat_cfg.get("textures", [])]
+
+    with rep.trigger.on_frame(num_frames=1):
+        if pj_group is not None:
+            with pj_group:
+                rep.modify.pose(
+                    position=rep_normal(tuple(pj_cfg["position_mean"]), tuple(pj_cfg["position_std"])),
+                    rotation=rep_normal(tuple(pj_cfg["rotation_mean"]), tuple(pj_cfg["rotation_std"])),
+                    scale=rep_normal(tuple(pj_cfg["scale_mean"]), tuple(pj_cfg["scale_std"])),
+                )
+        if fl_group is not None:
+            with fl_group:
+                rep.modify.pose(
+                    position=rep_normal(tuple(fl_cfg["position_mean"]), tuple(fl_cfg["position_std"])),
+                    rotation=rep_normal(tuple(fl_cfg["rotation_mean"]), tuple(fl_cfg["rotation_std"])),
+                    scale=rep_normal(tuple(fl_cfg["scale_mean"]), tuple(fl_cfg["scale_std"])),
+                )
+        if pa_group is not None:
+            with pa_group:
+                rep.modify.pose(
+                    position=rep_normal(tuple(pa_cfg["position_mean"]), tuple(pa_cfg["position_std"])),
+                    rotation=rep_normal(tuple(pa_cfg["rotation_mean"]), tuple(pa_cfg["rotation_std"])),
+                    scale=rep_normal(tuple(pa_cfg["scale_mean"]), tuple(pa_cfg["scale_std"])),
+                )
+        if dist_group is not None:
+            with dist_group:
+                rep.modify.pose(
+                    position=rep_normal(tuple(dr_cfg["position_mean"]), tuple(dr_cfg["position_std"])),
+                    rotation=rep_normal(tuple(dr_cfg["rotation_mean"]), tuple(dr_cfg["rotation_std"])),
+                    scale=rep_normal(dr_cfg["scale_mean"], dr_cfg["scale_std"]),
+                )
+        if lt_cfg:
+            with rep.get.prims(path_pattern="RectLight"):
+                rep.modify.attribute(
+                    "color",
+                    rep_normal(tuple(lt_cfg["color_mean"]), tuple(lt_cfg["color_std"])),
+                )
+                rep.modify.attribute(
+                    "intensity",
+                    rep.distribution.normal(lt_cfg["intensity_mean"], lt_cfg["intensity_std"]),
+                )
+                rep.modify.visibility(rep.distribution.choice(lt_cfg["visibility_choices"]))
+        if textures and mat_cfg:
+            floor_mat = rep.create.material_omnipbr(
+                diffuse_texture=rep.distribution.choice(textures),
+                roughness=rep_normal(mat_cfg["roughness_mean"], mat_cfg["roughness_std"]),
+                metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
+                emissive_texture=rep.distribution.choice(textures),
+                emissive_intensity=rep_normal(
+                    mat_cfg["emissive_intensity_mean"], mat_cfg["emissive_intensity_std"]
+                ),
+            )
+            with rep.get.prims(path_pattern="SM_Floor"):
+                rep.randomizer.materials(floor_mat)
+            wall_mat = rep.create.material_omnipbr(
+                diffuse_texture=rep.distribution.choice(textures),
+                roughness=rep_normal(mat_cfg["roughness_mean"], mat_cfg["roughness_std"]),
+                metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
+                emissive_texture=rep.distribution.choice(textures),
+                emissive_intensity=rep_normal(
+                    mat_cfg["emissive_intensity_mean"], mat_cfg["emissive_intensity_std"]
+                ),
+            )
+            with rep.get.prims(path_pattern="SM_Wall"):
+                rep.randomizer.materials(wall_mat)
+
+    # ── Camera ────────────────────────────────────────────────────────────────
     cam_cfg = cfg.get("cameras", {}).get("ego", {})
     render_cfg = cfg.get("render", {})
     resolution_cfg = cam_cfg.get("resolution", [render_cfg.get("width", 960), render_cfg.get("height", 544)])
@@ -311,7 +506,7 @@ def run_stage1(args: argparse.Namespace) -> None:
     focal_length = horizontal_aperture / (2.0 * math.tan(math.radians(fov_deg) / 2.0))
     clipping = cfg.get("camera", {}).get("clipping_range", [0.1, 1000000.0])
 
-    # Trajectory
+    # ── Trajectory ────────────────────────────────────────────────────────────
     traj_cfg = cfg.get("trajectory", {})
     waypoints_raw = traj_cfg.get("waypoints", [])
     if len(waypoints_raw) < 2:
@@ -320,8 +515,6 @@ def run_stage1(args: argparse.Namespace) -> None:
     num_frames = int(cfg.get("run", {}).get("num_frames", 30))
     poses = _interpolate_waypoints(waypoints, num_frames)
 
-    # Create ego camera prim directly in the stage
-    stage = omni.usd.get_context().get_stage()
     camera_prim_path = "/World/EgoCamera"
     camera_prim = stage.DefinePrim(camera_prim_path, "Camera")
 
@@ -335,22 +528,34 @@ def run_stage1(args: argparse.Namespace) -> None:
     translate_op = xformable.AddTranslateOp()
     rotate_op = xformable.AddRotateXYZOp()
 
-    x0, y0, z0, r0, p0, y0_rot, _ = poses[0]
+    x0, y0, z0, r0, p0, yaw0_rel, _ = poses[0]
+    seg0_dx = waypoints[1][0] - waypoints[0][0]
+    seg0_dy = waypoints[1][1] - waypoints[0][1]
+    yaw0 = math.degrees(math.atan2(-seg0_dx, seg0_dy)) + yaw0_rel
     translate_op.Set((x0, y0, z0))
-    rotate_op.Set((r0, p0, y0_rot))
+    rotate_op.Set((r0, p0, yaw0))
     simulation_app.update()
 
-    # Replicator setup — disable auto-capture, attach BasicWriter
+    # ── Writer — images go to Camera/rgb/ ────────────────────────────────────
     carb.settings.get_settings().set("/omni/replicator/captureOnPlay", False)
 
     rp = rep.create.render_product(camera_prim_path, (width, height))
-    writer = rep.WriterRegistry.get("BasicWriter")
-    writer.initialize(output_dir=str(output_dir / "Camera"), rgb=True)
-    writer.attach(rp)
+
+    # on_frame(num_frames=1) fires on the first step(), not during preview().
+    # Do one silent warmup step (no writer attached) to fire and exhaust the
+    # trigger so the scene is fully placed before any frames are captured.
     rep.orchestrator.preview()
     simulation_app.update()
 
-    append_event(events_path, "stage1_capture_start", {"num_frames": num_frames})
+    rep.orchestrator.step(rt_subframes=4, delta_time=0.0, pause_timeline=True)
+    simulation_app.update()
+    simulation_app.update()  # let materials/textures stream to GPU
+
+    writer = rep.WriterRegistry.get("BasicWriter")
+    writer.initialize(output_dir=str(output_dir / "Camera" / "rgb"), rgb=True)
+    writer.attach(rp)
+
+    append_event(events_path, "stage2_capture_start", {"num_frames": num_frames})
 
     poses_path = paths["trajectory"] / "poses.jsonl"
     poses_path.write_text("")
@@ -358,7 +563,14 @@ def run_stage1(args: argparse.Namespace) -> None:
     physics_dt = float(cfg.get("simulation", {}).get("physics_dt", 1.0 / 60.0))
 
     for frame_index in range(num_frames):
-        x, y, z, roll, pitch, yaw, seg_idx = poses[frame_index]
+        x, y, z, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
+
+        seg = int(seg_idx)
+        dx = waypoints[seg + 1][0] - waypoints[seg][0]
+        dy = waypoints[seg + 1][1] - waypoints[seg][1]
+        heading_yaw = math.degrees(math.atan2(-dx, dy))
+        yaw = heading_yaw + yaw_rel
+
         translate_op.Set((x, y, z))
         rotate_op.Set((roll, pitch, yaw))
 
@@ -369,9 +581,11 @@ def run_stage1(args: argparse.Namespace) -> None:
             "camera_prim": camera_prim_path,
             "camera_pos": [x, y, z],
             "camera_rot_euler_deg": [roll, pitch, yaw],
+            "heading_yaw_deg": round(heading_yaw, 4),
+            "relative_yaw_deg": round(yaw_rel, 4),
             "frame": frame_index,
             "sim_time": round(frame_index * physics_dt, 6),
-            "waypoint_segment": int(seg_idx),
+            "waypoint_segment": seg,
         }
         with poses_path.open("a") as f:
             f.write(json.dumps(pose_record) + "\n")
@@ -394,7 +608,7 @@ def run_stage1(args: argparse.Namespace) -> None:
     )
     append_event(
         events_path,
-        "stage1_complete",
+        "stage2_complete",
         {"image_count": image_count, "num_frames": num_frames},
     )
     simulation_app.close()
@@ -405,7 +619,7 @@ def main(argv: list[str] | None = None) -> None:
     args, unknown_args = parser.parse_known_args(argv)
     if unknown_args:
         print(f"Ignoring unknown arguments: {' '.join(unknown_args)}")
-    run_stage1(args)
+    run_stage2(args)
 
 
 if __name__ == "__main__":

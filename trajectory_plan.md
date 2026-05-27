@@ -246,12 +246,32 @@ Minimum metadata per frame:
 - trajectory segment or waypoint index
 - collision state, once collisions are enabled
 
+## Progress Log
+
+| Stage | Status | Notes |
+|-------|--------|-------|
+| 0 | ✅ done | Script skeleton, CLI, output tree, manifest, events log |
+| 1 | ✅ done | Waypoint traversal, heading-relative yaw (roll=90 fix), RGB capture, poses.jsonl |
+| 2 | ✅ done | Per-episode scene randomization (palletjacks, forklifts, pallets, distractors, lighting, materials); frame-0 consistency fix via warmup step before writer attach |
+| 3 | pending | |
+| 4–10 | not started | |
+
+### Pre-Stage-3 Validation (completed 2026-05-27)
+
+- ✅ `run_manifest.json` image_count correct (10/10)
+- ✅ Different scene layout per run (confirmed visually)
+- ✅ Within-episode frame consistency (frames 1-N identical scene, confirmed after warmup-step fix)
+- ✅ Manifest schema compatible with `discover_generated_images()` (rglob, no manifest parsing needed)
+- ✅ Broken USD assets removed from `sdg_config_mean_std.yaml`:
+  - Removed: `SM_PaletteB_01.usd`, `SM_CardBox_A_01/04/05.usd` (not available on Isaac 5.1 content server)
+- ⚠️ Seed reproducibility: Replicator's CUDA-side RNG is not controlled by `random.seed()`; per-episode layout varies across runs with the same config seed. Acceptable for SDG diversity; not fixable without low-level Replicator API.
+
 ## Implementation Stages
 
 Each stage should be independently runnable in Isaac Sim and should produce
 images that can be visually inspected before moving to the next stage.
 
-### Stage 0: Baseline And Debug Harness
+### Stage 0: Baseline And Debug Harness ✅
 
 Purpose:
 
@@ -285,7 +305,7 @@ Exit criteria:
 - New script is launchable by the calibration loop.
 - No image quality expectations yet.
 
-### Stage 1: Static Environment Plus Fixed Ego Camera Path
+### Stage 1: Static Environment Plus Fixed Ego Camera Path ✅
 
 Purpose:
 
@@ -315,7 +335,7 @@ Exit criteria:
 - The output is a coherent camera trajectory, not independent snapshots.
 - The calibration loop can embed the generated RGB images.
 
-### Stage 2: Reuse Current Static Scene Randomization Per Episode
+### Stage 2: Reuse Current Static Scene Randomization Per Episode ✅
 
 Purpose:
 
