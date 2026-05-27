@@ -58,21 +58,10 @@ base_synth_data:
   additional: true          # flat exp*/ directory structure (no palletjack_run_* wrapper needed)
   num_samples:            # null = no limit; per-experiment cap after deterministic shuffle
 
-extended_data:
-  base_path: "/Users/orram/Tensorleap/data/warehouse/extended"
-  additional: false          # set to false to exclude extended data entirely
-  extended_numbers:      # null = include all; list of ints to include specific iterations e.g. [1, 2] (matches trailing number in folder name like camera-01)
-  num_samples:              # null = no limit; per-run cap (same semantics as synth_data.num_samples)
-
 Tensorleap-Optimized:
   base_path: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
   additional: true          # set to false to exclude optuna-generated data entirely
   num_samples:
-
-optuna_data:
-  base_path: "/Users/orram/Tensorleap/data/warehouse/optuna-ec2"
-  additional: false          # set to false to exclude optuna-generated data entirely
-  num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
 
 dino_distances_csv: "simulation_calibration_loop/population_view/dino-population_top_performance.csv"
 

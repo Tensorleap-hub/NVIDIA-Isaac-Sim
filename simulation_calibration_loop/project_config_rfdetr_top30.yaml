@@ -1,0 +1,32 @@
+project_name: rfdetr_subset3_optuna_loop_top30
+workspace_dir: ./workspace_rfdetr_top30
+promoted_baseline_dir: ./promoted_baseline_theme_rounds
+s3_best_runs_prefix: s3://nvidia-isaac-bucket/optuna-ec2/rfdetr_top30/
+seed_config_dir: ../palletjack_sdg/experiments/experiment_mean_std/base_v2_bounded
+real_dataset_root: ../loco_dataset
+real_annotations_file: ../loco_dataset/labels/loco-sub3-v1-train.json
+max_iterations: 100
+iteration_batch_size: 4
+random_seed: 42
+top_n_best_trials: 10
+mmd_max_samples: 1000
+embedder_backend: rfdetr
+rfdetr_embedder:
+  checkpoint_path: /home/ubuntu/warehouse3cls_mixed/output/rfdetr_base
+  num_classes: 3
+  layer_index: 3
+  batch_size: 16
+  resize_size: 256
+  image_size: 224
+isaac:
+  isaac_sim_path: /opt/IsaacSim
+  script_path: ../palletjack_sdg/standalone_palletjack_sdg_mean_std.py
+  headless: true
+search_space:
+  themes:
+    - top30_important
+  include: []
+  exclude:
+    - run.data_dir
+    - run.num_frames
+    - run.headless
