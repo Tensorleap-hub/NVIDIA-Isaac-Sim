@@ -649,7 +649,7 @@ class SimulationCalibrationController:
                     num_frames_override=self.config.isaac.num_frames_override,
                     log_callback=self.ui.append_log,
                 )
-                image_paths = discover_generated_images(output_dir)
+                image_paths = discover_generated_images(local_rgb_dir)
                 if image_paths:
                     generated_runs += 1
             if not image_paths:

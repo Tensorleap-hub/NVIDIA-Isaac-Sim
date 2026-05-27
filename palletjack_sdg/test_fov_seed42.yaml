@@ -1,0 +1,12 @@
+extends: sdg_config_trajectory.yaml
+
+run:
+  data_dir: /home/ubuntu/NVIDIA-Isaac-Sim/palletjack_sdg/palletjack_data/trajectory_test_fov_seed42
+  num_frames: 10
+
+simulation:
+  seed: 42
+
+cameras:
+  chase:
+    enabled: false

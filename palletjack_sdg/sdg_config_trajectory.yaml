@@ -1,4 +1,4 @@
-# Stage-1 trajectory SDG config.
+# Stage-4 trajectory SDG config.
 # Ghost camera moves along a fixed waypoint list; warehouse is loaded once.
 
 extends: sdg_config_mean_std.yaml
@@ -6,7 +6,7 @@ extends: sdg_config_mean_std.yaml
 run:
   headless: true
   num_frames: 30
-  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/trajectory_stage2
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/trajectory_stage4
 
 simulation:
   mode: trajectory
@@ -40,14 +40,17 @@ cameras:
     resolution: [960, 544]
     height_m: 1.6
     fov_mean: 75.0
-    fov_std: 0.0
+    fov_std: 5.0
   chase:
-    enabled: false
+    enabled: true
+    resolution: [960, 544]
+    distance_m: 3.0
+    height_m: 2.0
 
 capture:
   rgb: true
-  bounding_box_2d_tight: false
+  bounding_box_2d_tight: true
   semantic_segmentation: false
   depth: false
-  video: false
+  video: true
   metadata: true

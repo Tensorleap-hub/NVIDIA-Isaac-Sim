@@ -253,8 +253,21 @@ Minimum metadata per frame:
 | 0 | ✅ done | Script skeleton, CLI, output tree, manifest, events log |
 | 1 | ✅ done | Waypoint traversal, heading-relative yaw (roll=90 fix), RGB capture, poses.jsonl |
 | 2 | ✅ done | Per-episode scene randomization (palletjacks, forklifts, pallets, distractors, lighting, materials); frame-0 consistency fix via warmup step before writer attach |
-| 3 | pending | |
-| 4–10 | not started | |
+| 3 | ✅ done | Per-episode FOV sampling, chase camera, per-modality output folders, calibration loop discovery fix |
+| 4 | 🔄 in progress | CosmosWriter wired up; video/ dir created but write() not firing — debug needed |
+| 5–10 | not started | |
+
+### Stage 3 Validation (completed 2026-05-27)
+
+- ✅ Ego-only run (chase disabled): clean output, no `Camera_chase/` directory
+- ✅ Ego + chase run: `Camera/rgb/`, `Camera/bounding_box_2d_tight/`, `Camera_chase/` all populated
+- ✅ Per-modality subfolders: each enabled modality gets its own subfolder under `Camera/` via separate BasicWriter instances
+- ✅ Frame count parity: rgb == bounding_box_2d_tight (10/10)
+- ✅ FOV variation: `fov_std: 5` produces different FOVs across seeds (seed=0 → 75.25°, seed=42 → 76.16°); recorded per-frame in poses.jsonl and in manifest `episode_camera`
+- ✅ Chase yaw fix: chase camera uses `heading_yaw` only, not `heading_yaw + yaw_rel`; verified with yaw_rel=30 — ego looks 30° sideways, chase stays on heading
+- ✅ Calibration loop `discover_generated_images(Camera/rgb)`: finds 10 ego frames, PASS
+- ✅ Calibration loop post-Isaac fallback fixed in `controller.py:652`: changed `discover_generated_images(output_dir)` → `discover_generated_images(local_rgb_dir)` to prevent chase frames leaking into DINOv2 embeddings
+- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory_stage3_tests/20260527_172027/`
 
 ### Pre-Stage-3 Validation (completed 2026-05-27)
 
@@ -432,6 +445,33 @@ Exit criteria:
 
 - Video export works as an optional product.
 - Image output remains stable.
+
+### Stage 4 Progress (2026-05-27)
+
+**Done:**
+
+- All stage strings, function name, default data_dir bumped from stage_3 → stage_4
+- `capture.video: true` added to `sdg_config_trajectory.yaml`
+- CosmosWriter wired into `run_stage4()`:
+  - Created when `capture_cfg.video` is true
+  - Initialized with `output_dir=video/`, `use_instance_id=True`
+  - Attached to `rp_ego` alongside existing BasicWriters
+  - `video/` directory created by `prepare_output_tree` equivalent
+- `on_final_frame()` + `detach()` called after `rep.orchestrator.wait_until_complete()`
+- `video_files` list (MP4 paths relative to output_dir) added to manifest `episode_camera` block and `stage4_complete` event
+- Run confirmed clean exit (EXIT:0); `Camera/rgb/` and `Camera/bounding_box_2d_tight/` still produced correctly
+
+**Blocked — debug needed next session:**
+
+- `video/` directory is created but empty: CosmosWriter's `write()` is never called (`_frame_id` stays 0)
+- Root cause unknown — likely one of:
+  1. Annotator initialization failure: CosmosWriter uses GPU-side instance segmentation + Canny edge annotators; if any fail to attach, `write()` throws before `_frame_id += 1` and the exception is swallowed by Replicator
+  2. `attach()` silently failing when multiple writers share the same render product
+  3. `pause_timeline=True` in our `rep.orchestrator.step()` calls conflicting with CosmosWriter internals (cosmos example uses `pause_timeline=False`)
+- Debug plan:
+  1. Capture full stdout to file and search for errors inside `write()` call
+  2. Try following the example exactly: separate `DiskBackend`, `pause_timeline=False`
+  3. If GPU annotators are the issue, try a simpler CosmosWriter config (rgb-only custom writer using `video_encoding` interface directly)
 
 ### Stage 5: Occupancy Map And Random Free-Space Trajectories
 
