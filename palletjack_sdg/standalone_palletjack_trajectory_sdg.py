@@ -309,10 +309,17 @@ def run_stage4(args: argparse.Namespace) -> None:
 
     import carb.settings
     import omni.replicator.core as rep
+    import omni.timeline
     import omni.usd
     from omni.isaac.core.utils.stage import open_stage
     from pxr import Gf, Semantics, UsdGeom
     from palletjack_sdg.utils.camera import rep_normal
+
+    # CosmosWriter uses OmniGraph script nodes (Canny edge annotator) — without
+    # this, the annotator chain silently fails to attach and write() is never called.
+    carb.settings.get_settings().set_bool("/app/omni.graph.scriptnode/opt_in", True)
+    # DLSS quality mode recommended by all CosmosWriter reference examples.
+    carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
 
     # ── Environment ───────────────────────────────────────────────────────────
     environment_url = resolve_environment_url(cfg)
@@ -655,6 +662,12 @@ def run_stage4(args: argparse.Namespace) -> None:
 
     physics_dt = float(cfg.get("simulation", {}).get("physics_dt", 1.0 / 60.0))
 
+    # CosmosWriter requires the timeline to be playing and pause_timeline=False.
+    # The ghost camera is driven by explicit USD ops, so physics running is harmless.
+    timeline = omni.timeline.get_timeline_interface()
+    if not timeline.is_playing():
+        timeline.play()
+
     for frame_index in range(num_frames):
         x, y, z, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
 
@@ -679,7 +692,7 @@ def run_stage4(args: argparse.Namespace) -> None:
             chase_rotate_op.Set((90.0 + tilt_down_deg, 0.0, heading_yaw))
 
         simulation_app.update()
-        rep.orchestrator.step(rt_subframes=4, delta_time=0.0, pause_timeline=True)
+        rep.orchestrator.step(rt_subframes=4, delta_time=0.0, pause_timeline=False)
 
         pose_record = {
             "camera_prim": camera_prim_path,

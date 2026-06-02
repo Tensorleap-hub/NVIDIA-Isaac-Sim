@@ -254,8 +254,18 @@ Minimum metadata per frame:
 | 1 | ✅ done | Waypoint traversal, heading-relative yaw (roll=90 fix), RGB capture, poses.jsonl |
 | 2 | ✅ done | Per-episode scene randomization (palletjacks, forklifts, pallets, distractors, lighting, materials); frame-0 consistency fix via warmup step before writer attach |
 | 3 | ✅ done | Per-episode FOV sampling, chase camera, per-modality output folders, calibration loop discovery fix |
-| 4 | 🔄 in progress | CosmosWriter wired up; video/ dir created but write() not firing — debug needed |
+| 4 | ✅ done | CosmosWriter fixed: script nodes opt-in + timeline.play() + pause_timeline=False; 5 MP4s produced |
 | 5–10 | not started | |
+
+### Stage 4 Validation (completed 2026-06-02)
+
+- ✅ EXIT:0, 10 frames, no errors
+- ✅ `Camera/rgb/` — 10 PNG ego frames
+- ✅ `Camera_chase/` — 10 PNG chase frames
+- ✅ `Camera/bounding_box_2d_tight/` — 10 .npy + labels/prim_paths JSON pairs
+- ✅ `video/clip_0000/` — 5 MP4s (rgb, depth, edges, segmentation, shaded_seg) + 10 PNGs each
+- ✅ `run_manifest.json` — `video_files` lists all 5 MP4 paths
+- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory-tests/20260602_144415/`
 
 ### Stage 3 Validation (completed 2026-05-27)
 
@@ -461,17 +471,14 @@ Exit criteria:
 - `video_files` list (MP4 paths relative to output_dir) added to manifest `episode_camera` block and `stage4_complete` event
 - Run confirmed clean exit (EXIT:0); `Camera/rgb/` and `Camera/bounding_box_2d_tight/` still produced correctly
 
-**Blocked — debug needed next session:**
+**Fixed (2026-06-02):**
 
-- `video/` directory is created but empty: CosmosWriter's `write()` is never called (`_frame_id` stays 0)
-- Root cause unknown — likely one of:
-  1. Annotator initialization failure: CosmosWriter uses GPU-side instance segmentation + Canny edge annotators; if any fail to attach, `write()` throws before `_frame_id += 1` and the exception is swallowed by Replicator
-  2. `attach()` silently failing when multiple writers share the same render product
-  3. `pause_timeline=True` in our `rep.orchestrator.step()` calls conflicting with CosmosWriter internals (cosmos example uses `pause_timeline=False`)
-- Debug plan:
-  1. Capture full stdout to file and search for errors inside `write()` call
-  2. Try following the example exactly: separate `DiskBackend`, `pause_timeline=False`
-  3. If GPU annotators are the issue, try a simpler CosmosWriter config (rgb-only custom writer using `video_encoding` interface directly)
+Root cause was three missing setup steps required by CosmosWriter:
+1. `/app/omni.graph.scriptnode/opt_in = True` — CosmosWriter's Canny edge annotator uses OmniGraph script nodes; without opt-in the annotator chain silently refuses to attach and `write()` is never called
+2. `timeline.play()` before the capture loop — CosmosWriter reads timeline FPS on first `write()` and expects the timeline live
+3. `pause_timeline=False` in `rep.orchestrator.step()` — CosmosWriter internals require the timeline to keep running between steps
+
+Fix: added all three in `run_stage4()`. Ghost camera still works correctly since it's driven by explicit USD translate/rotate ops, not physics.
 
 ### Stage 5: Occupancy Map And Random Free-Space Trajectories
 
