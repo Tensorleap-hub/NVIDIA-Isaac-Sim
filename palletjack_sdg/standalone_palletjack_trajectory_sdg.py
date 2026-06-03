@@ -1,14 +1,16 @@
-"""Stage-4 trajectory SDG entry point.
+"""Stage-5 trajectory SDG entry point.
 
 Loads a warehouse environment once, randomizes scene objects (palletjacks,
 forklifts, pallets, distractors, lighting, materials) once per episode, then
-moves a ghost ego camera along a deterministic waypoint list and writes ordered
-frames plus per-frame pose metadata.
+moves a ghost ego camera along a waypoint path and writes ordered frames plus
+per-frame pose metadata.
 
-Stage-4 additions over Stage-3:
-- Optional CosmosWriter video export (capture.video: true)
-  Attaches alongside BasicWriter on the same ego render product.
-  Writes clip_0000/{rgb,depth,segmentation,shaded_seg,edges}.mp4 under video/.
+Stage-4: CosmosWriter video export (capture.video: true)
+Stage-5: Occupancy-map path planning (trajectory.mode: occupancy_path)
+  Generates a PhysX occupancy map of the settled scene, samples a random
+  free-space start and BFS-plans a path to a random reachable end point.
+  Saves nav/map.png, nav/map.yaml, nav/planned_path.json each run.
+  Falls back to trajectory.waypoints when mode: waypoint_list.
 """
 
 from __future__ import annotations
@@ -103,7 +105,7 @@ def apply_cli_overrides(cfg: dict[str, Any], args: argparse.Namespace) -> None:
 def resolve_output_dir(cfg: dict[str, Any]) -> Path:
     data_dir = cfg.get("run", {}).get("data_dir")
     if data_dir is None:
-        return SCRIPT_DIR / "palletjack_data" / "trajectory_stage4"
+        return SCRIPT_DIR / "palletjack_data" / "trajectory_stage5"
     return Path(data_dir).resolve()
 
 
@@ -143,7 +145,7 @@ def write_run_config(output_dir: Path, cfg: dict[str, Any], config_path: Path) -
         "meta": {
             "timestamp": utc_timestamp(),
             "generator": "standalone_palletjack_trajectory_sdg.py",
-            "generator_stage": "stage_4",
+            "generator_stage": "stage_5",
             "config_file": str(config_path.resolve()),
             "git_commit": git_commit(),
         },
@@ -172,7 +174,7 @@ def write_manifest(
 ) -> Path:
     manifest = {
         "generator": "standalone_palletjack_trajectory_sdg.py",
-        "generator_stage": "stage_4",
+        "generator_stage": "stage_5",
         "timestamp": utc_timestamp(),
         "config_file": str(config_path.resolve()),
         "output_dir": str(output_dir.resolve()),
@@ -275,6 +277,128 @@ def _interpolate_waypoints(
     return result
 
 
+def _build_occupancy_waypoints(
+    cfg: dict[str, Any],
+    simulation_app,
+    nav_dir: Path,
+    camera_z: float,
+    seed: int,
+) -> list[list[float]]:
+    """Generate random free-space waypoints via a PhysX occupancy map.
+
+    Called after the warmup step so that placed scene objects are baked into
+    the collision geometry before the map is generated.  Returns waypoints in
+    the same format as trajectory.waypoints: [x, y, z, roll, pitch, yaw_rel].
+    """
+    import numpy as np
+    from isaacsim.core.utils.extensions import enable_extension
+
+    enable_extension("isaacsim.asset.gen.omap")
+    enable_extension("isaacsim.replicator.mobility_gen")
+    simulation_app.update()
+
+    from isaacsim.asset.gen.omap.bindings import _omap
+    from isaacsim.replicator.mobility_gen.impl.occupancy_map import OccupancyMap, OccupancyMapDataValue
+    from isaacsim.replicator.mobility_gen.impl.path_planner import compress_path, generate_paths
+    from isaacsim.replicator.mobility_gen.impl.pose_samplers import UniformPoseSampler
+
+    traj_cfg = cfg.get("trajectory", {})
+    occ_cfg = traj_cfg.get("occupancy", {})
+    bounds_xy = traj_cfg.get("bounds_xy", [-6.0, 6.0, -6.0, 8.0])
+    x_min, x_max, y_min, y_max = [float(v) for v in bounds_xy]
+
+    cell_size = float(occ_cfg.get("cell_size_m", 0.1))
+    z_slice = float(occ_cfg.get("z_slice_m", 1.0))
+    buffer_m = float(occ_cfg.get("buffer_m", 0.5))
+    min_path_m = float(occ_cfg.get("min_path_m", 3.0))
+    max_retries = int(occ_cfg.get("max_retries", 20))
+
+    np.random.seed(seed)
+
+    print(f"Occupancy map: bounds=({x_min},{y_min})→({x_max},{y_max}) z={z_slice}m cell={cell_size}m")
+    om_iface = _omap.acquire_omap_interface()
+    om_iface.set_cell_size(cell_size)
+    om_iface.set_transform(
+        (0.0, 0.0, z_slice),
+        (x_min, y_min, 0.0),
+        (x_max, y_max, 0.0),
+    )
+    om_iface.update()
+    simulation_app.update()
+    om_iface.generate()
+    simulation_app.update()
+
+    dims = om_iface.get_dimensions()   # [width_px, height_px]
+    min_b = om_iface.get_min_bound()   # [x_min, y_min, z_min] world coords
+    raw_buf = list(om_iface.get_buffer())
+
+    # dims[0]=width(X cols), dims[1]=height(Y rows); buffer is row-major
+    width_px = int(dims[0])
+    height_px = int(dims[1])
+    print(f"  Grid: {width_px}×{height_px} px, origin=({min_b[0]:.2f},{min_b[1]:.2f})")
+
+    buf_arr = np.array(raw_buf, dtype=np.float32)
+    data = buf_arr.reshape(height_px, width_px)
+
+    # _omap: 0.0→freespace, 1.0→occupied, else→unknown
+    occ_data = np.full((height_px, width_px), OccupancyMapDataValue.UNKNOWN, dtype=np.uint8)
+    occ_data[data == 0.0] = OccupancyMapDataValue.FREESPACE
+    occ_data[data == 1.0] = OccupancyMapDataValue.OCCUPIED
+
+    free_px = int(np.sum(occ_data == OccupancyMapDataValue.FREESPACE))
+    print(f"  Freespace: {free_px}/{width_px * height_px} px ({100*free_px/(width_px*height_px):.1f}%)")
+
+    origin = (float(min_b[0]), float(min_b[1]), 0.0)
+    omap = OccupancyMap(data=occ_data, resolution=cell_size, origin=origin)
+    omap_buffered = omap.buffered_meters(buffer_m)
+
+    nav_dir.mkdir(parents=True, exist_ok=True)
+    omap.save_ros(str(nav_dir))
+
+    sampler = UniformPoseSampler()
+    for attempt in range(max_retries):
+        start_pose = sampler.sample(omap_buffered)
+        start_px = omap.world_to_pixel_numpy(np.array([[start_pose.x, start_pose.y]]))
+        # generate_paths expects (row, col) = (y_px, x_px)
+        start_ij = (int(start_px[0, 1]), int(start_px[0, 0]))
+
+        freespace = omap_buffered.freespace_mask()
+        result = generate_paths(start_ij, freespace)
+
+        valid = result.get_valid_end_points()
+        if len(valid[0]) < 2:
+            print(f"  Attempt {attempt+1}: no reachable ends, retry")
+            continue
+
+        end_ij = result.sample_random_end_point()
+        path_ij = result.unroll_path(end_ij)          # (N,2) [row, col]
+        path_ij, _ = compress_path(path_ij)
+        path_xy_px = path_ij[:, ::-1]                 # → [col, row] = x_px, y_px
+        path_world = omap.pixel_to_world_numpy(path_xy_px)  # (N,2) world [x,y]
+
+        diffs = np.diff(path_world, axis=0)
+        path_length = float(np.sum(np.sqrt(np.sum(diffs ** 2, axis=1))))
+        if path_length < min_path_m:
+            print(f"  Attempt {attempt+1}: path {path_length:.1f}m < {min_path_m}m, retry")
+            continue
+
+        waypoints = [[float(p[0]), float(p[1]), camera_z, 90.0, 0.0, 0.0] for p in path_world]
+        print(f"  Path found: {len(waypoints)} pts, {path_length:.1f}m (attempt {attempt+1})")
+
+        path_record = {
+            "attempt": attempt + 1,
+            "path_length_m": round(path_length, 3),
+            "num_waypoints": len(waypoints),
+            "start_world_xy": [round(float(start_pose.x), 4), round(float(start_pose.y), 4)],
+            "end_world_xy": [round(float(path_world[-1, 0]), 4), round(float(path_world[-1, 1]), 4)],
+            "waypoints_world_xy": [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in path_world],
+        }
+        (nav_dir / "planned_path.json").write_text(json.dumps(path_record, indent=2))
+        return waypoints
+
+    raise RuntimeError(f"No valid occupancy path found after {max_retries} attempts")
+
+
 def run_stage4(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     cfg = load_cfg(config_path)
@@ -296,7 +420,7 @@ def run_stage4(args: argparse.Namespace) -> None:
     write_run_config(output_dir, cfg, config_path)
     append_event(
         events_path,
-        "stage4_output_tree_created",
+        "stage5_output_tree_created",
         {"output_dir": str(output_dir.resolve()), "seed": seed},
     )
 
@@ -329,7 +453,7 @@ def run_stage4(args: argparse.Namespace) -> None:
 
     append_event(
         events_path,
-        "stage4_environment_loaded",
+        "stage5_environment_loaded",
         {"environment": cfg["environment"]["name"], "environment_url": environment_url},
     )
 
@@ -431,7 +555,7 @@ def run_stage4(args: argparse.Namespace) -> None:
     dist_group = _add_distractors()
     _update_semantics()
 
-    append_event(events_path, "stage4_scene_spawned", {
+    append_event(events_path, "stage5_scene_spawned", {
         "palletjacks": pj_group is not None,
         "forklifts": fl_group is not None,
         "pallets": pa_group is not None,
@@ -531,7 +655,7 @@ def run_stage4(args: argparse.Namespace) -> None:
     clipping = legacy_cam.get("clipping_range", [0.1, 1000000.0])
 
     print(f"Episode camera: fov={fov_deg:.1f}° focal_length={focal_length:.3f}mm")
-    append_event(events_path, "stage4_camera_sampled", {
+    append_event(events_path, "stage5_camera_sampled", {
         "fov_deg": round(fov_deg, 3),
         "focal_length_mm": round(focal_length, 4),
         "resolution": [width, height],
@@ -539,12 +663,28 @@ def run_stage4(args: argparse.Namespace) -> None:
 
     # ── Trajectory ────────────────────────────────────────────────────────────
     traj_cfg = cfg.get("trajectory", {})
-    waypoints_raw = traj_cfg.get("waypoints", [])
-    if len(waypoints_raw) < 2:
-        raise ValueError("trajectory.waypoints requires at least 2 entries")
-    waypoints = [list(map(float, wp)) for wp in waypoints_raw]
+    traj_mode = traj_cfg.get("mode", "waypoint_list")
     num_frames = int(cfg.get("run", {}).get("num_frames", 30))
-    poses = _interpolate_waypoints(waypoints, num_frames)
+    camera_z = float(cameras_cfg.get("ego", {}).get("height_m", 1.6))
+
+    if traj_mode == "waypoint_list":
+        waypoints_raw = traj_cfg.get("waypoints", [])
+        if len(waypoints_raw) < 2:
+            raise ValueError("trajectory.waypoints requires at least 2 entries")
+        waypoints = [list(map(float, wp)) for wp in waypoints_raw]
+        poses = _interpolate_waypoints(waypoints, num_frames)
+        x0, y0, z0, r0, p0, yaw0_rel, _ = poses[0]
+        seg0_dx = waypoints[1][0] - waypoints[0][0]
+        seg0_dy = waypoints[1][1] - waypoints[0][1]
+        init_pos = (x0, y0, z0)
+        init_rot = (r0, p0, math.degrees(math.atan2(-seg0_dx, seg0_dy)) + yaw0_rel)
+    else:
+        # occupancy_path: placeholder position for warmup; real path computed
+        # after timeline.play() when the settled scene is visible to the omap.
+        waypoints = None
+        poses = None
+        init_pos = (0.0, 0.0, camera_z)
+        init_rot = (90.0, 0.0, 0.0)
 
     # ── Ego camera prim ───────────────────────────────────────────────────────
     camera_prim_path = "/World/EgoCamera"
@@ -559,12 +699,8 @@ def run_stage4(args: argparse.Namespace) -> None:
     translate_op = xformable.AddTranslateOp()
     rotate_op = xformable.AddRotateXYZOp()
 
-    x0, y0, z0, r0, p0, yaw0_rel, _ = poses[0]
-    seg0_dx = waypoints[1][0] - waypoints[0][0]
-    seg0_dy = waypoints[1][1] - waypoints[0][1]
-    yaw0 = math.degrees(math.atan2(-seg0_dx, seg0_dy)) + yaw0_rel
-    translate_op.Set((x0, y0, z0))
-    rotate_op.Set((r0, p0, yaw0))
+    translate_op.Set(init_pos)
+    rotate_op.Set(init_rot)
 
     # ── Chase camera prim (optional) ──────────────────────────────────────────
     chase_camera_prim_path = None
@@ -645,7 +781,7 @@ def run_stage4(args: argparse.Namespace) -> None:
         chase_writer.initialize(output_dir=str(paths["chase"]), rgb=True)
         chase_writer.attach(rp_chase)
 
-    append_event(events_path, "stage4_capture_start", {
+    append_event(events_path, "stage5_capture_start", {
         "num_frames": num_frames,
         "modalities": {
             "rgb": bool(capture_cfg.get("rgb", True)),
@@ -667,6 +803,16 @@ def run_stage4(args: argparse.Namespace) -> None:
     timeline = omni.timeline.get_timeline_interface()
     if not timeline.is_playing():
         timeline.play()
+
+    # ── Occupancy path (computed here so the settled scene is in collision) ──
+    if traj_mode == "occupancy_path":
+        nav_dir = output_dir / "nav"
+        waypoints = _build_occupancy_waypoints(cfg, simulation_app, nav_dir, camera_z, seed)
+        poses = _interpolate_waypoints(waypoints, num_frames)
+        append_event(events_path, "stage5_occupancy_path_sampled", {
+            "num_waypoints": len(waypoints),
+            "nav_dir": str(nav_dir),
+        })
 
     for frame_index in range(num_frames):
         x, y, z, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
@@ -741,7 +887,7 @@ def run_stage4(args: argparse.Namespace) -> None:
     )
     append_event(
         events_path,
-        "stage4_complete",
+        "stage5_complete",
         {"image_count": image_count, "num_frames": num_frames, "video_files": video_files},
     )
     simulation_app.close()

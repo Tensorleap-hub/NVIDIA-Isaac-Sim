@@ -1,12 +1,12 @@
-# Stage-4 trajectory SDG config.
-# Ghost camera moves along a fixed waypoint list; warehouse is loaded once.
+# Stage-5 trajectory SDG config.
+# Ghost camera follows a random free-space path sampled from an occupancy map.
 
 extends: sdg_config_mean_std.yaml
 
 run:
   headless: true
   num_frames: 30
-  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/trajectory_stage4
+  data_dir: /isaac-sim/palletjack_sdg/palletjack_data/trajectory_stage5
 
 simulation:
   mode: trajectory
@@ -23,15 +23,19 @@ agent:
   turn_rate_dps: 90.0
 
 trajectory:
-  mode: waypoint_list
-  # [x, y, z, roll, pitch, yaw_relative_to_travel]
-  # roll=90 keeps camera upright; yaw is relative to direction of travel
-  # (0=straight ahead, +90=look left, -90=look right).
+  mode: occupancy_path       # occupancy_path | waypoint_list
+  bounds_xy: [-6.0, 6.0, -6.0, 8.0]
+  occupancy:
+    cell_size_m: 0.1         # occupancy map resolution
+    z_slice_m: 1.0           # height (m) at which to scan for obstacles
+    buffer_m: 0.5            # safety margin dilated around obstacles
+    min_path_m: 3.0          # reject paths shorter than this
+    max_retries: 20          # attempts before raising an error
+  # fallback waypoints used when mode: waypoint_list
   waypoints:
     - [0.0, -5.0, 1.6,  90.0, 0.0,  0.0]
     - [3.0,  0.0, 1.6,  90.0, 0.0,  0.0]
     - [0.0,  5.0, 1.6,  90.0, 0.0,  0.0]
-  bounds_xy: [-6.0, 6.0, -6.0, 8.0]
 
 cameras:
   ego:
