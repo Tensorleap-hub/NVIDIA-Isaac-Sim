@@ -291,7 +291,9 @@ def _build_occupancy_waypoints(
     the same format as trajectory.waypoints: [x, y, z, roll, pitch, yaw_rel].
     """
     import numpy as np
+    import omni.usd
     from isaacsim.core.utils.extensions import enable_extension
+    from pxr import Sdf, UsdGeom, UsdPhysics
 
     enable_extension("isaacsim.asset.gen.omap")
     enable_extension("isaacsim.replicator.mobility_gen")
@@ -301,6 +303,27 @@ def _build_occupancy_waypoints(
     from isaacsim.replicator.mobility_gen.impl.occupancy_map import OccupancyMap, OccupancyMapDataValue
     from isaacsim.replicator.mobility_gen.impl.path_planner import compress_path, generate_paths
     from isaacsim.replicator.mobility_gen.impl.pose_samplers import UniformPoseSampler
+
+    # Ensure a PhysicsScene exists — without one the omap sees nothing.
+    # The warehouse USD often embeds its own scene; this only creates one when absent.
+    import carb
+    stage = omni.usd.get_context().get_stage()
+    existing_scenes = [p for p in stage.Traverse() if p.GetTypeName() == "PhysicsScene"]
+    if not existing_scenes:
+        from pxr import PhysxSchema
+        physics_scene = UsdPhysics.Scene.Define(stage, Sdf.Path("/World/physicsScene"))
+        physx_scene_api = PhysxSchema.PhysxSceneAPI.Apply(physics_scene.GetPrim())
+        physx_scene_api.GetEnableGPUDynamicsAttr().Set(False)
+        physx_scene_api.GetBroadphaseTypeAttr().Set("MBP")
+        print("  OMap: created PhysicsScene (CPU/MBP)")
+    else:
+        print(f"  OMap: using existing PhysicsScene at {existing_scenes[0].GetPath()}")
+
+    # Keep PhysX debug visualization off — loading omni.physx can enable it.
+    carb.settings.get_settings().set("/physics/visualizationMode", 0)
+
+    for _ in range(2):
+        simulation_app.update()
 
     traj_cfg = cfg.get("trajectory", {})
     occ_cfg = traj_cfg.get("occupancy", {})
@@ -331,6 +354,18 @@ def _build_occupancy_waypoints(
     dims = om_iface.get_dimensions()   # [width_px, height_px]
     min_b = om_iface.get_min_bound()   # [x_min, y_min, z_min] world coords
     raw_buf = list(om_iface.get_buffer())
+
+    # The omap extension loads isaacsim.util.debug_draw and draws the occupancy
+    # grid as 3D lines that appear in camera renders.  Clear them immediately so
+    # they don't contaminate the captured frames.
+    try:
+        from isaacsim.util.debug_draw import _debug_draw
+        dd = _debug_draw.acquire_debug_draw_interface()
+        dd.clear_lines()
+        dd.clear_points()
+        print("  OMap: debug draw cleared")
+    except Exception as _e:
+        print(f"  OMap: debug draw clear skipped ({_e})")
 
     # dims[0]=width(X cols), dims[1]=height(Y rows); buffer is row-major
     width_px = int(dims[0])
@@ -394,6 +429,9 @@ def _build_occupancy_waypoints(
             "waypoints_world_xy": [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in path_world],
         }
         (nav_dir / "planned_path.json").write_text(json.dumps(path_record, indent=2))
+        # Release the omap interface so its C++ render callbacks are unregistered,
+        # preventing debug lines from being redrawn in captured frames.
+        _omap.release_omap_interface(om_iface)
         return waypoints
 
     raise RuntimeError(f"No valid occupancy path found after {max_retries} attempts")
@@ -813,6 +851,14 @@ def run_stage4(args: argparse.Namespace) -> None:
             "num_waypoints": len(waypoints),
             "nav_dir": str(nav_dir),
         })
+        # Belt-and-suspenders: clear any debug draw that may have been redrawn since
+        # _build_occupancy_waypoints() cleared it.  Must happen before first frame.
+        try:
+            from isaacsim.util.debug_draw import _debug_draw
+            _debug_draw.acquire_debug_draw_interface().clear_lines()
+            _debug_draw.acquire_debug_draw_interface().clear_points()
+        except Exception:
+            pass
 
     for frame_index in range(num_frames):
         x, y, z, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
