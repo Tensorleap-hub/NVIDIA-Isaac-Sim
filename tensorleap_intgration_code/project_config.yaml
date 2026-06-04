@@ -1,8 +1,8 @@
 image_size: 640
 
 data:
-  data_path: "/Users/orram/Tensorleap/data/warehouse"
-  annotations_file: "dataset/labels/loco-all-v1.json"
+  data_path: "/fsx/warehouse/"
+  annotations_file: "loco_dataset/labels/loco-all-v1.json"
 
 model_path: "yolo11s.onnx"
 model_type: "YOLO11"
@@ -19,9 +19,6 @@ max_num_of_objects: 400
 split:
   train_subsets:
     - "subset-2"
-    - "subset-4"
-    - "subset-5"
-    - "subset-1"
   val_subsets:
     - "subset-3"
 
@@ -54,14 +51,14 @@ check_subset_index: 0
 check_sample_index: 0
 
 base_synth_data:
-  base_path: "/Users/orram/Tensorleap/data/warehouse/base_v2_final"
+  base_path: "/fsx/warehouse/base_v2_final"
   additional: true          # flat exp*/ directory structure (no palletjack_run_* wrapper needed)
-  num_samples:            # null = no limit; per-experiment cap after deterministic shuffle
+  num_samples: 873         # null = no limit; per-experiment cap after deterministic shuffle
 
 Tensorleap-Optimized:
-  base_path: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
+  base_path: "/fsx/warehouse/top-runs-may-ok"
   additional: true          # set to false to exclude optuna-generated data entirely
-  num_samples:
+  num_samples: 873
 
 dino_distances_csv: "simulation_calibration_loop/population_view/dino-population_top_performance.csv"
 
