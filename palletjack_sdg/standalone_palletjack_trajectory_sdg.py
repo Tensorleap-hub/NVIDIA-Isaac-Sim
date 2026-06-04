@@ -380,6 +380,17 @@ def _build_occupancy_waypoints(
     occ_data[data == 0.0] = OccupancyMapDataValue.FREESPACE
     occ_data[data == 1.0] = OccupancyMapDataValue.OCCUPIED
 
+    # Mark the outer boundary cells as occupied to create a virtual safety margin
+    # at the scan edges.  Warehouse walls often lack physics collision so the omap
+    # sees them as freespace — without this, paths can run straight into geometry.
+    boundary_margin_m = float(occ_cfg.get("boundary_margin_m", 2.0))
+    boundary_px = max(1, int(boundary_margin_m / cell_size))
+    occ_data[:boundary_px, :] = OccupancyMapDataValue.OCCUPIED   # south
+    occ_data[-boundary_px:, :] = OccupancyMapDataValue.OCCUPIED  # north
+    occ_data[:, :boundary_px] = OccupancyMapDataValue.OCCUPIED   # west
+    occ_data[:, -boundary_px:] = OccupancyMapDataValue.OCCUPIED  # east
+    print(f"  Boundary margin: {boundary_margin_m}m ({boundary_px}px) marked occupied")
+
     free_px = int(np.sum(occ_data == OccupancyMapDataValue.FREESPACE))
     print(f"  Freespace: {free_px}/{width_px * height_px} px ({100*free_px/(width_px*height_px):.1f}%)")
 
