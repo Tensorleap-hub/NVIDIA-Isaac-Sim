@@ -255,7 +255,10 @@ Minimum metadata per frame:
 | 2 | ✅ done | Per-episode scene randomization (palletjacks, forklifts, pallets, distractors, lighting, materials); frame-0 consistency fix via warmup step before writer attach |
 | 3 | ✅ done | Per-episode FOV sampling, chase camera, per-modality output folders, calibration loop discovery fix |
 | 4 | ✅ done | CosmosWriter fixed: script nodes opt-in + timeline.play() + pause_timeline=False; 5 MP4s produced |
-| 5–10 | not started | |
+| 5 | ✅ done | Occupancy-map free-space path planning; boundary margin for undetected walls; BFS path + nav artifacts |
+| 6 | ✅ done — **pivoted to OD-focused ghost camera** | After iterating through kinematic Carter, dynamic Carter, sweep tests, and rigid props, we landed on the conclusion that for an OD training-data pipeline the robot body is not part of the labels and only generates stuck trajectories. Default is now `agent.type: camera_rig` (ghost). Carter remains opt-in. Full camera mount config + per-frame sinusoidal jitter (pitch, roll) for handheld / uneven-terrain realism. |
+| 6.1 | in progress | Camera realism extensions: motion blur (time-sampled xform ops), depth-of-field (fStop/focusDistance), position jitter (lateral/vertical), focal_length override, fisheye post-render. |
+| 7–10 | not started | |
 
 ### Stage 4 Validation (completed 2026-06-02)
 
@@ -479,6 +482,97 @@ Root cause was three missing setup steps required by CosmosWriter:
 3. `pause_timeline=False` in `rep.orchestrator.step()` — CosmosWriter internals require the timeline to keep running between steps
 
 Fix: added all three in `run_stage4()`. Ghost camera still works correctly since it's driven by explicit USD translate/rotate ops, not physics.
+
+### Stage 5 Validation (completed 2026-06-29)
+
+- ✅ EXIT:0, 30 frames, no errors
+- ✅ `Camera/rgb/` — 30 PNG ego frames
+- ✅ `Camera_chase/` — 30 PNG chase frames
+- ✅ `Camera/bounding_box_2d_tight/` — 30 .npy annotation files
+- ✅ `nav/planned_path.json` — path found on attempt 1; 13.887m path, 3 waypoints; start (-2.6, 8.3) → end (-4.5, -4.8)
+- ✅ `nav/map.png` + `nav/map.yaml` — occupancy map saved
+- ✅ `video/clip_0000/` — 5 MP4s (rgb, depth, edges, segmentation, shaded_seg) × 30 frames each
+- ✅ `trajectory/poses.jsonl` — 30 frames; frame-0 pos matches path start, frame-29 pos matches path end
+- ✅ `trajectory/events.jsonl` — all stage5 events fired including `stage5_occupancy_path_sampled`
+- ✅ `run_manifest.json` — image_count: 30, video_files lists all 5 MP4 paths
+- ✅ `discover_generated_images(Camera/rgb)` — finds 30 frames, PASS
+- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory-tests/20260629_091013_stage5_validation/`
+
+### Stage 6 Validation (completed 2026-06-29) — v1 kinematic Carter
+
+- ✅ EXIT:0, 60 frames, no errors
+- ✅ Nova Carter loaded as USD reference under `/World/Carter/body` (parent Xform owns the ops because the Carter USD root already has translate+orient+scale)
+- ✅ Ego camera auto-discovered: `/World/Carter/body/chassis_link/sensors/front_hawk/left/camera_left` (FOV overridden to 75°)
+- ✅ `Camera/rgb/` — 60 PNG ego frames from robot's front Hawk
+- ✅ `Camera_chase/` — 60 PNG chase frames (robot body visible behind)
+- ✅ `Camera/bounding_box_2d_tight/` — 60 .npy files
+- ✅ `nav/planned_path.json` — 14.6m path, 3 waypoints; start (-2.6, 8.3) → end (-2.7, -6.3)
+- ✅ `video/clip_0000/` — 5 MP4s × 60 frames
+- ✅ `trajectory/poses.jsonl` — includes `agent_type=carter`, `agent_prim`, `agent_pos`, `agent_yaw_deg`
+- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory-tests/20260629_stage6_validation/`
+
+**Known limitation (v1):** Carter is kinematically posed each frame (SetTranslateOp+SetRotateXYZOp), so the body slides but wheels don't physically rotate. Frame-to-frame motion is continuous (~25 cm/frame). Stage 6.2 candidate work: drive via `DifferentialController.apply_wheel_actions` + pure-pursuit (MobilityGen pattern) so wheels actually spin.
+
+### Stage 6 v1.1 fixes (2026-06-29)
+
+Initial v1 run had the robot tipping over from colliding with cones/barrels/pallets (props below the z=1.6m path scan), because the Nova Carter USD's articulation is dynamic by default — PhysX accumulated tilt across frames once we teleported into a prop. Fix:
+
+- Strip `UsdPhysics.ArticulationRootAPI` from the Carter subtree
+- Set `kinematicEnabled=True` on every `RigidBodyAPI` under the robot (chassis_link, wheels, sensors)
+- Spawn Carter at (-20, -20, 0) — off the occupancy map — so its footprint doesn't block path planning during the omap scan
+- Switch ego from `front_hawk/left/camera_left` (offset stereo eye that hugs shelf walls in narrow aisles) to `front_owl/camera` (centered fisheye)
+
+Behavior now matches spec:
+- ✅ Planner avoids walls/shelves at z=1.6m scan
+- ✅ Kinematic chassis pushes dynamic props (cones, barrels) without tipping
+- ✅ Centered Owl camera gives clean ego views down warehouse aisles
+- ✅ Re-validated artifacts: `s3://nvidia-isaac-bucket/trajectory-tests/20260629_stage6_kinematic/`
+
+### Stage 6 v2 → ghost-camera pivot (2026-06-30)
+
+**Why the pivot:** After v1.1, we attempted v2 (physics-driven Carter via `DifferentialController` + pure-pursuit). Robot was upright and respected static walls, but two problems emerged:
+
+1. **Carter got stuck constantly** — narrow aisles + heading drift = grinding into walls. Wheel friction integration also caused ~15% commanded speed efficiency, so most trajectories ran out of frames mid-path.
+2. **For an OD training-data pipeline, the robot body is not in the labels.** Frames showing the Carter chassis are wasted pixels; the model never sees a Carter at inference. The "physical robot" abstraction adds complexity without OD value.
+
+**Direction change:** Default agent is now `camera_rig` (ghost). Stages 1–5 already used this; we extend it with full mount config + per-frame jitter. Carter remains available (`agent.type: carter`) for users who do need AMR-style data with the body in view.
+
+**What stage 6 became:** a configurable camera platform on top of the existing occupancy-path planner.
+
+#### New camera config schema (all Optuna-searchable)
+
+```yaml
+cameras:
+  ego:
+    resolution: [960, 544]
+    fov_mean: 75.0
+    fov_std: 0.0
+    projection: perspective       # perspective | orthographic
+    height_m: 1.4                 # mount Z (ghost) / above chassis_link (carter)
+    pitch_deg: 0.0                # static nose tilt (+ up)
+    roll_deg: 0.0                 # static side tilt (+ right side down)
+    pitch_jitter:                 # sinusoidal handheld / uneven-terrain feel
+      amp_deg: 2.0
+      hz: 1.5
+    roll_jitter:
+      amp_deg: 1.5
+      hz: 1.2
+    mount:                        # carter-only chassis-relative offsets
+      forward_m: 0.30
+      lateral_m: 0.00
+```
+
+#### Stage 6.1 roadmap (camera realism extensions)
+
+Order of work, validated after each step:
+
+0. **Motion blur via time-sampled xform ops** — ghost camera teleports with single Set() per frame, which gives the renderer no motion vectors and so no blur. Fix: write pose at `shutter_open` and `shutter_close` each frame. Adds `cameras.ego.shutter_close_fraction` to config. Unlocks scene-object blur too once `delta_time > 0`.
+1. **Depth-of-field**: `cameras.ego.fStop` + `focusDistance`. Critical realism for models that ship on cameras with limited DOF.
+2. **Position jitter**: `lateral_jitter_m`, `vertical_jitter_m` to complement the existing orientation jitter — completes the walking/driving-on-uneven-floor feel.
+3. **Focal length direct override**: lets users match a calibrated lens spec instead of back-solving from FOV.
+4. **Fisheye via post-render OpenCV**: USD has no spherical projection. Render perspective at very wide FOV, apply `cv2.fisheye.undistortImage` inverse post-write. ~30 lines of post-processing.
+
+Latest baseline: `s3://nvidia-isaac-bucket/trajectory-tests/20260630_ghost_jitter/`
 
 ### Stage 5: Occupancy Map And Random Free-Space Trajectories
 
