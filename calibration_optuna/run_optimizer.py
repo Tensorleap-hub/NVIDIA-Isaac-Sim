@@ -5,7 +5,7 @@ import pandas as pd
 
 from calibration_optuna import DEFAULT_CONFIG
 from calibration_optuna.data_utils import prepare_client_data_for_optimizer, \
-    load_distributions_from_metadata, infer_bounds_and_types_from_metadata
+    load_distributions_from_metadata
 from calibration_optuna.experiment_runner import ExperimentRunner
 
 
@@ -72,7 +72,9 @@ def suggestions_to_csv_format(
 def run_optimizer_iteration(
     real_embeddings: np.ndarray,
     embeddings_per_simulation: List[np.ndarray],
-    metadata_per_simulation: List['pd.DataFrame']
+    metadata_per_simulation: List['pd.DataFrame'],
+    param_bounds: Dict[str, Dict],
+    param_type: Dict[str, Dict[str, str]],
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     High-level function: run one optimization iteration from client data format.
@@ -83,7 +85,7 @@ def run_optimizer_iteration(
     Workflow:
     1. Convert per-simulation client data to unified optimizer format
        (auto-generates simulation names: simulation_1, simulation_2, etc.)
-    2. Extract distributions and infer bounds from metadata
+    2. Extract seed distributions from metadata (used as initial reference trials)
     3. Create runner (or reuse existing one)
     4. Run optimization iteration
     5. Get best trials seen so far
@@ -98,6 +100,10 @@ def run_optimizer_iteration(
                                  Each DataFrame contains parameters for that simulation type
                                  All rows in a DataFrame should have identical parameter values
                                  Parameters are inferred from DataFrame column names
+        param_bounds: Declared search space per simulation
+                      e.g., {'simulation_1': {'void_count_mean': [1.0, 10.0], ...}}
+        param_type: Declared param types per simulation
+                    e.g., {'simulation_1': {'void_count_mean': 'int', ...}}
 
     Returns:
         Tuple of (suggestions_df, best_trials_df):
@@ -128,10 +134,8 @@ def run_optimizer_iteration(
                     "PCA dim": real_embeddings.shape[-1],
                     "Number of metadata columns": len(metadata_df.columns)
                         })
-    # Extract distributions and infer bounds
+    # Extract seed distributions (registered as warm-start trials)
     distributions = load_distributions_from_metadata(metadata_df)
-    param_bounds, param_type = infer_bounds_and_types_from_metadata(metadata_df, group_names)
-    print(str(param_bounds)[:10000])
 
     # Compute paramaters and dynamically override config
     simulation_number = len(embeddings_per_simulation)

@@ -42,7 +42,6 @@ class OptunaOptimizer:
         config: Dict,
         param_bounds: Dict[str, Dict],
         param_type: Dict[str, Dict[str, str]],
-        logit_bounds: Tuple[float, float] = (-5.0, 5.0)
     ):
         """
         Initialize Optuna optimizer.
@@ -50,16 +49,16 @@ class OptunaOptimizer:
         Args:
             experiment_dir: Path to experiment directory for SQLite storage
             config: Experiment configuration dict with optimization_metrics, etc.
+                    Reads `logit_bounds` (defaults to (-5.0, 5.0)).
             param_bounds: Dict mapping simulation names to their parameter bounds
                           e.g., {'simulation_1': {'void_count_mean': [1.0, 10.0], ...}}
                           Simulation names (group_names) are inferred from the keys
             param_type: Dict mapping simulation names to parameter type strings
-            logit_bounds: Min/max bounds for shape logits (default: -5.0 to 5.0)
         """
         self.experiment_dir = Path(experiment_dir)
         self.config = config
         self.study_path = self.experiment_dir / "optuna_study.db"
-        self.logit_bounds = logit_bounds
+        self.logit_bounds = tuple(config.get('logit_bounds', (-5.0, 5.0)))
         self.param_type = param_type
 
         # Validate inputs
@@ -138,7 +137,7 @@ class OptunaOptimizer:
         print(f"  Study storage: {self.study_path}")
         print(f"  Study name: {study_name}")
         print(f"  Objectives: {n_objectives} ({', '.join(self.optimization_metrics)})")
-        print(f"  Logit bounds: {logit_bounds}")
+        print(f"  Logit bounds: {self.logit_bounds}")
         print(f"  TPE startup trials: {n_startup_trials}")
         print(f"  TPE multivariate: {multivariate}")
         print(f"  Groups: {', '.join(self.group_names)}")
@@ -246,25 +245,6 @@ class OptunaOptimizer:
             return optuna.distributions.FloatDistribution(float(min_val), float(max_val))
 
         raise ValueError(f"Invalid param_type: {param_type}")
-
-    def _expand_logit_bounds_from_data(self, current_distributions: List[Tuple[str, Dict]]):
-        min_logit = float('inf')
-        max_logit = float('-inf')
-
-        for _, params in current_distributions:
-            for param_name, value in params.items():
-                if param_name.startswith('shape_logit_'):
-                    min_logit = min(min_logit, value)
-                    max_logit = max(max_logit, value)
-
-        if min_logit < float('inf') and max_logit > float('-inf'):
-            margin = max(abs(max_logit - min_logit) * 0.2, 1.0)
-            new_lower = min(self.logit_bounds[0], min_logit - margin)
-            new_upper = max(self.logit_bounds[1], max_logit + margin)
-
-            if new_lower < self.logit_bounds[0] or new_upper > self.logit_bounds[1]:
-                print(f"  Expanding logit bounds from {self.logit_bounds} to ({new_lower:.2f}, {new_upper:.2f})")
-                self.logit_bounds = (new_lower, new_upper)
 
     def _build_full_distributions(self) -> Dict:
         """
@@ -602,9 +582,6 @@ class OptunaOptimizer:
 
         current_distributions = self._edit_current_distribution(current_distributions)
 
-        # Expand logit bounds to accommodate actual data range with safety margin
-        self._expand_logit_bounds_from_data(current_distributions)
-
         # Build full distributions once (same for all trials in joint mode)
         distributions = self._build_full_distributions()
 
@@ -615,13 +592,23 @@ class OptunaOptimizer:
         for idx, ((dist_id, params), metrics, trial_number) in enumerate(zip(current_distributions, metrics_list, trial_numbers)):
             # Get metric values
             trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
-            # Clamp params to distribution bounds (real data may have values slightly outside
-            # the optimizer's inferred bounds, e.g. delta=0.0 when low=epsilon)
+            # Clamp params to distribution bounds. The legitimate case is the
+            # delta≈0 edge of the *_min/*_max → min/delta reparameterization,
+            # where seed pairs with max == min produce delta < epsilon. For all
+            # other out-of-range values, warn loudly so the caller can spot
+            # mis-declared bounds in their config.
             clamped_params = {}
             for key, val in params.items():
                 dist = distributions.get(key)
                 if dist is not None and hasattr(dist, 'low') and hasattr(dist, 'high'):
-                    val = max(dist.low, min(dist.high, val))
+                    if val < dist.low or val > dist.high:
+                        is_delta = '_delta' in key
+                        if not is_delta:
+                            print(
+                                f"  WARNING: seed value {val!r} for '{key}' falls outside "
+                                f"declared bounds [{dist.low}, {dist.high}]; clamping."
+                            )
+                        val = max(dist.low, min(dist.high, val))
                 clamped_params[key] = val
             if trial_number is None or trial_number not in existing_trial_numbers:
                 # External seed data, or a trial from a previous in-memory session

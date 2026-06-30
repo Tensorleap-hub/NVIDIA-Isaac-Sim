@@ -62,11 +62,18 @@ class TPESamplerConfig:
 
 @dataclass
 class SearchSpaceConfig:
-    """Controls which flattened Isaac parameters are exposed to Optuna."""
+    """Controls which flattened Isaac parameters are exposed to Optuna.
+
+    `bounds` declares the explicit Optuna search range per flattened parameter
+    path. Numeric paths map to `[min, max]`; categorical paths map to a list of
+    allowed values. Every path that survives include/exclude filtering must have
+    an entry here — the controller raises if any are missing.
+    """
 
     themes: list[str] = field(default_factory=list)
     include: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
+    bounds: dict[str, list[Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -285,6 +292,7 @@ def _expand_search_space(search_space: SearchSpaceConfig) -> SearchSpaceConfig:
         themes=list(search_space.themes),
         include=deduped_include,
         exclude=deduped_exclude,
+        bounds=dict(search_space.bounds),
     )
 
 

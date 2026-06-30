@@ -9,7 +9,7 @@ This module implements an iterative calibration workflow for Isaac synthetic dat
 The workflow is:
 
 1. Load a set of seed Isaac YAML configs.
-2. Flatten the selected Isaac parameters into an Optuna-compatible search space.
+2. Build the Optuna search space from `search_space.include`/`themes` (which paths) plus `search_space.bounds` (the allowed range or category list for each path) — both declared in the project YAML.
 3. Compute DINOv2 embeddings for the real dataset once and cache them.
 4. Materialize the current parameter rows back into Isaac YAMLs.
 5. Run Isaac to generate synthetic images.
@@ -17,6 +17,8 @@ The workflow is:
 7. Measure synthetic-vs-real distance with `calibration_optuna`.
 8. Ask Optuna for the next batch of Isaac parameter suggestions.
 9. Repeat for `N` iterations.
+
+> **New users**: see [RUN_OPTIMIZATION.md](RUN_OPTIMIZATION.md) for a hands-on, step-by-step guide.
 
 
 ## Files
@@ -116,19 +118,22 @@ Important fields:
 
 ### Search space
 
-`search_space` controls which Isaac YAML parameters are exposed to Optuna.
+`search_space` controls which Isaac YAML parameters Optuna sees and what range it is allowed to explore for each.
 
-You can configure it in two ways:
+Fields:
 
-- `themes`: higher-level parameter groups such as `camera`, `camera-color`, `noise`, `objects`, `lighting`, `materials`, and `environment`
+- `themes`: higher-level parameter groups such as `camera`, `camera-color`, `noise`, `objects`, `lighting`, `materials`, and `environment` (expanded into explicit paths from `SEARCH_SPACE_THEMES` in `config.py`)
 - `include`: explicit path additions
 - `exclude`: explicit removals
+- `bounds`: **required** — declared `[min, max]` for numeric paths or list of categories for non-numeric paths
 
-The final search space is:
+The set of optimized paths is `expanded(themes) + include - exclude`. Every path in that final set must have a matching entry in `bounds`, or the controller fails fast at startup with a list of the missing paths.
 
-`expanded(themes) + include - exclude`
+Param types are derived automatically from the inferred parameter schema's `value_kind` (int/float/bool/str):
 
-If the final `include` list is non-empty, only those exact paths are optimized.
+- `int` → Optuna `IntDistribution`, declared as `[min, max]`
+- `float` → Optuna `FloatDistribution`, declared as `[min, max]`
+- `bool` / `str` / serialized JSON → Optuna `CategoricalDistribution`, declared as a list of allowed values
 
 Example:
 
@@ -141,6 +146,14 @@ search_space:
     - materials.textures
   exclude:
     - camera.camera_roll_std
+  bounds:
+    camera.camera_height_mean: [1.0, 3.0]
+    camera.camera_height_std: [0.0, 0.5]
+    camera.camera_tilt_mean: [-15.0, 15.0]
+    camera.fov_mean: [40.0, 90.0]
+    lighting.intensity_mean: [500.0, 5000.0]
+    lighting.visibility_choices: ["clear", "overcast", "stormy"]
+    materials.textures: ["wood", "metal", "concrete"]
 ```
 
 All non-selected Isaac fields remain fixed from the base template YAML used for materialization.
@@ -335,15 +348,20 @@ Notes:
 ## Typical Usage Pattern
 
 1. Edit `project_config.yaml`.
-2. Narrow `search_space.include` to the Isaac parameters you actually want to optimize.
-3. Run the smoke test if you want to validate DINOv2 and Optuna on existing data first.
-4. Run the small Isaac loop if you want a cheap end-to-end validation.
-5. Run the main workflow for the full iterative calibration loop.
+2. Narrow `search_space.themes` / `include` to the Isaac parameters you actually want to optimize.
+3. Declare a `[min, max]` (numeric) or list of categories (non-numeric) for every selected path under `search_space.bounds`. If you skip one, the controller errors with the exact list of missing paths.
+4. Run the smoke test if you want to validate DINOv2 and Optuna on existing data first.
+5. Run the small Isaac loop if you want a cheap end-to-end validation.
+6. Run the main workflow for the full iterative calibration loop.
+
+For a step-by-step walkthrough (including how to discover param paths and what to expect at each stage), see [RUN_OPTIMIZATION.md](RUN_OPTIMIZATION.md).
 
 
 ## Implementation Notes
 
 - Seed YAMLs are loaded with `extends` resolved.
-- The search domain is inferred from the seed YAML family.
+- The list of optimized paths comes from `search_space.themes` + `include` − `exclude`; the allowed range for each path is declared explicitly in `search_space.bounds`.
+- Param types (int/float/categorical) are derived from the inferred schema's `value_kind` over the seed YAMLs — only the ranges need to be declared.
+- Seed YAML values that fall outside a declared bound are clamped at registration time, with a warning. Treat that warning as a signal to fix either the bound or the seed.
 - Resume is implemented by replaying completed iterations from `state.json`.
 - The workflow currently treats the synthetic domain as a single Optuna group named `simulation_1`.

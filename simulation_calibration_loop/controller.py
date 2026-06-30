@@ -15,11 +15,9 @@ from typing import Any
 
 import optuna
 import numpy as np
-import pandas as pd
 import yaml
 
 from calibration_optuna import DEFAULT_CONFIG
-from calibration_optuna.data_utils import infer_bounds_and_types_from_metadata
 from calibration_optuna.experiment_runner import ExperimentRunner
 
 from .base_pool import BasePoolManager, PoolEntry
@@ -105,11 +103,7 @@ class SimulationCalibrationController:
         # calibration_optuna expects grouped parameter names even though this
         # workflow currently optimizes a single synthetic family.
         self.group_name = "simulation_1"
-        self.seed_metadata = self._build_distribution_metadata([row["params"] for row in self.seed_rows])
-        self.param_bounds, self.param_type = infer_bounds_and_types_from_metadata(
-            self.seed_metadata,
-            [self.group_name],
-        )
+        self.param_bounds, self.param_type = self._build_param_bounds_from_config()
 
         self.optimizer_config = deepcopy(DEFAULT_CONFIG)
         self.optimizer_config["experiment_name"] = config.project_name
@@ -757,15 +751,51 @@ class SimulationCalibrationController:
         }
         return suggestions, iteration_summary, objective_values
 
-    def _build_distribution_metadata(self, rows: list[dict[str, Any]]) -> pd.DataFrame:
-        """Build the metadata table used to infer Optuna parameter bounds/types."""
-        metadata_rows = []
-        for distribution_id, row in enumerate(rows):
-            metadata_row = {"distribution_id": distribution_id, f"shape_logit_{self.group_name}": 0.0}
-            for key, value in row.items():
-                metadata_row[f"{self.group_name}__{key}"] = value
-            metadata_rows.append(metadata_row)
-        return pd.DataFrame(metadata_rows)
+    def _build_param_bounds_from_config(self) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
+        """Map yaml-declared search-space bounds onto the filtered Isaac schema.
+
+        Bounds come from `search_space.bounds` in the project YAML. Types come
+        from the inferred parameter schema's `value_kind`. Raises with a clear
+        list of missing paths so the user knows exactly what to add.
+        """
+        declared_bounds = self.config.search_space.bounds
+        flat_keys: list[tuple[str, str]] = []
+        for spec in self.schema:
+            if spec.kind == "indexed_list":
+                length = spec.length or 0
+                for index in range(length):
+                    flat_keys.append((f"{spec.path}[{index}]", spec.value_kind))
+            else:
+                flat_keys.append((spec.path, spec.value_kind))
+
+        missing = [key for key, _ in flat_keys if key not in declared_bounds]
+        if missing:
+            joined = "\n  - ".join(missing)
+            raise ValueError(
+                "Missing search_space.bounds entries for the following parameter paths:\n  - "
+                f"{joined}\nAdd them to the project YAML under `search_space.bounds`."
+            )
+
+        bounds: dict[str, Any] = {}
+        types: dict[str, str] = {}
+        for key, value_kind in flat_keys:
+            declared = declared_bounds[key]
+            if value_kind in ("int", "float"):
+                if not isinstance(declared, list) or len(declared) != 2:
+                    raise ValueError(
+                        f"Numeric bound for '{key}' must be [min, max]; got {declared!r}"
+                    )
+                bounds[key] = list(declared)
+                types[key] = value_kind
+            else:
+                if not isinstance(declared, list) or len(declared) == 0:
+                    raise ValueError(
+                        f"Categorical bound for '{key}' must be a non-empty list; got {declared!r}"
+                    )
+                bounds[key] = list(declared)
+                types[key] = "categorical"
+
+        return {self.group_name: bounds}, {self.group_name: types}
 
     def _serialize_artifact(self, artifact: RunArtifact) -> dict[str, Any]:
         """Convert a runtime artifact into a JSON-serializable checkpoint record."""

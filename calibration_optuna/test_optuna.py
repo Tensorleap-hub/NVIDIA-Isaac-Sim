@@ -43,6 +43,22 @@ def create_grouped_dataframe(num_items, group_size_range=(40, 80), extra_string_
     return pd.DataFrame(data)
 
 
+def _bounds_for_test_dataframe(df: pd.DataFrame) -> tuple[dict, dict]:
+    """Build declared bounds + types from a test DataFrame (test-only helper)."""
+    bounds, types = {}, {}
+    for col in df.columns:
+        if pd.api.types.is_integer_dtype(df[col]):
+            bounds[col] = [int(df[col].min()), int(df[col].max())]
+            types[col] = "int"
+        elif pd.api.types.is_float_dtype(df[col]):
+            bounds[col] = [float(df[col].min()), float(df[col].max())]
+            types[col] = "float"
+        else:
+            bounds[col] = df[col].unique().tolist()
+            types[col] = "categorical"
+    return bounds, types
+
+
 def test_optuna():
     real_embeddings = np.random.random((300, 400))
     embeddings_per_simulation = [np.random.random((200, 400)), np.random.random((300, 400))]
@@ -50,10 +66,17 @@ def test_optuna():
     df2 = create_grouped_dataframe(300, (40, 80), extra_string_column=True)
     metadata_per_simulation = [df1, df2]
 
+    sim1_bounds, sim1_types = _bounds_for_test_dataframe(df1)
+    sim2_bounds, sim2_types = _bounds_for_test_dataframe(df2)
+    param_bounds = {"simulation_1": sim1_bounds, "simulation_2": sim2_bounds}
+    param_type = {"simulation_1": sim1_types, "simulation_2": sim2_types}
+
     suggestions_df, best_trials_df = run_optimizer_iteration(
         real_embeddings,
         embeddings_per_simulation,
-        metadata_per_simulation
+        metadata_per_simulation,
+        param_bounds=param_bounds,
+        param_type=param_type,
     )
 
     assert not suggestions_df.empty

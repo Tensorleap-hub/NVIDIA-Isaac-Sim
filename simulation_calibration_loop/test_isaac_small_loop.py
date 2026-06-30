@@ -6,16 +6,15 @@ import random
 from copy import deepcopy
 from pathlib import Path
 import sys
+from typing import Any
 
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
-import pandas as pd
 import yaml
 
 from calibration_optuna import DEFAULT_CONFIG
-from calibration_optuna.data_utils import infer_bounds_and_types_from_metadata
 from calibration_optuna.experiment_runner import ExperimentRunner
 from simulation_calibration_loop.config import load_workflow_config
 from simulation_calibration_loop.data import (
@@ -75,15 +74,36 @@ def build_schema(workflow_config, bounds_seed_dir: Path):
 
 
 def build_param_bounds(schema, bounds_seed_dir: Path) -> tuple[dict, dict]:
-    rows = []
-    for distribution_id, (_, config) in enumerate(load_yaml_configs(bounds_seed_dir)):
-        flattened = flatten_config(config, schema)
-        row = {"distribution_id": distribution_id, "shape_logit_simulation_1": 0.0}
-        for key, value in flattened.items():
-            row[f"simulation_1__{key}"] = value
-        rows.append(row)
-    metadata_df = pd.DataFrame(rows)
-    return infer_bounds_and_types_from_metadata(metadata_df, ["simulation_1"])
+    """Infer bounds/types directly from the small-loop seed yamls.
+
+    Standalone helper for the small-loop smoke test — production callers
+    declare bounds in their project YAML and don't go through this path.
+    """
+    flattened_rows = []
+    for _, config in load_yaml_configs(bounds_seed_dir):
+        flattened_rows.append(flatten_config(config, schema))
+
+    bounds: dict[str, Any] = {}
+    types: dict[str, str] = {}
+    for spec in schema:
+        flat_keys: list[str]
+        if spec.kind == "indexed_list":
+            length = spec.length or 0
+            flat_keys = [f"{spec.path}[{index}]" for index in range(length)]
+        else:
+            flat_keys = [spec.path]
+
+        for key in flat_keys:
+            values = [row[key] for row in flattened_rows]
+            if spec.value_kind in ("int", "float"):
+                numeric = [float(v) for v in values]
+                bounds[key] = [min(numeric), max(numeric)]
+                types[key] = spec.value_kind
+            else:
+                bounds[key] = list(dict.fromkeys(values))
+                types[key] = "categorical"
+
+    return {"simulation_1": bounds}, {"simulation_1": types}
 
 
 def sample_real_reference_paths(dataset_root: Path, annotations_file: Path, sample_count: int, seed: int) -> list[Path]:
