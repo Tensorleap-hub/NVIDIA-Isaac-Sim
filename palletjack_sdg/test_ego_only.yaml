@@ -1,9 +1,0 @@
-extends: sdg_config_trajectory.yaml
-
-run:
-  data_dir: /home/ubuntu/NVIDIA-Isaac-Sim/palletjack_sdg/palletjack_data/trajectory_test_ego_only
-  num_frames: 10
-
-cameras:
-  chase:
-    enabled: false

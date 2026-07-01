@@ -1,30 +1,8 @@
-rounds: 2
-
-# Common overrides applied to every per-theme config before each run.
-# Any key here wins over the value in the individual project_config_*.yaml.
-# promoted_baseline_dir is resolved relative to this file's location.
-common:
-  promoted_baseline_dir: ./promoted_baseline_rfdetr
-  max_iterations: 15
-  iteration_batch_size: 4
-  sample_number: 64     # maps to isaac.num_frames_override in each config
-  base_pool:
-    enabled: true
-    max_size: 60
-    pin_seeds: true
-
-configs:
-  - project_config_camera.yaml
-  - project_config_noise_lighting.yaml
-  - project_config_camera_color.yaml
-  - project_config_materials_objects.yaml
-  - project_config_scene_object.yaml
-#  - project_config_diversity.yaml
-
-rfdetr_embedder:
-  checkpoint_path: /home/ubuntu/warehouse3cls_mixed/output/rfdetr_base
-  num_classes: 3
-  layer_index: 3
-  batch_size: 16
-  resize_size: 256
-  image_size: 224
+# Placeholder — old flat-schema orchestrator was deleted in the trajectory-branch
+# purge (Stage 1.4 of optuna_search_trajectory.md). Stage 3 rewrites this slot as
+# `theme_rounds_trajectory.yaml`, so this filename is retained only to reserve
+# the path in tools that hard-code it. Do not add configs here; author them in
+# the new orchestrator instead.
+rounds: 0
+common: {}
+configs: []

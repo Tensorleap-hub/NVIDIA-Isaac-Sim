@@ -46,7 +46,7 @@ class IsaacConfig:
     """Settings for launching the external Isaac Sim generator."""
 
     isaac_sim_path: str = "/opt/IsaacSim"
-    script_path: str = "palletjack_sdg/standalone_palletjack_sdg_mean_std.py"
+    script_path: str = "palletjack_sdg/standalone_palletjack_trajectory_sdg.py"
     headless: bool = True
     num_frames_override: int | None = None
 
@@ -92,6 +92,13 @@ class BasePoolConfig:
     pin_seeds: bool = True
 
 
+# TODO(trajectory-optuna): Every entry below references random-frame parameter
+# paths (`camera.*`, `image_augmentation.*`, `dataset_noise.*`, `pallet_stacks.*`)
+# that no longer exist in the trajectory SDG surface. Stage 3 of
+# optuna_search_trajectory.md replaces this dict wholesale with trajectory
+# themes (traj-camera-intrinsics / -mount / -jitter, traj-agent, traj-scene,
+# traj-characters). Do not add new themes here; author them for the new
+# trajectory schema instead.
 SEARCH_SPACE_THEMES: dict[str, list[str]] = {
     "environment": [
         "environment.name",
