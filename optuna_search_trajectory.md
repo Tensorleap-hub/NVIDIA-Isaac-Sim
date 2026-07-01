@@ -57,6 +57,36 @@ Optuna trials on dead knobs, or fill the disk.
    Replicator per frame. Plan `num_frames_override` and
    `iteration_batch_size` accordingly.
 
+## Embedder: use the trained RF-DETR backbone, not stock DINOv2
+
+The loop already supports two embedder backends via `WorkflowConfig.embedder_backend`
+(`config.py:258`): stock `dinov2` and `rfdetr`. RF-DETR's backbone is
+`WindowedDinov2WithRegistersBackbone` (`data.py:150–151`) — it *is* a DINOv2,
+just fine-tuned on the palletjack/forklift/pallet OD task. Using the trained
+detector's backbone as the scoring embedder makes the whole optimization loop
+coherent:
+
+- **Signal alignment.** MMD between synthetic and real embeddings measures
+  distance in the feature space the OD model actually reads from. Stock DINOv2
+  distances reflect general visual similarity, which is only a proxy.
+- **Story continuity.** SDG → OD training → OD backbone → SDG-scoring closes
+  the loop end-to-end. Improvements ranked by this embedder should transfer
+  to OD accuracy more directly than DINOv2-ranked improvements.
+- **Wiring already exists.** `RFDETREmbedder` (`data.py:119–170`) loads a
+  checkpoint, unwraps to the backbone, and GAPs the selected scale to a
+  384-dim embedding. Set `embedder_backend: rfdetr` and
+  `rfdetr_embedder.checkpoint_path: <path>` in the project YAML.
+
+Action:
+
+- Pick the RF-DETR checkpoint we want to canonize for this branch (the one
+  trained on the current real+synthetic mix). Copy it into the repo or
+  reference by absolute path from the project YAML.
+- Set `embedder_backend: rfdetr` in `project_config_trajectory.yaml` at
+  Stage 3.
+- Keep the DINOv2 path installed as a fallback for debugging, but do not
+  optimize against it.
+
 ## Implementation Stages
 
 ### Stage 1 — Purge the branch of random-frame artifacts
@@ -306,6 +336,9 @@ Suggested initial optimizable knobs (all present in `sdg_config_stage6.yaml`):
     plus every knowingly no-op knob from the readiness gaps list
   - `search_space.bounds: {...}` — one entry per surviving path, min/max
     for numeric, list for categorical (materials.textures)
+  - `embedder_backend: rfdetr` +
+    `rfdetr_embedder.checkpoint_path: <path-to-trained-checkpoint>` so
+    scoring uses the trained OD backbone (see the Embedder section above).
 
 **Exit criteria:** `controller._build_param_bounds_from_config()` succeeds
 without raising for any surviving path.

@@ -273,6 +273,7 @@
   <ol>
     <li><a href="#purpose">Purpose</a></li>
     <li><a href="#readiness">Readiness Snapshot</a></li>
+    <li><a href="#embedder">Embedder: RF-DETR backbone</a></li>
     <li><a href="#stages">Implementation Stages</a>
       <ol>
         <li><a href="#stage1">Stage 1 — Purge the branch of random-frame artifacts</a></li>
@@ -326,6 +327,28 @@ Optuna trials on dead knobs, or fill the disk.
     </li>
     <li><strong>Trial cost is higher than random-frame.</strong> Trajectory steps physics + Replicator per frame. Plan <code>num_frames_override</code> and <code>iteration_batch_size</code> accordingly.</li>
   </ol>
+</div>
+
+<h2 id="embedder">Embedder: use the trained RF-DETR backbone, not stock DINOv2</h2>
+<div class="card readiness-ok">
+  <p>
+    The loop already supports two embedder backends via <code>WorkflowConfig.embedder_backend</code>
+    (<code>config.py:258</code>): stock <code>dinov2</code> and <code>rfdetr</code>. RF-DETR's backbone is
+    <code>WindowedDinov2WithRegistersBackbone</code> (<code>data.py:150–151</code>) — it <em>is</em> a DINOv2,
+    just fine-tuned on the palletjack / forklift / pallet OD task. Using the trained detector's
+    backbone as the scoring embedder makes the whole optimization loop coherent:
+  </p>
+  <ul>
+    <li><strong>Signal alignment.</strong> MMD between synthetic and real embeddings measures distance in the feature space the OD model actually reads from. Stock DINOv2 distances reflect general visual similarity, which is only a proxy.</li>
+    <li><strong>Story continuity.</strong> SDG → OD training → OD backbone → SDG-scoring closes the loop end-to-end. Improvements ranked by this embedder should transfer to OD accuracy more directly than DINOv2-ranked improvements.</li>
+    <li><strong>Wiring already exists.</strong> <code>RFDETREmbedder</code> (<code>data.py:119–170</code>) loads a checkpoint, unwraps to the backbone, and GAPs the selected scale to a 384-dim embedding. Set <code>embedder_backend: rfdetr</code> and <code>rfdetr_embedder.checkpoint_path: &lt;path&gt;</code> in the project YAML.</li>
+  </ul>
+  <h4>Action</h4>
+  <ul>
+    <li>Pick the RF-DETR checkpoint we want to canonize for this branch (the one trained on the current real+synthetic mix). Copy it into the repo or reference by absolute path from the project YAML.</li>
+    <li>Set <code>embedder_backend: rfdetr</code> in <code>project_config_trajectory.yaml</code> at Stage 3.</li>
+    <li>Keep the DINOv2 path installed as a fallback for debugging, but do not optimize against it.</li>
+  </ul>
 </div>
 
 <h2 id="stages">Implementation Stages</h2>
@@ -563,6 +586,7 @@ Optuna trials on dead knobs, or fill the disk.
         <li><code>search_space.themes: [traj-camera-intrinsics, traj-camera-mount, ...]</code></li>
         <li><code>search_space.exclude: [run.data_dir, run.num_frames, run.headless]</code> plus every knowingly no-op knob from the readiness gaps list</li>
         <li><code>search_space.bounds: {...}</code> — one entry per surviving path, min/max for numeric, list for categorical (<code>materials.textures</code>)</li>
+        <li><code>embedder_backend: rfdetr</code> + <code>rfdetr_embedder.checkpoint_path: &lt;path-to-trained-checkpoint&gt;</code> so scoring uses the trained OD backbone (see the Embedder section above).</li>
       </ul>
     </li>
   </ul>
