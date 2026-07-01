@@ -528,14 +528,16 @@ Optuna trials on dead knobs, or fill the disk.
     <span class="stage-num">STAGE 2</span>
     <span class="stage-title">Trajectory seed configs</span>
   </div>
-  <div class="goal">Author 5–10 seed YAMLs under palletjack_sdg/experiments/trajectory/base_v1/ that together cover the trajectory knobs we want Optuna to search. experiment_mean_std/base_v2/ is the structural template for how much per-seed variation is enough; delete it once these are in place.</div>
+  <div class="goal">Author 5–10 seed YAMLs under palletjack_sdg/experiments/trajectory/base_v1/ that together cover the trajectory knobs we want Optuna to search. Delete experiment_mean_std/base_v2/ once these are in place.</div>
 
   <h4>Design principles</h4>
   <ul>
+    <li><strong>Structural template = <code>palletjack_sdg/experiments/experiment_mean_std/base_v2/</code>.</strong> Model the new <code>base_v1/</code> on its shape: one flat YAML per seed, no <code>extends:</code>, same keys across every file with values chosen to span the intended search ranges. Only that directory is preserved through the Stage 1 purge specifically to serve as this reference; delete it at the Stage 2 exit.</li>
     <li>Every seed uses the same top-level structure (no <code>extends:</code>).</li>
     <li>Every path we intend to include in the search space must appear in every seed (schema inference intersects across YAMLs).</li>
     <li>Seeds should differ meaningfully in the values of each optimizable path so Optuna's initial pool has variance.</li>
-    <li><code>capture.video: false</code>, <code>cameras.chase.enabled: false</code>, <code>fisheye.enabled: false</code>, <code>shutter_close_fraction: 0.0</code> across all seeds (constant → not in the search space unless we add per-seed variance later).</li>
+    <li><strong>At least one seed sets <code>cameras.ego.fisheye.enabled: true</code></strong> with sensible <code>k1..k4</code> (start from the stage-6 config's defaults, e.g. <code>k1: -0.20, k2: 0.04</code>). Fisheye is not in the search space — it writes to <code>Camera/rgb_fisheye/</code> which the RF-DETR embedder doesn't score — but keeping it live in one seed exercises the OpenCV post-render pipeline every round and reserves the option to score fisheye later without reintroducing the code path from scratch.</li>
+    <li>Other knobs pinned constant across all seeds: <code>capture.video: false</code>, <code>cameras.chase.enabled: false</code>, <code>cameras.ego.shutter_close_fraction: 0.0</code>.</li>
   </ul>
 
   <h4>Suggested initial optimizable knobs</h4>

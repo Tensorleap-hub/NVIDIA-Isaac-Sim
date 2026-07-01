@@ -281,19 +281,30 @@ stage 2 adds ≥2 seed YAMLs.
 
 **Goal:** author 5–10 seed YAMLs under
 `palletjack_sdg/experiments/trajectory/base_v1/` that together cover the
-trajectory knobs we want Optuna to search. `experiment_mean_std/base_v2/`
-is the structural template for how much per-seed variation is enough;
-delete it once these are in place.
+trajectory knobs we want Optuna to search. Delete
+`experiment_mean_std/base_v2/` once these are in place.
 
 Design principles:
+- **Structural template = `palletjack_sdg/experiments/experiment_mean_std/base_v2/`.**
+  Model the new `base_v1/` on its shape: one flat YAML per seed, no
+  `extends:`, same keys across every file with values chosen to span the
+  intended search ranges. Only that directory is preserved through the
+  Stage 1 purge specifically to serve as this reference; delete it at the
+  Stage 2 exit.
 - Every seed uses the same top-level structure (no `extends:`).
 - Every path we intend to include in the search space must appear in
   every seed (schema inference intersects across YAMLs).
 - Seeds should differ meaningfully in the values of each optimizable path
   so Optuna's initial pool has variance.
-- `capture.video: false`, `cameras.chase.enabled: false`, `fisheye.enabled:
-  false`, `shutter_close_fraction: 0.0` across all seeds (constant → not
-  in the search space unless we add per-seed variance later).
+- **At least one seed sets `cameras.ego.fisheye.enabled: true`** with
+  sensible `k1..k4` (start from the stage-6 config's defaults, e.g.
+  `k1: -0.20, k2: 0.04`). Fisheye is not in the search space — it writes
+  to `Camera/rgb_fisheye/` which the RF-DETR embedder doesn't score — but
+  keeping it live in one seed exercises the OpenCV post-render pipeline
+  every round and reserves the option to score fisheye later without
+  reintroducing the code path from scratch.
+- Other knobs pinned constant across all seeds: `capture.video: false`,
+  `cameras.chase.enabled: false`, `cameras.ego.shutter_close_fraction: 0.0`.
 
 Suggested initial optimizable knobs (all present in `sdg_config_stage6.yaml`):
 - **Camera intrinsics:** `cameras.ego.fov_mean`, `cameras.ego.fov_std`,
