@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimization Recipe — Trajectory SDG → Cosmos → RT-DETR</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-alt: #1c2029;
+    --border: #262b36;
+    --text: #d8dee9;
+    --muted: #8892a6;
+    --accent: #7cc4ff;
+    --accent-2: #ffb454;
+    --ok: #8fd67f;
+    --warn: #ffb454;
+    --danger: #ff7a7a;
+    --code-bg: #0b0d12;
+    --heading: #f5f7fb;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .wrap {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+  header .eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 32px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  h2 {
+    color: var(--heading);
+    font-size: 22px;
+    margin: 48px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 17px;
+    margin: 28px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  h4 {
+    color: var(--heading);
+    font-size: 15px;
+    margin: 18px 0 6px;
+    font-weight: 600;
+  }
+  p { margin: 8px 0 12px; }
+  ul, ol {
+    margin: 6px 0 14px;
+    padding-left: 22px;
+  }
+  li { margin: 3px 0; }
+  li > ul, li > ol { margin: 4px 0; }
+  strong { color: var(--heading); font-weight: 600; }
+  em { color: var(--muted); }
+  code {
+    background: var(--code-bg);
+    color: #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    border: 0;
+    color: #e2e8f0;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 18px 0;
+  }
+  .card.pipeline-a { border-left: 3px solid var(--accent); }
+  .card.pipeline-b { border-left: 3px solid var(--accent-2); }
+  .card.pipeline-c { border-left: 3px solid var(--ok); }
+  .card h3 { margin-top: 0; }
+  .card .purpose {
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+    margin: 4px 0 14px;
+  }
+  .flow {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin: 12px 0;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .flow .node {
+    color: var(--heading);
+    font-weight: 600;
+  }
+  .flow .accent { color: var(--accent); }
+  .flow .accent2 { color: var(--accent-2); }
+  .flow .ok { color: var(--ok); }
+  .flow .muted { color: var(--muted); }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 24px 0 32px;
+  }
+  .toc-title {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .toc ol {
+    margin: 0;
+    padding-left: 22px;
+  }
+  .toc a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .toc a:hover {
+    color: var(--accent);
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+    margin-left: 8px;
+  }
+  .badge-a { background: rgba(124, 196, 255, 0.15); color: var(--accent); border: 1px solid rgba(124, 196, 255, 0.3); }
+  .badge-b { background: rgba(255, 180, 84, 0.15); color: var(--accent-2); border: 1px solid rgba(255, 180, 84, 0.3); }
+  .badge-c { background: rgba(143, 214, 127, 0.15); color: var(--ok); border: 1px solid rgba(143, 214, 127, 0.3); }
+  .checkbox {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--code-bg);
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  ul.tasks { list-style: none; padding-left: 4px; }
+  ul.tasks li { padding: 4px 0; }
+  .compare {
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 14px 0;
+    font-size: 13px;
+  }
+  .compare .label {
+    color: var(--accent);
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin-right: 8px;
+  }
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Recipe</div>
+  <h1>Optimization Recipe</h1>
+  <div class="subtitle">End-to-end pipeline: trajectory SDG → Cosmos → RT-DETR fine-tune, with and without Optuna optimization, plus a sanity path that reproduces prior pre/post-optim results.</div>
+</header>
+
+<div class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#pipelines">Pipelines</a>
+      <ol>
+        <li><a href="#pipeline-a">A — Baseline (no optim, with Cosmos)</a></li>
+        <li><a href="#pipeline-b">B — Optuna-optimized</a></li>
+        <li><a href="#pipeline-c">C — Sanity: reproduce prior pre/post-optim results</a></li>
+      </ol>
+    </li>
+    <li><a href="#commands">Concrete commands</a></li>
+    <li><a href="#reporting">Reporting</a></li>
+    <li><a href="#impl">Implementation details</a>
+      <ol>
+        <li><a href="#densities">Two temporal densities</a></li>
+        <li><a href="#diversity">Frame vs episode diversity</a></li>
+        <li><a href="#optuna">Optuna loop status quo</a></li>
+        <li><a href="#cosmos">Cosmos post-process</a></li>
+        <li><a href="#rtdetr">RT-DETR fine-tune</a></li>
+      </ol>
+    </li>
+    <li><a href="#open-items">Open items</a></li>
+  </ol>
+</div>
+
+<h2 id="pipelines">Pipelines</h2>
+<p>Three pipelines, all sharing the same trajectory generator and fine-tune trainer. They differ in whether Optuna searches the config, and whether Cosmos post-processing is included.</p>
+
+<div class="card pipeline-a" id="pipeline-a">
+  <h3>Pipeline A — Baseline<span class="badge badge-a">no optim</span><span class="badge badge-a">Cosmos on</span></h3>
+  <div class="purpose">Produce a "reference" fine-tune from a hand-picked base config. This is the ceiling for Pipeline B to beat.</div>
+<div class="flow"><span class="node">base_config.yaml</span>
+      │
+      ▼
+<span class="accent">Isaac</span> <span class="muted">(standalone_palletjack_trajectory_sdg.py, dense-in-time)</span>
+      │  Camera/rgb/*.png + Camera/bounding_box_2d_tight/*
+      │  video/clip_0000/rgb.mp4
+      ▼
+<span class="accent">Cosmos</span> <span class="muted">(in-run CosmosWriter → mp4)</span>
+      │
+      ▼
+<span class="accent">Cosmos post-process</span> <span class="muted">(upscale / stylize / augment — external step)</span>
+      │  augmented dataset
+      ▼
+<span class="accent">RT-DETR fine-tune</span> <span class="muted">(RT-DETR/train.py)</span>
+      │
+      ▼
+<span class="node">Validation metrics</span></div>
+</div>
+
+<div class="card pipeline-b" id="pipeline-b">
+  <h3>Pipeline B — Optuna-optimized<span class="badge badge-b">N trials</span><span class="badge badge-b">Cosmos on</span></h3>
+  <div class="purpose">Search the config space for a better generation config, then produce the fine-tune dataset from that winner.</div>
+<div class="flow"><span class="node">base_config.yaml</span>
+      │
+      ▼
+<span class="accent2">Isaac</span> <span class="muted">(sparse-in-time, no Cosmos)</span>  ◄──────────────────────┐
+      │  Camera/rgb/*.png                                  │
+      ▼                                                    │
+<span class="accent2">DINOv2 / RF-DETR embedding + score</span>                         │
+      │                                                    │
+      ▼                                                    │
+<span class="accent2">Optuna suggests next config</span> ──────────────────────────────┘
+      │  <span class="muted">(repeat N rounds; simulation_calibration_loop/controller.py)</span>
+      ▼
+<span class="node">best_config.yaml</span>
+      │
+      ▼
+<span class="accent">Isaac</span> <span class="muted">(dense-in-time, WITH Cosmos)</span>  ← same script, different YAML profile
+      │
+      ▼
+<span class="accent">Cosmos post-process</span>
+      │
+      ▼
+<span class="accent">RT-DETR fine-tune</span>
+      │
+      ▼
+<span class="node">Validation metrics</span>  →  compare against Pipeline A</div>
+</div>
+
+<div class="card pipeline-c" id="pipeline-c">
+  <h3>Pipeline C — Sanity (recreate prior results)<span class="badge badge-c">no Cosmos</span><span class="badge badge-c">regression gate</span></h3>
+  <div class="purpose">Prove the new trajectory pipeline reproduces our previously-published random-frame results when Cosmos is disabled. Two runs, same fine-tune recipe.</div>
+<div class="flow"><span class="node">prev_baseline_config.yaml</span> <span class="muted">(pre-optuna)</span> ── <span class="ok">Isaac (no Cosmos)</span> ── <span class="ok">RT-DETR fine-tune</span> ── metrics
+<span class="node">prev_optuna_winner.yaml</span>   <span class="muted">(post-optuna)</span> ── <span class="ok">Isaac (no Cosmos)</span> ── <span class="ok">RT-DETR fine-tune</span> ── metrics</div>
+  <p style="margin-top:12px"><strong>Pass criterion:</strong> within ~1 mAP of the previously-published numbers for the same configs on the same eval set.</p>
+</div>
+
+<h2 id="commands">Concrete commands</h2>
+<p>Placeholders in <code>&lt;ANGLE_BRACKETS&gt;</code> — fill per run.</p>
+
+<h3>A. Baseline generate → Cosmos → fine-tune</h3>
+<pre><code># 1. Generate (dense-in-time, Cosmos on)
+./palletjack_sdg/run_trajectory_stage6.sh \
+    --config palletjack_sdg/experiments/trajectory/cosmos_v1/exp01_operator_walk_steady.yaml \
+    --num_frames 128
+
+# 2. Cosmos post-process (external, exact command TBD in Cosmos repo)
+python &lt;cosmos_pipeline&gt;/augment.py \
+    --input palletjack_sdg/palletjack_data/.../video/clip_0000/rgb.mp4 \
+    --output &lt;augmented_dataset_dir&gt;
+
+# 3. Fine-tune
+python /home/ubuntu/RT-DETR/train.py \
+    --data &lt;augmented_dataset_dir&gt; \
+    --weights &lt;pretrained_rt_detr.pt&gt; \
+    --project runs/baseline_A --name exp01</code></pre>
+
+<h3>B. Optuna-optimized generate → Cosmos → fine-tune</h3>
+<pre><code># 1. Optuna loop: N rounds of (suggest → Isaac → embed → score)
+./simulation_calibration_loop/run_main_loop.sh \
+    --project-config simulation_calibration_loop/project_config_trajectory.yaml \
+    --base-config palletjack_sdg/experiments/trajectory/training_v1/exp01_operator_walk_steady.yaml \
+    --n-trials &lt;N&gt;
+
+# 2. Take the best config (loop writes it out) and generate the full dataset
+./palletjack_sdg/run_trajectory_stage6.sh \
+    --config &lt;loop_output_dir&gt;/best_config.yaml \
+    --num_frames 128
+
+# 3. Cosmos post-process (same as A)
+# 4. RT-DETR fine-tune (same as A) into runs/optuna_B</code></pre>
+
+<h3>C. Sanity — reproduce prior results without Cosmos</h3>
+<pre><code># pre-optuna
+./palletjack_sdg/run_trajectory_stage6.sh \
+    --config &lt;prev_baseline_config&gt;.yaml
+python /home/ubuntu/RT-DETR/train.py --data &lt;isaac_out&gt; --project runs/sanity_pre
+
+# post-optuna
+./palletjack_sdg/run_trajectory_stage6.sh \
+    --config &lt;prev_optuna_winner&gt;.yaml
+python /home/ubuntu/RT-DETR/train.py --data &lt;isaac_out&gt; --project runs/sanity_post</code></pre>
+
+<h2 id="reporting">Reporting</h2>
+<p>For each pipeline (A, B, C-pre, C-post), report:</p>
+<ul>
+  <li>Generation config used (path + git SHA)</li>
+  <li>Number of frames, number of episodes / inits</li>
+  <li>Fine-tune weights checkpoint + hyperparams</li>
+  <li>mAP@[0.5], mAP@[0.5:0.95], per-class AP for {palletjack, forklift, pallet, person}</li>
+  <li>Runtime: gen wall-clock, fine-tune wall-clock</li>
+</ul>
+
+<p>The apples-to-apples comparisons are:</p>
+<div class="compare"><span class="label">A vs B</span> Does Optuna beat a hand-picked config? Measured in mAP delta on the same eval set.</div>
+<div class="compare"><span class="label">C-pre vs C-post</span> Does the trajectory pipeline reproduce the random-frame pipeline's mAP within tolerance? Regression gate.</div>
+
+<h2 id="impl">Implementation details</h2>
+
+<h3 id="densities">Two temporal densities</h3>
+<p>Frame-to-frame in a trajectory is highly redundant: at <code>capture_dt=0.4s</code> and 1 m/s camera speed, consecutive frames overlap ~90% of pixel content and the DINOv2 / RF-DETR embeddings across them are near-duplicates. This wastes both the Optuna scoring budget and the labelled-training budget.</p>
+<p>Two YAML profiles under <code>agent:</code> control this:</p>
+
+<h4>Training profile <span class="badge badge-b">Optuna + fine-tune consumption, no Cosmos</span></h4>
+<pre><code>run:
+  num_frames: 24
+agent:
+  capture_dt: 2.5        # ~2.5 m between samples at 1 m/s → spatially independent
+capture:
+  video: false           # skip MP4 encoder; PNGs are the product</code></pre>
+<p>24 spatially-separated frames per episode. Combined with N Optuna trials → N × 24 diverse samples.</p>
+
+<h4>Cosmos profile <span class="badge badge-a">video output for downstream augmentation</span></h4>
+<pre><code>run:
+  num_frames: 128
+agent:
+  capture_dt: 0.0333     # 30 fps
+capture:
+  video: true</code></pre>
+<p>Smooth playback at 30 fps for Cosmos's temporal augmentation stage.</p>
+<p>The 5 example configs under <code>experiments/trajectory/base_v1/</code> currently use Cosmos-profile timings. When splitting, keep the style (mount height, jitter, lens, characters) identical between the two profiles — only the timing + <code>capture.video</code> differ.</p>
+
+<h3 id="diversity">Frame vs episode diversity</h3>
+<p>Within one episode:</p>
+<ul>
+  <li>Scene randomization (palletjacks / forklifts / pallets / distractors / lighting / materials) fires <strong>once</strong>, at spawn. It does not change per frame.</li>
+  <li>Character positions do change (Stage 7b BehaviorScripts drive <code>GoTo</code> etc.).</li>
+  <li>Camera position changes along the planned path.</li>
+</ul>
+<p>So <code>num_frames</code> inside one episode only diversifies camera pose + character pose. Object layout and lighting variation only come from re-running Isaac with a different seed. <strong>For training data quality, prefer more short episodes over one long episode</strong> — the Optuna loop naturally provides this by re-running Isaac for every trial.</p>
+
+<h3 id="optuna">Optuna loop status quo</h3>
+<ul>
+  <li>Entry point: <code>simulation_calibration_loop/run_main_loop.sh</code></li>
+  <li>Controller: <code>simulation_calibration_loop/controller.py</code></li>
+  <li>Search space: declared in the config, resolved by <code>parameter_schema.py</code></li>
+  <li>Scorer: DINOv2 / RF-DETR embedding distance to a reference set (see <code>simulation_calibration_loop/base_pool.py</code>)</li>
+  <li>Trial output: each trial writes an Isaac run dir; the loop persists the best config as a materialised YAML for downstream use in Pipeline B.</li>
+</ul>
+
+<h3 id="cosmos">Cosmos post-process</h3>
+<p>Currently external to this repo. Consumes <code>video/clip_0000/rgb.mp4</code> (from CosmosWriter, wired in Stage 4 of the trajectory pipeline) and emits an augmented dataset. Exact command + version TBD.</p>
+
+<h3 id="rtdetr">RT-DETR fine-tune</h3>
+<ul>
+  <li>Entry point: <code>/home/ubuntu/RT-DETR/train.py</code></li>
+  <li>Consumes the Isaac RGB + bounding-box outputs (or the Cosmos-augmented variant) in whatever format the RT-DETR trainer expects — data-loader wiring TBD if not already in place.</li>
+</ul>
+
+<h2 id="open-items">Open items</h2>
+<ul class="tasks">
+  <li><span class="checkbox"></span> Materialise <code>experiments/trajectory/training_v1/*.yaml</code> (sparse-time variants of the 5 base_v1 examples).</li>
+  <li><span class="checkbox"></span> Materialise <code>experiments/trajectory/cosmos_v1/*.yaml</code> (dense-time variants — essentially rename of base_v1 with <code>capture.video: true</code>).</li>
+  <li><span class="checkbox"></span> Add <code>--config</code> passthrough in <code>run_trajectory_stage6.sh</code> (currently hard-coded in the wrapper).</li>
+  <li><span class="checkbox"></span> Confirm the Optuna loop's project-config format accepts the new trajectory search-space keys (<code>characters.count</code>, <code>agent.capture_dt</code>, camera jitter, DOF, etc.).</li>
+  <li><span class="checkbox"></span> Document Cosmos post-process command + version once nailed down.</li>
+  <li><span class="checkbox"></span> Confirm RT-DETR trainer accepts Isaac's BasicWriter output format; write an adapter if needed.</li>
+</ul>
+
+<footer>optimization-recipe.md — trajectory branch</footer>
+
+</div>
+</body>
+</html>
