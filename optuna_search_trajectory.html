@@ -249,6 +249,48 @@
   .toc a:hover {
     color: var(--accent);
   }
+  table.migration {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 18px;
+    font-size: 13px;
+  }
+  table.migration th, table.migration td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.migration th {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    background: var(--panel-alt);
+  }
+  table.migration td:first-child {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  table.migration td code {
+    font-size: 12px;
+  }
+  ol.deferred {
+    margin: 10px 0 12px;
+    padding-left: 26px;
+  }
+  ol.deferred li {
+    margin: 8px 0;
+  }
+  ol.deferred li strong code {
+    color: var(--accent);
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
   footer {
     margin-top: 64px;
     padding-top: 20px;
@@ -635,6 +677,49 @@ rfdetr_embedder:
   image_size: 224
 
 embedder_backend: rfdetr</code></pre>
+
+  <h4>3.4 Migration reference: old themes → new</h4>
+  <p>The old <code>SEARCH_SPACE_THEMES</code> had 9 core themes + 2 "top-N important" shortcuts, ~60 knobs total. The new set has 6 themes, ~20 knobs total. Fewer knobs and single-axis groups so the first rounds converge quickly and each group's contribution is legible.</p>
+  <table class="migration">
+    <thead>
+      <tr><th>Old theme</th><th>Old knobs (representative)</th><th>New home</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>environment</td><td><code>environment.name</code></td><td><strong>Dropped.</strong> Pinned to <code>full_warehouse</code> in seeds. Re-add later.</td></tr>
+      <tr><td>camera</td><td><code>camera_height_mean/std</code>, <code>camera_tilt_mean/std</code>, <code>camera_yaw_mean/std</code>, <code>camera_roll_mean/std</code>, <code>fov_mean/std</code></td><td><strong>Reshaped, split across three new themes</strong> (see below).</td></tr>
+      <tr><td>camera-color</td><td><code>image_augmentation.*</code></td><td><strong>Dropped.</strong> Not wired through the trajectory script; RF-DETR embeds raw RGB.</td></tr>
+      <tr><td>noise</td><td><code>motion_blur_strength_*</code>, <code>dataset_noise.*</code></td><td><strong>Dropped.</strong> Motion blur is stage-7.5-parked; dataset noise not exercised on the trajectory path.</td></tr>
+      <tr><td>objects</td><td><code>distractors.clutter_level</code> + per-group <code>.occurrence</code></td><td><strong>Partial.</strong> Only <code>clutter_level</code> survives (in <code>traj-scene</code>). Per-group deferred.</td></tr>
+      <tr><td>diversity</td><td>per-group <code>.diversity</code></td><td><strong>Dropped from initial themes.</strong> Deferred.</td></tr>
+      <tr><td>scene-objects</td><td>palletjack/forklift/pallet <code>count_per_model</code> + <code>position_std</code> + <code>rotation_std</code> + <code>pallet_stacks.*</code></td><td><strong>Partial.</strong> Only counts survive (in <code>traj-scene</code>). Placement variance deferred.</td></tr>
+      <tr><td>lighting</td><td><code>intensity_mean/std</code>, <code>visibility_choices</code></td><td><strong>Partial.</strong> <code>intensity_mean/std</code> in <code>traj-scene</code>. <code>visibility_choices</code> dropped.</td></tr>
+      <tr><td>materials</td><td><code>textures</code>, <code>roughness_mean/std</code>, <code>emissive_intensity_mean/std</code></td><td><strong>Partial.</strong> <code>textures</code> + <code>roughness_mean/std</code> in <code>traj-scene</code>. Emissive dropped.</td></tr>
+      <tr><td>top20_important<br>top30_important</td><td>cross-cutting shortlists</td><td><strong>Dropped.</strong> No trajectory equivalent yet.</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>How the old <code>camera</code> theme fragments.</strong> Random-frame sampled a full 6-DOF camera pose distribution every frame. Trajectory has a static mount plus per-frame sinusoidal jitter, so the same intent lives across three new themes:</p>
+  <ul>
+    <li><strong><code>traj-camera-mount</code></strong> ← static portion of old <code>camera</code>: <code>height_m</code>, <code>pitch_deg</code>, <code>roll_deg</code>. Old <code>camera_height_mean/std</code>, <code>camera_tilt_mean/std</code>, <code>camera_roll_mean/std</code> collapse here. No <code>_std</code> — mount is fixed per-episode, not sampled per-frame.</li>
+    <li><strong><code>traj-camera-jitter</code></strong> ← <em>new axis.</em> Old schema had no continuous-jitter concept (<code>_std</code> sampled independent poses, not smooth oscillation).</li>
+    <li><strong><code>traj-camera-intrinsics</code></strong> ← the lens portion. Old <code>fov_mean/std</code> maps in directly. <code>focal_length_mm</code>, <code>f_stop</code>, <code>focus_distance_m</code> are new (DoF and calibrated-lens overrides only exist in the trajectory pipeline).</li>
+  </ul>
+  <p>Old <code>camera_yaw_mean/std</code> has no new home — yaw is fully determined by the planned path in trajectory mode.</p>
+  <p>Genuinely new (no old counterpart): <code>traj-agent</code>, <code>traj-characters</code>.</p>
+
+  <h4>3.5 Deferred themes — layer in after the baseline is set</h4>
+  <p>Anything not in the six starting themes is intentionally deferred. Add them one at a time to <code>theme_rounds_trajectory.yaml</code>'s <code>configs:</code> list once the initial rounds have produced a stable <code>promoted_baseline_dir</code>. Don't stack multiple new themes in a single round — cascading noise across groups makes attribution hard.</p>
+  <p>Order of intended reintroduction, tightest OD signal first:</p>
+  <ol class="deferred">
+    <li><strong><code>traj-distractor-groups</code></strong> — per-group <code>distractors.groups.&lt;X&gt;.occurrence</code> (CardBox, BarelPlastic, Bucket, CratePlastic, BottlePlastic, PushCart, RackPile, TrafficSigns). Reintroduce first because per-class distractor frequency directly shapes what the OD model learns to ignore.</li>
+    <li><strong><code>traj-distractor-diversity</code></strong> — per-group <code>.diversity</code>. Adds asset variety within each distractor group. Follows occurrence naturally.</li>
+    <li><strong><code>traj-scene-placement</code></strong> — palletjack/forklift/pallet <code>position_std</code> + <code>rotation_std</code> + <code>pallet_stacks.*</code>. Placement variance affects OD generalization but adds many knobs, so wait until per-class distractor tuning is in place.</li>
+    <li><strong><code>traj-materials-emissive</code></strong> — <code>materials.emissive_intensity_mean/std</code>. Matters for edge cases (LED sign visibility) but low leverage until base materials tuning has converged.</li>
+    <li><strong><code>traj-environment</code></strong> — <code>environment.name</code> categorical over <code>full_warehouse</code> / <code>warehouse</code> / <code>warehouse_multiple_shelves</code> / <code>warehouse_with_forklifts</code>. Large axis; do last because switching environment invalidates any placement/lighting/mount tuning specific to the previous env.</li>
+    <li><strong><code>traj-camera-motion-blur</code></strong> — <code>shutter_close_fraction</code>. Blocked on Stage 7.5 landing the physics-driven camera. Optimizing before then is a no-op (Stage 6.1 outcome #5).</li>
+    <li><strong><code>traj-camera-color-aug</code></strong> — <code>image_augmentation.*</code> if we decide the OD model benefits from color-space augmentation at SDG time. Currently assumed handled downstream of SDG, so lowest priority.</li>
+    <li><strong><code>traj-camera-noise</code></strong> — dataset noise (<code>shot_scale</code>, <code>jpeg_quality</code>, <code>sigma</code>) once we've confirmed the trajectory script exercises the noise post-processing path (audit needed).</li>
+  </ol>
 
   <div class="exit">
     <strong>Exit criteria</strong>
