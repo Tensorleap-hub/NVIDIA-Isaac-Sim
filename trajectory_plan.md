@@ -257,8 +257,11 @@ Minimum metadata per frame:
 | 4 | ✅ done | CosmosWriter fixed: script nodes opt-in + timeline.play() + pause_timeline=False; 5 MP4s produced |
 | 5 | ✅ done | Occupancy-map free-space path planning; boundary margin for undetected walls; BFS path + nav artifacts |
 | 6 | ✅ done — **pivoted to OD-focused ghost camera** | After iterating through kinematic Carter, dynamic Carter, sweep tests, and rigid props, we landed on the conclusion that for an OD training-data pipeline the robot body is not part of the labels and only generates stuck trajectories. Default is now `agent.type: camera_rig` (ghost). Carter remains opt-in. Full camera mount config + per-frame sinusoidal jitter (pitch, roll) for handheld / uneven-terrain realism. |
-| 6.1 | in progress | Camera realism extensions: motion blur (time-sampled xform ops), depth-of-field (fStop/focusDistance), position jitter (lateral/vertical), focal_length override, fisheye post-render. |
-| 7–10 | not started | |
+| 6.1 | ✅ done | Camera realism: DOF (`fStop`+`focusDistance`), position jitter (lateral/vertical), `focal_length_mm` override, fisheye via OpenCV post-render. Motion blur is wired (time-sampled xform ops + shutter attrs + RTX motion-blur settings) but **kinematic camera-sweep blur does not engage** the RT pipeline (RTX integrates object velocities, not camera-xform time samples). Visible blur in this setup requires moving scene objects with physics velocity — see Stage 7.5. |
+| 7 | ✅ MVP done | Humans as labeled OD targets. 5 characters/episode spawned at random xy in free corridor; class `person` semantic; BasicWriter bbox labels JSON includes person; 0–5 persons/frame across 60 frames (mean 1.3). 10 character variants. Animation deferred to **Stage 7b**: needs `omni.anim.people` BehaviorScript scaffolding + command files. |
+| 7b | ✅ done | (A) Idle pose via `ApplyAnimationGraphAPICommand` from Biped_Setup — characters exit T-pose. (B) Basic movement: per-episode `commands.txt` (Idle / LookAround / GoTo) executed by `character_behavior.py` attached via `ApplyScriptingAPICommand`. Numerically verified — positions change frame-to-frame via `ag.get_character().get_world_transform()`. Config knob: `characters.animation.{enabled, movement.enabled, ...}`. Reference: `s3://nvidia-isaac-bucket/trajectory-tests/20260701_stage7b2_walking/`. |
+| 7.5 | next | **Revisit Carter/robot agent specifically to unlock camera-motion blur.** Make the ghost camera optionally physics-driven (kinematically-targeted rigid body with `physics:velocity` set per-frame), or fall back to mounting the camera on a moving rigid prim that PhysX tracks. Goal: distinct camera-sweep blur like the official Isaac motion_blur_short.py example. |
+| 8–10 | parked | Collision detection / Nav2-style nav / dynamic obstacles — deferred. |
 
 ### Stage 4 Validation (completed 2026-06-02)
 
@@ -268,7 +271,6 @@ Minimum metadata per frame:
 - ✅ `Camera/bounding_box_2d_tight/` — 10 .npy + labels/prim_paths JSON pairs
 - ✅ `video/clip_0000/` — 5 MP4s (rgb, depth, edges, segmentation, shaded_seg) + 10 PNGs each
 - ✅ `run_manifest.json` — `video_files` lists all 5 MP4 paths
-- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory-tests/20260602_144415/`
 
 ### Stage 3 Validation (completed 2026-05-27)
 
@@ -280,7 +282,6 @@ Minimum metadata per frame:
 - ✅ Chase yaw fix: chase camera uses `heading_yaw` only, not `heading_yaw + yaw_rel`; verified with yaw_rel=30 — ego looks 30° sideways, chase stays on heading
 - ✅ Calibration loop `discover_generated_images(Camera/rgb)`: finds 10 ego frames, PASS
 - ✅ Calibration loop post-Isaac fallback fixed in `controller.py:652`: changed `discover_generated_images(output_dir)` → `discover_generated_images(local_rgb_dir)` to prevent chase frames leaking into DINOv2 embeddings
-- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory_stage3_tests/20260527_172027/`
 
 ### Pre-Stage-3 Validation (completed 2026-05-27)
 
@@ -496,7 +497,6 @@ Fix: added all three in `run_stage4()`. Ghost camera still works correctly since
 - ✅ `trajectory/events.jsonl` — all stage5 events fired including `stage5_occupancy_path_sampled`
 - ✅ `run_manifest.json` — image_count: 30, video_files lists all 5 MP4 paths
 - ✅ `discover_generated_images(Camera/rgb)` — finds 30 frames, PASS
-- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory-tests/20260629_091013_stage5_validation/`
 
 ### Stage 6 Validation (completed 2026-06-29) — v1 kinematic Carter
 
@@ -509,7 +509,6 @@ Fix: added all three in `run_stage4()`. Ghost camera still works correctly since
 - ✅ `nav/planned_path.json` — 14.6m path, 3 waypoints; start (-2.6, 8.3) → end (-2.7, -6.3)
 - ✅ `video/clip_0000/` — 5 MP4s × 60 frames
 - ✅ `trajectory/poses.jsonl` — includes `agent_type=carter`, `agent_prim`, `agent_pos`, `agent_yaw_deg`
-- ✅ Artifacts uploaded: `s3://nvidia-isaac-bucket/trajectory-tests/20260629_stage6_validation/`
 
 **Known limitation (v1):** Carter is kinematically posed each frame (SetTranslateOp+SetRotateXYZOp), so the body slides but wheels don't physically rotate. Frame-to-frame motion is continuous (~25 cm/frame). Stage 6.2 candidate work: drive via `DifferentialController.apply_wheel_actions` + pure-pursuit (MobilityGen pattern) so wheels actually spin.
 
@@ -526,7 +525,6 @@ Behavior now matches spec:
 - ✅ Planner avoids walls/shelves at z=1.6m scan
 - ✅ Kinematic chassis pushes dynamic props (cones, barrels) without tipping
 - ✅ Centered Owl camera gives clean ego views down warehouse aisles
-- ✅ Re-validated artifacts: `s3://nvidia-isaac-bucket/trajectory-tests/20260629_stage6_kinematic/`
 
 ### Stage 6 v2 → ghost-camera pivot (2026-06-30)
 
@@ -562,17 +560,91 @@ cameras:
       lateral_m: 0.00
 ```
 
-#### Stage 6.1 roadmap (camera realism extensions)
+#### Stage 6.1 outcome (completed 2026-06-30)
 
-Order of work, validated after each step:
+All five steps wired, four with strong visible effect:
 
-0. **Motion blur via time-sampled xform ops** — ghost camera teleports with single Set() per frame, which gives the renderer no motion vectors and so no blur. Fix: write pose at `shutter_open` and `shutter_close` each frame. Adds `cameras.ego.shutter_close_fraction` to config. Unlocks scene-object blur too once `delta_time > 0`.
-1. **Depth-of-field**: `cameras.ego.fStop` + `focusDistance`. Critical realism for models that ship on cameras with limited DOF.
-2. **Position jitter**: `lateral_jitter_m`, `vertical_jitter_m` to complement the existing orientation jitter — completes the walking/driving-on-uneven-floor feel.
-3. **Focal length direct override**: lets users match a calibrated lens spec instead of back-solving from FOV.
-4. **Fisheye via post-render OpenCV**: USD has no spherical projection. Render perspective at very wide FOV, apply `cv2.fisheye.undistortImage` inverse post-write. ~30 lines of post-processing.
+1. ✅ **DOF (`fStop` + `focusDistance`)** — verified at f/1.4 (extreme bokeh) and f/5.6 (realistic warehouse-cam look). s3: `20260630_cam_stack_dof/`
+2. ✅ **Position jitter** (`lateral_jitter_m`, `vertical_jitter_m`) — sinusoidal with own hz + per-episode phase; poses.jsonl shows oscillation, frames visibly shake at amp_m=0.15.
+3. ✅ **Focal length override** (`focal_length_mm`) — bypasses FOV; verified 8mm gives 105.3° back-solved FOV with ultra-wide stretching.
+4. ✅ **Fisheye via OpenCV post-render** — writes Camera/rgb_fisheye/ alongside perspective. OD labels remain valid for the perspective frames.
+5. ⚠️ **Motion blur** — Wiring done (camera shutterOpen/shutterClose attrs in time codes, time-sampled translate/rotate ops at shutter open + close, `/omni/replicator/captureMotionBlur=True`, RTX motion-blur tuning). USD diagnostic confirms 61 time samples written at correct time codes; shutterClose set to 4.0 tc matching frame_dt × tcps. **But:** the RTX pipeline (both RaytracedLighting and PathTracing tested) integrates blur from object velocities — it does not appear to integrate camera-xform time samples for camera-sweep blur. Verified with deterministic A/B (same scene, same path, no props): shutter=0 vs shutter=1.0 produces only sub-1% pixel difference. Reference: official `motion_blur_short.py` shows dramatic blur on physics-driven objects (Cheez-It boxes) but its camera is static. **Resolution deferred to Stage 7.5.**
 
-Latest baseline: `s3://nvidia-isaac-bucket/trajectory-tests/20260630_ghost_jitter/`
+### Stage 7: Animated Human Characters As OD Targets
+
+Pivot from the original "human-like agent driving the camera" framing — for an OD pipeline, the value is humans **in the scene as labeled detection targets**, not humans driving the trajectory.
+
+Purpose:
+- Add `person` to the set of detectable classes
+- Realistic warehouse staffing (operator walking aisle, picker pushing cart) so trained OD models generalize to environments with humans
+
+Implementation candidates:
+- **Isaac `actor_sdg`** (`/opt/IsaacSim/source/tools/actor_sdg/`) — scheduler-driven character SDG with built-in animation paths
+- **Omniverse Characters** — animated character prims with walk/idle motion clips
+- **NVIDIA people assets** under `/Isaac/People/...` on the Nucleus asset server
+
+Per-episode randomization:
+- Number of characters (0–N)
+- Character variants (multiple body/clothing assets)
+- Path mode (random waypoints in free space, or scripted aisle walks)
+- Animation (walk, idle, push-cart) — sampled per character
+- Speed jitter
+
+Validation:
+- ✓ Characters appear in RGB ego frames at varied poses
+- ✓ Each character carries class semantic `person`
+- ✓ BasicWriter's `bounding_box_2d_tight` outputs include person bboxes
+- ✓ At least one episode demonstrating multiple humans + palletjacks + forklifts coexisting
+
+### Stage 7b Validation (completed 2026-07-01)
+
+**Wiring done in `run_stage4()`:**
+- Enable `omni.kit.scripting`, `omni.anim.timeline`, `omni.anim.graph.core`, `omni.anim.retarget.core`, `omni.anim.navigation.core`, `omni.anim.people` right after `SimulationApp` starts, before `open_stage()`.
+- Set `/persistent/exts/omni.anim.people/character_prim_path = /World/Characters`, disable navmesh + dynamic-avoidance (straight-line GoTo is "very basic" enough for OD), enable `/rtx/raytracing/fractionalCutoutOpacity`.
+- Load `Biped_Setup.usd` invisibly under `/World/Characters/Biped_Setup`.
+- For each spawned character's `SkelRoot`: `ApplyAnimationGraphAPICommand(paths=[skel_root], animation_graph_path=<biped's AnimationGraph>)` + `ApplyScriptingAPICommand(paths=[skel_root])` + `omni:scripting:scripts = [path/to/character_behavior.py]`.
+- Emit `characters/commands.txt` per episode with a random Idle / LookAround / GoTo mix (bounded to `spawn_bounds_xy`); point `/exts/omni.anim.people/command_settings/command_file_path` at it; set `number_of_loop = inf`.
+
+**Three non-obvious gotchas (each one silently stalled the walk):**
+1. **`/app/scripting/ignoreWarningDialog = True`** — `omni.kit.scripting` gates BehaviorScript execution behind a security popup. Headless can't dismiss it, so scripts silently never load. Without this flag every diagnostic looks fine (scripts registered, timeline playing) but nothing ticks.
+2. **`ag.get_character(...).get_world_transform()`** is the ground truth position. The anim graph writes to fabric, not USD, so `xformOp:translate` and even `ComputeLocalToWorldTransform(Usd.TimeCode.Default())` return the spawn position forever. Only the anim.graph.core API sees the animated transform.
+3. **~20 `simulation_app.update()` after attaching scripts** — the ScriptManager's dirty-USD processing is async. If `timeline.play()` fires before those ticks land, `on_play` runs on an empty script list.
+
+**Results:**
+- ✅ EXIT:0, 60 frames, 5 characters, all cycling Idle → GoTo → LookAround
+- ✅ Position deltas confirm walking (e.g. person_01 (-0.8, 0.4) → (-1.7, 1.1) → (0.99, 0.76))
+- ✅ Frame 5 shows a character mid-stride (legs apart)
+- ✅ Artifacts: `s3://nvidia-isaac-bucket/trajectory-tests/20260701_stage7b2_walking/`
+
+**Config surface** (`sdg_config_stage6.yaml`):
+```yaml
+characters:
+  animation:
+    enabled: true          # (A) exit T-pose, use Biped anim graph
+    movement:
+      enabled: true        # (B) walk via commands.txt
+      commands_per_char: 3
+      idle_prob: 0.4
+      lookaround_prob: 0.2
+      goto_prob: 0.4
+      idle_duration_range: [3.0, 6.0]
+      lookaround_duration_range: [5.0, 10.0]
+      goto_max_dist_m: 2.5
+```
+
+### Stage 7.5: Physics-Driven Camera For Motion Blur
+
+Purpose:
+- Unlock the RTX motion-blur path that needs `physics:velocity` on a moving prim — kinematic teleport doesn't engage it (see Stage 6.1 outcome #5)
+
+Approach options (try in order):
+1. **Kinematic-target rigid body**: make the camera prim a kinematic rigid body, write `physics:velocity` each frame derived from path interpolation, set `kinematicEnabled=True` and `kinematicTarget` = next frame pose
+2. **Carter-mounted ghost camera**: when `agent.type: carter`, the camera is already on the chassis_link (a physics body) — verify whether THAT produces blur and use it as the precedent
+3. **Parent the camera prim to a rigid-body Xform that physics drives** along the planned path
+
+Validation:
+- Same A/B harness as Stage 6.1#5 (deterministic waypoints, no scene randomization)
+- Pass criterion: ON vs OFF show clearly distinct blur on warehouse wall texture, comparable to Isaac's official example
 
 ### Stage 5: Occupancy Map And Random Free-Space Trajectories
 
@@ -633,30 +705,9 @@ Exit criteria:
 - Physical robot trajectories produce the same data products as camera-rig
   trajectories.
 
-### Stage 7: Human-Like Or Animated Agent
+### Stage 7: Human-Like Or Animated Agent (superseded)
 
-Purpose:
-
-- Support human-scale ego trajectories and future pedestrian-style movement.
-
-Implementation:
-
-- Add `agent.type: h1` first, using the Isaac policy robot examples.
-- Later add animated people/characters using `actor_sdg` references.
-- Support first-person, shoulder, and chase camera offsets.
-- Keep YAML controls for speed, height, path mode, and camera offset.
-
-Validation in simulator:
-
-- Confirm the H1/human-like agent moves through the scene.
-- Confirm camera height and motion look plausible.
-- Confirm camera does not clip into the body.
-- Confirm outputs are identical in structure to robot/camera-rig outputs.
-
-Exit criteria:
-
-- Human-like ego trajectories are available without changing the calibration
-  loop.
+The original Stage 7 framed humans as the trajectory-driving AGENT (H1 humanoid, animated characters carrying the camera). After the Stage 6 ghost-camera pivot for OD, this framing no longer adds OD value — the agent is just transport for the camera, and ghost is simpler. The active Stage 7 (humans-as-SCENE-targets) is described above in the progress log.
 
 ### Stage 8: Collision Detection And Episode Events
 

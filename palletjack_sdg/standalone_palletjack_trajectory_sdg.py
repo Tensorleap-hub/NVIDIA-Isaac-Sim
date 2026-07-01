@@ -229,6 +229,82 @@ def launch_config(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _generate_character_commands(
+    characters: list[dict],
+    spawn_bounds_xy: list[float],
+    movement_cfg: dict[str, Any],
+    rng: Any,
+) -> list[str]:
+    """Build lines for omni.anim.people's command file.
+
+    Each character emits a random sequence of Idle / LookAround / GoTo commands
+    inside spawn_bounds_xy. Without navmesh, GoTo walks straight; keep targets
+    modest so characters don't clip walls.
+    """
+    commands_per_char = int(movement_cfg.get("commands_per_char", 3))
+    idle_prob = float(movement_cfg.get("idle_prob", 0.4))
+    lookaround_prob = float(movement_cfg.get("lookaround_prob", 0.2))
+    goto_prob = float(movement_cfg.get("goto_prob", 0.4))
+    idle_lo, idle_hi = movement_cfg.get("idle_duration_range", [3.0, 8.0])
+    la_lo, la_hi = movement_cfg.get("lookaround_duration_range", [5.0, 10.0])
+    goto_max_dist = float(movement_cfg.get("goto_max_dist_m", 3.0))
+    xmin, xmax, ymin, ymax = spawn_bounds_xy
+    total = idle_prob + lookaround_prob + goto_prob
+    if total <= 0:
+        return []
+    weights = [idle_prob / total, lookaround_prob / total, goto_prob / total]
+    kinds = ["Idle", "LookAround", "GoTo"]
+    lines: list[str] = []
+    for entry in characters:
+        name = entry["prim"].rsplit("/", 1)[-1]
+        cx, cy = entry["pos"][0], entry["pos"][1]
+        # Start each sequence with a short idle so the anim graph settles.
+        lines.append(f"{name} Idle {round(rng.uniform(idle_lo, idle_hi), 1)}")
+        for _ in range(commands_per_char):
+            r = rng.random()
+            if r < weights[0]:
+                lines.append(f"{name} Idle {round(rng.uniform(idle_lo, idle_hi), 1)}")
+            elif r < weights[0] + weights[1]:
+                lines.append(f"{name} LookAround {round(rng.uniform(la_lo, la_hi), 1)}")
+            else:
+                # Pick a target within goto_max_dist of current position, clamped
+                # to spawn bounds. yaw = heading toward target.
+                theta = rng.uniform(0.0, 2.0 * math.pi)
+                dist = rng.uniform(0.5, goto_max_dist)
+                tx = max(xmin, min(xmax, cx + dist * math.cos(theta)))
+                ty = max(ymin, min(ymax, cy + dist * math.sin(theta)))
+                yaw_deg = round(math.degrees(math.atan2(ty - cy, tx - cx)), 1)
+                lines.append(
+                    f"{name} GoTo {round(tx, 3)} {round(ty, 3)} 0.0 {yaw_deg}"
+                )
+                cx, cy = tx, ty  # walk continues from new position
+    return lines
+
+
+def _compressed_path_is_clear(path_ij: "np.ndarray", freespace: "np.ndarray") -> bool:
+    """Return True if every straight-line segment in the compressed path stays in freespace.
+
+    compress_path() is purely geometric — it never checks that shortcuts stay within
+    the buffered freespace mask.  Walk each segment via Bresenham's line and reject
+    paths that clip any occupied cell.
+    """
+    import numpy as _np
+    rows, cols = freespace.shape
+    for i in range(len(path_ij) - 1):
+        r0, c0 = int(path_ij[i, 0]), int(path_ij[i, 1])
+        r1, c1 = int(path_ij[i + 1, 0]), int(path_ij[i + 1, 1])
+        steps = max(abs(r1 - r0), abs(c1 - c0), 1)
+        for t in range(steps + 1):
+            frac = t / steps
+            r = int(round(r0 + frac * (r1 - r0)))
+            c = int(round(c0 + frac * (c1 - c0)))
+            r = max(0, min(r, rows - 1))
+            c = max(0, min(c, cols - 1))
+            if not freespace[r, c]:
+                return False
+    return True
+
+
 def _interpolate_waypoints(
     waypoints: list[list[float]], num_frames: int
 ) -> list[tuple[float, ...]]:
@@ -419,6 +495,10 @@ def _build_occupancy_waypoints(
         end_ij = result.sample_random_end_point()
         path_ij = result.unroll_path(end_ij)          # (N,2) [row, col]
         path_ij, _ = compress_path(path_ij)
+        # compress_path is purely geometric — verify shortcuts stay in buffered freespace
+        if not _compressed_path_is_clear(path_ij, freespace):
+            print(f"  Attempt {attempt+1}: compressed path clips obstacle, retry")
+            continue
         path_xy_px = path_ij[:, ::-1]                 # → [col, row] = x_px, y_px
         path_world = omap.pixel_to_world_numpy(path_xy_px)  # (N,2) world [x,y]
 
@@ -485,7 +565,7 @@ def run_stage4(args: argparse.Namespace) -> None:
     import omni.timeline
     import omni.usd
     from omni.isaac.core.utils.stage import open_stage
-    from pxr import Gf, Semantics, UsdGeom
+    from pxr import Gf, Semantics, Usd, UsdGeom
     from palletjack_sdg.utils.camera import rep_normal
 
     # CosmosWriter uses OmniGraph script nodes (Canny edge annotator) — without
@@ -493,6 +573,57 @@ def run_stage4(args: argparse.Namespace) -> None:
     carb.settings.get_settings().set_bool("/app/omni.graph.scriptnode/opt_in", True)
     # DLSS quality mode recommended by all CosmosWriter reference examples.
     carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
+    # Motion blur — using PathTracing mode for higher-quality blur (it samples
+    # the shutter window stochastically per ray, instead of the screen-space
+    # post-process the RaytracedLighting pipeline uses). Camera shutter attrs
+    # + time-sampled xform ops give the renderer the motion samples to
+    # integrate. Always enabled at the engine level; shutter_close_fraction
+    # controls actual blur amount.
+    carb.settings.get_settings().set("/omni/replicator/captureMotionBlur", True)
+    carb.settings.get_settings().set("/rtx/rendermode", "RaytracedLighting")
+    carb.settings.get_settings().set("/rtx/pathtracing/spp", 32)
+    carb.settings.get_settings().set("/rtx/pathtracing/totalSpp", 32)
+    carb.settings.get_settings().set("/rtx/pathtracing/optixDenoiser/enabled", 0)
+    carb.settings.get_settings().set("/omni/replicator/pathTracedMotionBlurSubSamples", 8)
+
+    # ── Stage 7b-1: enable omni.anim.people so characters idle instead of T-pose.
+    # Extensions must be enabled BEFORE Biped_Setup is referenced so the
+    # AnimationGraph schema resolves and ApplyAnimationGraphAPICommand exists.
+    anim_char_cfg = cfg.get("characters", {}).get("animation", {}) or {}
+    anim_enabled_cfg = bool(anim_char_cfg.get("enabled", False))
+    anim_extensions_ok = False
+    if anim_enabled_cfg:
+        try:
+            import omni.kit.app as _kit_app
+            _s = carb.settings.get_settings()
+            # Must be set BEFORE any BehaviorScript is attached — otherwise a
+            # security popup gates script execution (headless never shows it,
+            # so scripts silently never run).
+            _s.set("/app/scripting/ignoreWarningDialog", True)
+            _ext_mgr = _kit_app.get_app().get_extension_manager()
+            for _ext in (
+                "omni.kit.scripting",
+                "omni.anim.timeline",
+                "omni.anim.graph.core",
+                "omni.anim.retarget.core",
+                "omni.anim.navigation.core",
+                "omni.anim.people",
+            ):
+                _ext_mgr.set_extension_enabled_immediate(_ext, True)
+            # Persistent settings the BehaviorScript / anim graph read on init.
+            _s.set("/persistent/exts/omni.anim.people/character_prim_path", "/World/Characters")
+            _s.set("/exts/omni.anim.people/navigation_settings/navmesh_enabled", False)
+            _s.set("/exts/omni.anim.people/navigation_settings/dynamic_avoidance_enabled", False)
+            # Needed to avoid see-through characters (DH assets rely on this).
+            _s.set("/rtx/raytracing/fractionalCutoutOpacity", True)
+            # Multi-frame settle so the extensions register their commands.
+            for _ in range(3):
+                simulation_app.update()
+            anim_extensions_ok = True
+            print("Character animation extensions enabled (Stage 7b-1)")
+        except Exception as _exc:
+            print(f"Character animation extension enable failed (non-fatal): {_exc}")
+            anim_extensions_ok = False
 
     # ── Environment ───────────────────────────────────────────────────────────
     environment_url = resolve_environment_url(cfg)
@@ -604,11 +735,210 @@ def run_stage4(args: argparse.Namespace) -> None:
     dist_group = _add_distractors()
     _update_semantics()
 
+    # ── Stage 7: animated human characters ────────────────────────────────────
+    # Spawned AFTER _update_semantics() so their `person` class isn't stripped
+    # by the keep-list filter. Characters use authored xformOp:translate +
+    # xformOp:orient (set, not added — they already exist on the prims).
+    spawned_characters: list[dict] = []
+    char_cfg = cfg.get("characters", {})
+    biped_prim = None
+    if char_cfg.get("enabled", False) and int(char_cfg.get("count", 0)) > 0:
+        char_count = int(char_cfg["count"])
+        char_assets = char_cfg.get("assets", [])
+        char_bounds = char_cfg.get("spawn_bounds_xy", [-4.0, 4.0, -4.0, 4.0])
+        char_class = str(char_cfg.get("semantic_class", "person"))
+        # Parent container so all chars live under one path
+        chars_parent = stage.DefinePrim("/World/Characters", "Xform")
+        # Biped_Setup is the animation-graph template; characters reference it
+        # via their own USDs. Load it once as invisible so animation graphs
+        # resolve correctly. Skip silently if it fails — characters still
+        # appear in T-pose / default pose, which is fine for OD MVP.
+        try:
+            biped_url = prefix_with_isaac_asset_server(
+                "/Isaac/People/Characters/Biped_Setup.usd"
+            )
+            biped_prim = stage.DefinePrim("/World/Characters/Biped_Setup", "Xform")
+            biped_prim.GetReferences().AddReference(biped_url)
+            UsdGeom.Imageable(biped_prim).MakeInvisible()
+            # Ensure reference/composition + anim graph schema resolve before
+            # ApplyAnimationGraphAPICommand is issued.
+            for _ in range(3):
+                simulation_app.update()
+        except Exception as _exc:
+            print(f"  character Biped_Setup load failed (non-fatal): {_exc}")
+            biped_prim = None
+        print(f"Spawning {char_count} characters from {len(char_assets)} variants...")
+        for i in range(char_count):
+            asset_rel = random.choice(char_assets) if char_assets else None
+            if asset_rel is None:
+                break
+            usd_url = prefix_with_isaac_asset_server(asset_rel)
+            prim_path = f"/World/Characters/person_{i:02d}"
+            char_prim = stage.DefinePrim(prim_path, "Xform")
+            char_prim.GetReferences().AddReference(usd_url)
+            # x/y in spawn_bounds; z on the floor
+            cx = random.uniform(char_bounds[0], char_bounds[1])
+            cy = random.uniform(char_bounds[2], char_bounds[3])
+            cyaw = random.uniform(0.0, 360.0)
+            # Characters have authored xformOp:translate + xformOp:orient; set
+            # them rather than AddXformOp (which would conflict).
+            simulation_app.update()  # resolve the reference so ops exist
+            t_attr = char_prim.GetAttribute("xformOp:translate")
+            o_attr = char_prim.GetAttribute("xformOp:orient")
+            if t_attr and t_attr.IsValid():
+                from pxr import Gf as _Gf
+                t_attr.Set(_Gf.Vec3d(cx, cy, 0.0))
+                rot_quat = _Gf.Rotation(_Gf.Vec3d(0, 0, 1), cyaw).GetQuat()
+                if o_attr and o_attr.IsValid():
+                    if isinstance(o_attr.Get(), _Gf.Quatf):
+                        o_attr.Set(_Gf.Quatf(rot_quat))
+                    else:
+                        o_attr.Set(rot_quat)
+            else:
+                # No authored translate — add one
+                xformable = UsdGeom.Xformable(char_prim)
+                xformable.AddTranslateOp().Set((cx, cy, 0.0))
+                xformable.AddRotateXYZOp().Set((0.0, 0.0, cyaw))
+            # Apply `person` semantic so bbox writer picks it up
+            sem_api = Semantics.SemanticsAPI.Apply(char_prim, "Semantics_class")
+            sem_api.CreateSemanticTypeAttr().Set("class")
+            sem_api.CreateSemanticDataAttr().Set(char_class)
+            spawned_characters.append({
+                "prim": prim_path,
+                "asset": asset_rel,
+                "pos": [round(cx, 3), round(cy, 3), 0.0],
+                "yaw_deg": round(cyaw, 1),
+            })
+            print(f"  person_{i:02d}: {asset_rel.split('/')[-1]} at ({cx:.2f},{cy:.2f}) yaw={cyaw:.0f}°")
+
+        # ── Stage 7b-1: attach the anim graph to each character's SkelRoot ────
+        # Without this the character USD renders its skeleton rest pose (T/A).
+        # With this + timeline playing, the anim graph enters the "Idle" state
+        # (Action="None") and drives the skeleton with an idle clip.
+        anim_graph_applied = 0
+        if anim_extensions_ok and anim_enabled_cfg and biped_prim is not None:
+            try:
+                import omni.kit.commands
+                from pxr import Sdf as _Sdf
+                # Find AnimationGraph inside Biped_Setup.
+                anim_graph_prim = None
+                for _p in Usd.PrimRange(biped_prim):
+                    if _p.GetTypeName() == "AnimationGraph":
+                        anim_graph_prim = _p
+                        break
+                if anim_graph_prim is None:
+                    print("  animation graph not found under Biped_Setup — characters stay in T-pose")
+                else:
+                    ag_path = _Sdf.Path(anim_graph_prim.GetPrimPath())
+                    for entry in spawned_characters:
+                        char_root = stage.GetPrimAtPath(entry["prim"])
+                        skel_root = None
+                        for _p in Usd.PrimRange(char_root):
+                            if _p.GetTypeName() == "SkelRoot":
+                                skel_root = _p
+                                break
+                        if skel_root is None:
+                            print(f"  {entry['prim']}: no SkelRoot, skip anim graph")
+                            continue
+                        try:
+                            omni.kit.commands.execute(
+                                "RemoveAnimationGraphAPICommand",
+                                paths=[_Sdf.Path(skel_root.GetPrimPath())],
+                            )
+                        except Exception:
+                            pass
+                        omni.kit.commands.execute(
+                            "ApplyAnimationGraphAPICommand",
+                            paths=[_Sdf.Path(skel_root.GetPrimPath())],
+                            animation_graph_path=ag_path,
+                        )
+                        anim_graph_applied += 1
+                    print(f"  animation graph applied to {anim_graph_applied}/{len(spawned_characters)} characters")
+            except Exception as _exc:
+                print(f"  animation graph attach failed (non-fatal, T-pose fallback): {_exc}")
+
+        # ── Stage 7b-2: attach BehaviorScript + emit command file for movement.
+        # BehaviorScript ticks each frame while timeline is playing, reads the
+        # command list, and drives the character (Idle / LookAround / GoTo).
+        # Without navmesh, GoTo walks in a straight line to the target.
+        movement_cfg = (anim_char_cfg.get("movement") or {}) if anim_enabled_cfg else {}
+        movement_enabled = bool(movement_cfg.get("enabled", False))
+        movement_attached = 0
+        if (
+            movement_enabled
+            and anim_extensions_ok
+            and biped_prim is not None
+            and anim_graph_applied > 0
+        ):
+            try:
+                import omni.kit.commands
+                from pxr import Sdf as _Sdf
+                # 1) Emit commands.txt from movement_cfg + spawned character positions.
+                cmd_lines = _generate_character_commands(
+                    spawned_characters, char_bounds, movement_cfg, rng=random
+                )
+                cmd_dir = output_dir / "characters"
+                cmd_dir.mkdir(parents=True, exist_ok=True)
+                cmd_file = cmd_dir / "commands.txt"
+                cmd_file.write_text("\n".join(cmd_lines) + "\n")
+                print(f"  wrote {len(cmd_lines)} character commands → {cmd_file}")
+
+                # 2) Point omni.anim.people at that file + loop indefinitely.
+                _s = carb.settings.get_settings()
+                _s.set("/exts/omni.anim.people/command_settings/command_file_path", str(cmd_file))
+                _s.set("/exts/omni.anim.people/command_settings/number_of_loop", "inf")
+
+                # 3) Attach character_behavior.py BehaviorScript to each SkelRoot.
+                import omni.kit.app as _kit_app
+                script_path = (
+                    _kit_app.get_app()
+                    .get_extension_manager()
+                    .get_extension_path_by_module("omni.anim.people")
+                    + "/omni/anim/people/scripts/character_behavior.py"
+                )
+                for entry in spawned_characters:
+                    char_root = stage.GetPrimAtPath(entry["prim"])
+                    skel_root = None
+                    for _p in Usd.PrimRange(char_root):
+                        if _p.GetTypeName() == "SkelRoot":
+                            skel_root = _p
+                            break
+                    if skel_root is None:
+                        continue
+                    try:
+                        omni.kit.commands.execute(
+                            "RemoveScriptingAPICommand",
+                            paths=[_Sdf.Path(skel_root.GetPrimPath())],
+                        )
+                    except Exception:
+                        pass
+                    omni.kit.commands.execute(
+                        "ApplyScriptingAPICommand",
+                        paths=[_Sdf.Path(skel_root.GetPrimPath())],
+                    )
+                    attr = skel_root.GetAttribute("omni:scripting:scripts")
+                    if attr and attr.IsValid():
+                        attr.Set([script_path])
+                        movement_attached += 1
+                print(f"  behavior script attached to {movement_attached}/{len(spawned_characters)} characters")
+                # Let ScriptManager's async pending-sync task process the new
+                # OmniScriptingAPI attachments so the BehaviorScript instances
+                # actually get created before timeline.play() fires on_play.
+                for _ in range(20):
+                    simulation_app.update()
+            except Exception as _exc:
+                print(f"  behavior script attach failed (non-fatal, characters idle only): {_exc}")
+
     append_event(events_path, "stage5_scene_spawned", {
         "palletjacks": pj_group is not None,
         "forklifts": fl_group is not None,
         "pallets": pa_group is not None,
         "distractors": dist_group is not None,
+        "characters": len(spawned_characters),
+        "characters_anim_enabled": anim_enabled_cfg,
+        "characters_anim_extensions_ok": anim_extensions_ok,
+        "characters_movement_enabled": movement_enabled,
+        "characters_movement_attached": movement_attached,
     })
 
     # ── One-shot scene randomization via on_frame(num_frames=1) ──────────────
@@ -699,16 +1029,86 @@ def run_stage4(args: argparse.Namespace) -> None:
     fov_deg = random.gauss(fov_mean, fov_std) if fov_std > 0 else fov_mean
     fov_deg = max(10.0, min(170.0, fov_deg))
 
-    horizontal_aperture = float(legacy_cam.get("horizontal_aperture", 20.955))
-    focal_length = horizontal_aperture / (2.0 * math.tan(math.radians(fov_deg) / 2.0))
+    horizontal_aperture = float(
+        ego_cam_cfg.get(
+            "horizontal_aperture_mm",
+            legacy_cam.get("horizontal_aperture", 20.955),
+        )
+    )
+    # Focal length: if explicitly set in config, use it (calibrated lens
+    # match) and back-solve the effective FOV for logging. Otherwise derive
+    # focal_length from FOV + aperture as before.
+    focal_length_override = ego_cam_cfg.get("focal_length_mm")
+    if focal_length_override is not None:
+        focal_length = float(focal_length_override)
+        fov_deg = 2.0 * math.degrees(math.atan2(horizontal_aperture / 2.0, focal_length))
+    else:
+        focal_length = horizontal_aperture / (2.0 * math.tan(math.radians(fov_deg) / 2.0))
     clipping = legacy_cam.get("clipping_range", [0.1, 1000000.0])
 
-    print(f"Episode camera: fov={fov_deg:.1f}° focal_length={focal_length:.3f}mm")
+    print(f"Episode camera: fov={fov_deg:.1f}° focal_length={focal_length:.3f}mm aperture={horizontal_aperture:.3f}mm")
     append_event(events_path, "stage5_camera_sampled", {
         "fov_deg": round(fov_deg, 3),
         "focal_length_mm": round(focal_length, 4),
         "resolution": [width, height],
     })
+
+    # ── Static mount + per-frame jitter (simulates handheld / uneven terrain) ──
+    ego_projection = str(ego_cam_cfg.get("projection", "perspective"))
+    ego_pitch_static = float(ego_cam_cfg.get("pitch_deg", 0.0))
+    ego_roll_static = float(ego_cam_cfg.get("roll_deg", 0.0))
+    pitch_jit_cfg = ego_cam_cfg.get("pitch_jitter") or {}
+    roll_jit_cfg = ego_cam_cfg.get("roll_jitter") or {}
+    lat_jit_cfg = ego_cam_cfg.get("lateral_jitter") or {}
+    vert_jit_cfg = ego_cam_cfg.get("vertical_jitter") or {}
+    pitch_jit_amp = float(pitch_jit_cfg.get("amp_deg", 0.0))
+    pitch_jit_hz = float(pitch_jit_cfg.get("hz", 1.5))
+    roll_jit_amp = float(roll_jit_cfg.get("amp_deg", 0.0))
+    roll_jit_hz = float(roll_jit_cfg.get("hz", 1.2))
+    lat_jit_amp = float(lat_jit_cfg.get("amp_m", 0.0))
+    lat_jit_hz = float(lat_jit_cfg.get("hz", 1.3))
+    vert_jit_amp = float(vert_jit_cfg.get("amp_m", 0.0))
+    vert_jit_hz = float(vert_jit_cfg.get("hz", 2.0))
+    # Random per-episode phase so each trajectory has its own rhythm.
+    pitch_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+    roll_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+    lat_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+    vert_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+
+    # Motion blur — shutter_close_fraction is the fraction of the frame
+    # interval the shutter stays open. The ghost camera writes pose as
+    # time samples at the open and close moments so RTX can integrate
+    # motion across the shutter (gives both camera-sweep blur and, with
+    # delta_time>0, dynamic-object blur).
+    # IMPORTANT: time samples must be in USD time codes = sim_time_sec * tcps.
+    # Stage's tcps is not necessarily 60 — read it once here.
+    shutter_close_fraction = float(ego_cam_cfg.get("shutter_close_fraction", 0.0))
+    motion_blur_enabled = shutter_close_fraction > 1e-6
+    stage_tcps = float(stage.GetTimeCodesPerSecond() or 60.0)
+    # capture_dt drives both the orchestrator step interval and the
+    # shutter-time-codes math. Read here so the camera setup below can use it.
+    _agent_cfg_early = cfg.get("agent", {})
+    _agent_type_early = _agent_cfg_early.get("type", "camera_rig")
+    physics_dt = float(cfg.get("simulation", {}).get("physics_dt", 1.0 / 60.0))
+    if _agent_type_early == "carter":
+        capture_dt = float(_agent_cfg_early.get("capture_dt", 0.25))
+    else:
+        capture_dt = float(_agent_cfg_early.get("capture_dt", 1.0 / 60.0))
+    print(f"Stage timeCodesPerSecond: {stage_tcps}, capture_dt: {capture_dt}")
+    # Depth of field. f_stop = 0 = pinhole (always sharp). f_stop > 0 = real
+    # lens; focus_distance_m sharp, everything else progressively blurred.
+    # USD focusDistance is in stage units; warehouse stages are metersPerUnit=1.0
+    # so a meters value works directly. If a stage in different units is loaded
+    # this scales correctly.
+    ego_f_stop = float(ego_cam_cfg.get("f_stop", 0.0))
+    _mpu = float(UsdGeom.GetStageMetersPerUnit(stage) or 1.0)
+    ego_focus_distance_stage = float(ego_cam_cfg.get("focus_distance_m", 5.0)) / _mpu
+    print(
+        f"Camera mount: pitch={ego_pitch_static:+.1f}° roll={ego_roll_static:+.1f}°, "
+        f"jitter pitch={pitch_jit_amp:.1f}°@{pitch_jit_hz:.1f}Hz "
+        f"roll={roll_jit_amp:.1f}°@{roll_jit_hz:.1f}Hz, projection={ego_projection}, "
+        f"shutter_close={shutter_close_fraction:.2f}"
+    )
 
     # ── Trajectory ────────────────────────────────────────────────────────────
     traj_cfg = cfg.get("trajectory", {})
@@ -735,21 +1135,116 @@ def run_stage4(args: argparse.Namespace) -> None:
         init_pos = (0.0, 0.0, camera_z)
         init_rot = (90.0, 0.0, 0.0)
 
-    # ── Ego camera prim ───────────────────────────────────────────────────────
-    camera_prim_path = "/World/EgoCamera"
-    camera_prim = stage.DefinePrim(camera_prim_path, "Camera")
-    cam_schema = UsdGeom.Camera(camera_prim)
-    cam_schema.GetHorizontalApertureAttr().Set(horizontal_aperture)
-    cam_schema.GetFocalLengthAttr().Set(focal_length)
-    cam_schema.GetClippingRangeAttr().Set(Gf.Vec2f(float(clipping[0]), float(clipping[1])))
-    cam_schema.GetProjectionAttr().Set("perspective")
+    # ── Agent: ghost camera rig or physical Carter robot ──────────────────────
+    agent_cfg = cfg.get("agent", {})
+    agent_type = agent_cfg.get("type", "camera_rig")
 
-    xformable = UsdGeom.Xformable(camera_prim)
-    translate_op = xformable.AddTranslateOp()
-    rotate_op = xformable.AddRotateXYZOp()
+    # Filled by either branch; consumed by the main loop.
+    camera_prim_path: str
+    translate_op = None        # ghost camera ops (None for carter)
+    rotate_op = None
+    robot_prim_path: str | None = None
+    robot_translate_op = None
+    robot_rotate_op = None
 
-    translate_op.Set(init_pos)
-    rotate_op.Set(init_rot)
+    if agent_type == "carter":
+        # Spawn Nova Carter as a USD reference. The Carter USD's root already
+        # has translate/orient/scale ops, so we can't AddXformOp directly on
+        # the referenced prim. Workaround: empty parent Xform owns our ops;
+        # the reference lives on a child prim that keeps its own internal ops.
+        robot_prim_path = "/World/Carter"
+        robot_body_subpath = "body"
+        carter_usd_rel = agent_cfg.get(
+            "usd_path", "/Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd"
+        )
+        carter_usd_url = prefix_with_isaac_asset_server(carter_usd_rel)
+        robot_prim = stage.DefinePrim(robot_prim_path, "Xform")
+        robot_body_prim = stage.DefinePrim(
+            f"{robot_prim_path}/{robot_body_subpath}", "Xform"
+        )
+        robot_body_prim.GetReferences().AddReference(carter_usd_url)
+        print(f"Spawning Carter at {robot_prim_path}/{robot_body_subpath} from {carter_usd_url}")
+
+        robot_xformable = UsdGeom.Xformable(robot_prim)
+        robot_translate_op = robot_xformable.AddTranslateOp()
+        robot_rotate_op = robot_xformable.AddRotateXYZOp()
+
+        # Robot forward = local +X. World yaw = atan2(dy, dx).
+        if traj_mode == "waypoint_list":
+            init_robot_yaw = math.degrees(math.atan2(seg0_dy, seg0_dx))
+            robot_translate_op.Set((x0, y0, 0.0))
+            robot_rotate_op.Set((0.0, 0.0, init_robot_yaw))
+        else:
+            # occupancy_path: park Carter far off-map so its footprint doesn't
+            # block the omap scan. Repositioned to first waypoint after the
+            # path is computed in the main loop.
+            robot_translate_op.Set((-20.0, -20.0, 0.0))
+            robot_rotate_op.Set((0.0, 0.0, 0.0))
+
+        # Resolve the reference so the camera prim is visible to UsdGeom.Camera.
+        simulation_app.update()
+
+        # Mount a fresh perspective camera as a child of chassis_link.
+        # Carter's built-in sensors (Hawk, Owl) have lens-housing geometry
+        # that shows in the render and Loco doesn't use fisheye anyway.
+        # All mount parameters are config-driven so Optuna can tune them.
+        mount_cfg = ego_cam_cfg.get("mount", {})
+        mount_forward = float(mount_cfg.get("forward_m", 0.30))
+        mount_lateral = float(mount_cfg.get("lateral_m", 0.0))
+        mount_height = float(mount_cfg.get("height_m", 1.40))
+        mount_pitch_deg = float(mount_cfg.get("pitch_deg", 0.0))
+
+        chassis_path = f"{robot_prim_path}/{robot_body_subpath}/chassis_link"
+        camera_prim_path = f"{chassis_path}/EgoCamera"
+        ego_cam_prim = stage.DefinePrim(camera_prim_path, "Camera")
+        ego_cam_schema = UsdGeom.Camera(ego_cam_prim)
+        ego_cam_schema.GetHorizontalApertureAttr().Set(horizontal_aperture)
+        ego_cam_schema.GetFocalLengthAttr().Set(focal_length)
+        ego_cam_schema.GetClippingRangeAttr().Set(
+            Gf.Vec2f(float(clipping[0]), float(clipping[1]))
+        )
+        ego_cam_schema.GetProjectionAttr().Set(ego_projection)
+        # Depth of field (also applies on Carter chassis-mounted ego).
+        ego_cam_schema.GetFStopAttr().Set(ego_f_stop)
+        ego_cam_schema.GetFocusDistanceAttr().Set(ego_focus_distance_stage)
+        # Rotation: roll=90 + yaw=-90 makes the camera face Carter's +X
+        # (Carter forward). pitch_deg tilts the camera up/down from level.
+        ego_xformable = UsdGeom.Xformable(ego_cam_prim)
+        ego_translate = ego_xformable.AddTranslateOp()
+        ego_rotate = ego_xformable.AddRotateXYZOp()
+        ego_translate.Set((mount_forward, mount_lateral, mount_height))
+        ego_rotate.Set((90.0 + mount_pitch_deg, 0.0, -90.0))
+        print(
+            f"Carter ego camera: {camera_prim_path} fov={fov_deg:.1f}° "
+            f"mount=(fwd={mount_forward:.2f}, lat={mount_lateral:.2f}, h={mount_height:.2f}, "
+            f"pitch={mount_pitch_deg:.1f}°)"
+        )
+    else:
+        # Ghost camera rig (Stages 1-5).
+        camera_prim_path = "/World/EgoCamera"
+        camera_prim = stage.DefinePrim(camera_prim_path, "Camera")
+        cam_schema = UsdGeom.Camera(camera_prim)
+        cam_schema.GetHorizontalApertureAttr().Set(horizontal_aperture)
+        cam_schema.GetFocalLengthAttr().Set(focal_length)
+        cam_schema.GetClippingRangeAttr().Set(Gf.Vec2f(float(clipping[0]), float(clipping[1])))
+        cam_schema.GetProjectionAttr().Set(ego_projection)
+        # Shutter open/close are in TIME CODES relative to current frame.
+        # Convert shutter_close_fraction (fraction of frame interval) into
+        # time codes: frame_dt_sec * tcps * fraction.
+        ghost_frame_dt = capture_dt if capture_dt > 0 else physics_dt
+        shutter_close_tc = shutter_close_fraction * ghost_frame_dt * stage_tcps
+        cam_schema.GetShutterOpenAttr().Set(0.0)
+        cam_schema.GetShutterCloseAttr().Set(shutter_close_tc)
+        # Depth of field. fStop=0 = pinhole (sharp everywhere).
+        cam_schema.GetFStopAttr().Set(ego_f_stop)
+        cam_schema.GetFocusDistanceAttr().Set(ego_focus_distance_stage)
+        print(f"Camera shutter: close_tc={shutter_close_tc:.3f} (frame_dt={ghost_frame_dt:.4f}s × tcps={stage_tcps:.1f} × frac={shutter_close_fraction})")
+
+        xformable = UsdGeom.Xformable(camera_prim)
+        translate_op = xformable.AddTranslateOp()
+        rotate_op = xformable.AddRotateXYZOp()
+        translate_op.Set(init_pos)
+        rotate_op.Set(init_rot)
 
     # ── Chase camera prim (optional) ──────────────────────────────────────────
     chase_camera_prim_path = None
@@ -845,13 +1340,53 @@ def run_stage4(args: argparse.Namespace) -> None:
     poses_path = paths["trajectory"] / "poses.jsonl"
     poses_path.write_text("")
 
-    physics_dt = float(cfg.get("simulation", {}).get("physics_dt", 1.0 / 60.0))
+    # ── Distractor props dynamic (cones, barrels, trash) ─────────────────────
+    # Path planner can't see things below z=1.6m (cones ~0.7m, barrels ~0.9m),
+    # so Carter may run into them. Authored defaults for these USDs are
+    # visual-only (no rigid body), which would make Carter stop dead. Give
+    # them a light rigid body with gravity ON so they sit on the floor as
+    # placed, but get shoved aside when the heavier robot bumps into them.
+    # Actor classes (palletjack, forklift, pallet) keep their authored physics.
+    if agent_type == "carter":
+        from pxr import UsdPhysics
+        actor_classes = {"palletjack", "forklift", "pallet"}
+        distractor_count = 0
+        for prim in stage.Traverse():
+            path_str = str(prim.GetPath())
+            if not path_str.startswith("/Replicator"):
+                continue
+            if not prim.HasAuthoredReferences():
+                continue
+            is_actor = False
+            for prop in prim.GetProperties():
+                if not Semantics.SemanticsAPI.IsSemanticsAPIPath(prop.GetPath()):
+                    continue
+                inst = prop.SplitName()[1]
+                sem = Semantics.SemanticsAPI.Get(prim, inst)
+                if sem.GetSemanticDataAttr().Get() in actor_classes:
+                    is_actor = True
+                    break
+            if is_actor:
+                continue
+            if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+                continue  # respect authored physics
+            rb = UsdPhysics.RigidBodyAPI.Apply(prim)
+            rb.CreateRigidBodyEnabledAttr(True, False)
+            mass = UsdPhysics.MassAPI.Apply(prim)
+            mass.CreateMassAttr(0.3)  # light enough that Carter shoves it
+            distractor_count += 1
+        print(f"Distractors made dynamic: {distractor_count} (mass=0.3kg)")
 
     # CosmosWriter requires the timeline to be playing and pause_timeline=False.
     # The ghost camera is driven by explicit USD ops, so physics running is harmless.
     timeline = omni.timeline.get_timeline_interface()
     if not timeline.is_playing():
         timeline.play()
+    # Let BehaviorScripts activate (on_play fires on timeline.play) so their
+    # command lists are populated before we start capturing frames.
+    if spawned_characters and movement_enabled:
+        for _ in range(10):
+            simulation_app.update()
 
     # ── Occupancy path (computed here so the settled scene is in collision) ──
     if traj_mode == "occupancy_path":
@@ -871,43 +1406,267 @@ def run_stage4(args: argparse.Namespace) -> None:
         except Exception:
             pass
 
+    # ── Physics-driven Carter setup ──────────────────────────────────────────
+    # Reset the parent Xform to identity so we can teleport Carter purely via
+    # the physics Articulation API. Then drive with wheel velocity targets —
+    # PhysX handles collisions naturally: walls stop the robot, light props
+    # get pushed, heavy authored assets resist.
+    carter_art = None
+    carter_left_idx = None
+    carter_right_idx = None
+    carter_target_idx = 1
+    carter_finished = False
+    if agent_type == "carter":
+        import numpy as np
+        from omni.isaac.core.articulations import Articulation
+        from omni.isaac.core.utils.types import ArticulationAction
+
+        # Park /World/Carter parent at identity; Articulation owns the pose now.
+        robot_translate_op.Set((0.0, 0.0, 0.0))
+        robot_rotate_op.Set((0.0, 0.0, 0.0))
+        for _ in range(3):
+            simulation_app.update()
+
+        art_path = f"{robot_prim_path}/{robot_body_subpath}"
+        carter_art = Articulation(prim_path=art_path, name="carter")
+        carter_art.initialize()
+
+        # Diagnose DOFs so we can pick the right wheel joints.
+        dof_names = list(carter_art.dof_names) if hasattr(carter_art, "dof_names") else []
+        print(f"Carter DOFs ({len(dof_names)}): {dof_names}")
+        carter_left_idx = carter_art.get_dof_index("joint_wheel_left")
+        carter_right_idx = carter_art.get_dof_index("joint_wheel_right")
+        print(f"Carter articulation initialized: wheel_left={carter_left_idx} wheel_right={carter_right_idx}")
+
+        # Teleport Carter to the first waypoint facing the next one.
+        wp0 = waypoints[0]
+        wp1 = waypoints[1]
+        init_yaw_rad = math.atan2(wp1[1] - wp0[1], wp1[0] - wp0[0])
+        half = init_yaw_rad / 2.0
+        init_orient = np.array([math.cos(half), 0.0, 0.0, math.sin(half)], dtype=np.float64)
+        carter_art.set_world_pose(
+            position=np.array([wp0[0], wp0[1], 0.05], dtype=np.float64),
+            orientation=init_orient,
+        )
+        carter_art.set_linear_velocity(np.array([0.0, 0.0, 0.0], dtype=np.float32))
+        carter_art.set_angular_velocity(np.array([0.0, 0.0, 0.0], dtype=np.float32))
+
+        # Control gains
+        carter_max_speed = float(agent_cfg.get("speed_mps", 1.0))
+        carter_max_omega = math.radians(float(agent_cfg.get("turn_rate_dps", 60.0)))
+        carter_wheel_radius = 0.14
+        carter_wheel_base = 0.413
+        carter_end_threshold_m = 0.5
+        # capture_dt set earlier (right after stage_tcps). Each captured frame
+        # advances ~capture_dt seconds of sim time.
+        print(
+            f"Carter physics-driven: max_speed={carter_max_speed:.2f} m/s "
+            f"max_omega={math.degrees(carter_max_omega):.0f} dps "
+            f"capture_dt={capture_dt:.2f}s"
+        )
+
     for frame_index in range(num_frames):
-        x, y, z, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
-
+        x_path, y_path, z_path, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
         seg = int(seg_idx)
-        dx = waypoints[seg + 1][0] - waypoints[seg][0]
-        dy = waypoints[seg + 1][1] - waypoints[seg][1]
-        heading_yaw = math.degrees(math.atan2(-dx, dy))
-        yaw = heading_yaw + yaw_rel
+        dx_seg = waypoints[seg + 1][0] - waypoints[seg][0]
+        dy_seg = waypoints[seg + 1][1] - waypoints[seg][1]
+        heading_yaw_cam = math.degrees(math.atan2(-dx_seg, dy_seg))
+        yaw = heading_yaw_cam + yaw_rel
 
-        translate_op.Set((x, y, z))
-        rotate_op.Set((roll, pitch, yaw))
+        if agent_type == "carter":
+            # Read Carter's actual world pose
+            pos_arr, orient_arr = carter_art.get_world_pose()
+            cx = float(pos_arr[0])
+            cy = float(pos_arr[1])
+            cz = float(pos_arr[2])
+            wq, xq, yq, zq = (
+                float(orient_arr[0]),
+                float(orient_arr[1]),
+                float(orient_arr[2]),
+                float(orient_arr[3]),
+            )
+            cyaw = math.atan2(2.0 * (wq * zq + xq * yq), 1.0 - 2.0 * (yq * yq + zq * zq))
+
+            # Advance target waypoint when close enough to the current one.
+            while carter_target_idx < len(waypoints):
+                tx, ty = waypoints[carter_target_idx][0], waypoints[carter_target_idx][1]
+                if math.hypot(tx - cx, ty - cy) > carter_end_threshold_m:
+                    break
+                carter_target_idx += 1
+
+            # Pure-pursuit-lite: head toward current target, turn in place
+            # when off-heading, full speed when roughly aligned.
+            if carter_target_idx >= len(waypoints):
+                v_lin = 0.0
+                v_ang = 0.0
+                carter_finished = True
+            else:
+                tx, ty = waypoints[carter_target_idx][0], waypoints[carter_target_idx][1]
+                target_heading = math.atan2(ty - cy, tx - cx)
+                heading_err = (target_heading - cyaw + math.pi) % (2.0 * math.pi) - math.pi
+                if abs(heading_err) > math.radians(45):
+                    v_lin = 0.0
+                else:
+                    v_lin = carter_max_speed
+                v_ang = max(-carter_max_omega, min(carter_max_omega, 2.0 * heading_err))
+
+            # Differential drive → wheel angular velocities (rad/s)
+            v_left = (v_lin - v_ang * carter_wheel_base / 2.0) / carter_wheel_radius
+            v_right = (v_lin + v_ang * carter_wheel_base / 2.0) / carter_wheel_radius
+            carter_art.apply_action(
+                ArticulationAction(
+                    joint_velocities=np.array([v_left, v_right], dtype=np.float32),
+                    joint_indices=np.array([carter_left_idx, carter_right_idx]),
+                )
+            )
+
+            # Carter's actual pose drives logging and chase camera.
+            x, y, z = cx, cy, cz
+            robot_yaw = math.degrees(cyaw)
+            heading_yaw_cam = robot_yaw - 90.0  # camera convention for chase
+        else:
+            # Ghost camera: write pose as two time samples per frame —
+            # shutterOpen (t = frame_index) and shutterClose (t = frame_index +
+            # shutter_close_fraction). The renderer integrates between them
+            # to produce motion blur from the camera sweep. Both samples
+            # carry their own jitter computed from sim-time so frequency
+            # stays consistent regardless of capture_dt.
+
+            def _ghost_pose_at(frac_idx: float):
+                # Linear interpolation along the precomputed waypoint poses.
+                # Falls back to endpoints outside [0, num_frames-1].
+                if frac_idx <= 0.0:
+                    return poses[0]
+                if frac_idx >= num_frames - 1:
+                    return poses[num_frames - 1]
+                i0 = int(frac_idx)
+                a = frac_idx - i0
+                p0 = poses[i0]
+                p1 = poses[i0 + 1]
+                return tuple(p0[k] + a * (p1[k] - p0[k]) for k in range(len(p0)))
+
+            def _ghost_rot_with_jitter(roll_in: float, pitch_in: float, t_sec: float):
+                pj = pitch_jit_amp * math.sin(2.0 * math.pi * pitch_jit_hz * t_sec + pitch_jit_phase)
+                rj = roll_jit_amp * math.sin(2.0 * math.pi * roll_jit_hz * t_sec + roll_jit_phase)
+                return (roll_in + ego_roll_static + rj, pitch_in + ego_pitch_static + pj)
+
+            def _ghost_pos_with_jitter(x_in: float, y_in: float, z_in: float, t_sec: float):
+                # Lateral jitter is perpendicular to the camera's heading
+                # direction so a leftward "sway" stays leftward regardless
+                # of which way the camera is travelling.
+                lat = lat_jit_amp * math.sin(2.0 * math.pi * lat_jit_hz * t_sec + lat_jit_phase)
+                vert = vert_jit_amp * math.sin(2.0 * math.pi * vert_jit_hz * t_sec + vert_jit_phase)
+                heading_rad = math.atan2(dy_seg, dx_seg)
+                # Perpendicular to heading (left = +90°)
+                left_x = -math.sin(heading_rad)
+                left_y = math.cos(heading_rad)
+                return (x_in + lat * left_x, y_in + lat * left_y, z_in + vert)
+
+            frame_dt = capture_dt if capture_dt > 0 else physics_dt
+            t_open_idx = float(frame_index)
+            t_close_idx = float(frame_index) + (
+                shutter_close_fraction if motion_blur_enabled else 0.0
+            )
+            t_open_sec = t_open_idx * frame_dt
+            t_close_sec = t_close_idx * frame_dt
+            # Time codes (used as USD time-sample keys) — must match the
+            # renderer's currentTime = sim_time_seconds * stage_tcps.
+            t_open_tc = t_open_sec * stage_tcps
+            t_close_tc = t_close_sec * stage_tcps
+
+            xo, yo, zo, ro, po_, yro, _ = _ghost_pose_at(t_open_idx)
+            xc, yc, zc, rc, pc, yrc, _ = _ghost_pose_at(t_close_idx)
+            yawo = heading_yaw_cam + yro
+            yawc = heading_yaw_cam + yrc
+            ro_t, po_t = _ghost_rot_with_jitter(ro, po_, t_open_sec)
+            rc_t, pc_t = _ghost_rot_with_jitter(rc, pc, t_close_sec)
+            xo, yo, zo = _ghost_pos_with_jitter(xo, yo, zo, t_open_sec)
+            xc, yc, zc = _ghost_pos_with_jitter(xc, yc, zc, t_close_sec)
+
+            if motion_blur_enabled:
+                translate_op.Set((xo, yo, zo), time=Usd.TimeCode(t_open_tc))
+                translate_op.Set((xc, yc, zc), time=Usd.TimeCode(t_close_tc))
+                rotate_op.Set((ro_t, po_t, yawo), time=Usd.TimeCode(t_open_tc))
+                rotate_op.Set((rc_t, pc_t, yawc), time=Usd.TimeCode(t_close_tc))
+            else:
+                translate_op.Set((xo, yo, zo))
+                rotate_op.Set((ro_t, po_t, yawo))
+
+            # Logged "current" pose is the shutter-open sample.
+            roll = ro_t
+            pitch = po_t
+            yaw = yawo
+            x, y, z = xo, yo, zo
 
         if chase_enabled and chase_translate_op is not None:
-            seg_len = math.sqrt(dx * dx + dy * dy)
-            ux, uy = (dx / seg_len, dy / seg_len) if seg_len > 1e-9 else (0.0, 1.0)
-            cx = x - ux * chase_dist_m
-            cy = y - uy * chase_dist_m
-            cz = z + chase_height_m
-            chase_translate_op.Set((cx, cy, cz))
-            # roll=90+tilt_down makes the camera look at the ego from behind and above
-            # yaw tracks ego heading only — not ego's lateral look offset (yaw_rel)
-            chase_rotate_op.Set((90.0 + tilt_down_deg, 0.0, heading_yaw))
+            if agent_type == "carter":
+                chx = x - math.cos(cyaw) * chase_dist_m
+                chy = y - math.sin(cyaw) * chase_dist_m
+                chz = chase_height_m
+            else:
+                seg_len = math.sqrt(dx_seg * dx_seg + dy_seg * dy_seg)
+                ux, uy = (dx_seg / seg_len, dy_seg / seg_len) if seg_len > 1e-9 else (0.0, 1.0)
+                chx = x - ux * chase_dist_m
+                chy = y - uy * chase_dist_m
+                chz = z + chase_height_m
+            chase_translate_op.Set((chx, chy, chz))
+            chase_rotate_op.Set((90.0 + tilt_down_deg, 0.0, heading_yaw_cam))
 
         simulation_app.update()
-        rep.orchestrator.step(rt_subframes=4, delta_time=0.0, pause_timeline=False)
+        # Advance time each capture step. Carter uses capture_dt for control
+        # integration; ghost uses the frame interval so the renderer sees
+        # timeline motion (needed to consume time-sampled xforms for blur).
+        step_dt = capture_dt
+        rep.orchestrator.step(rt_subframes=4, delta_time=step_dt, pause_timeline=False)
 
         pose_record = {
+            "agent_type": agent_type,
             "camera_prim": camera_prim_path,
             "camera_pos": [x, y, z],
             "camera_rot_euler_deg": [roll, pitch, yaw],
-            "heading_yaw_deg": round(heading_yaw, 4),
+            "heading_yaw_deg": round(heading_yaw_cam, 4),
             "relative_yaw_deg": round(yaw_rel, 4),
             "fov_deg": round(fov_deg, 3),
             "frame": frame_index,
-            "sim_time": round(frame_index * physics_dt, 6),
+            "sim_time": round(frame_index * (capture_dt if agent_type == "carter" else physics_dt), 6),
             "waypoint_segment": seg,
         }
+        if agent_type == "carter":
+            pose_record["agent_prim"] = robot_prim_path
+            pose_record["agent_pos"] = [x, y, z]
+            pose_record["agent_yaw_deg"] = round(robot_yaw, 4)
+            pose_record["target_idx"] = carter_target_idx
+            pose_record["finished"] = carter_finished
+        # Character world positions — for Stage 7b-2 movement validation.
+        # Query via ag.get_character() world transform (the source of truth
+        # the anim graph writes; USD xformOp is untouched by the anim system).
+        if spawned_characters:
+            char_pos = []
+            try:
+                import omni.anim.graph.core as _ag
+                import carb as _carb
+                for entry in spawned_characters:
+                    skel_root_path = None
+                    cprim = stage.GetPrimAtPath(entry["prim"])
+                    for _p in Usd.PrimRange(cprim):
+                        if _p.GetTypeName() == "SkelRoot":
+                            skel_root_path = str(_p.GetPrimPath())
+                            break
+                    if skel_root_path is None:
+                        continue
+                    ch = _ag.get_character(skel_root_path)
+                    if ch is None:
+                        continue
+                    pos = _carb.Float3(0, 0, 0)
+                    rot = _carb.Float4(0, 0, 0, 0)
+                    ch.get_world_transform(pos, rot)
+                    char_pos.append({
+                        "name": entry["prim"].rsplit("/", 1)[-1],
+                        "pos": [round(float(pos.x), 3), round(float(pos.y), 3), round(float(pos.z), 3)],
+                    })
+            except Exception:
+                pass
+            pose_record["characters"] = char_pos
         with poses_path.open("a") as f:
             f.write(json.dumps(pose_record) + "\n")
 
@@ -925,6 +1684,86 @@ def run_stage4(args: argparse.Namespace) -> None:
         print(f"Video files written: {video_files}")
 
     image_count = len(list((paths["ego"] / "rgb").glob("*.png")))
+
+    # Motion-blur diagnostic: dump the camera's authored attrs + a couple of
+    # time samples to a file so we can verify the renderer was given what
+    # we think we were giving it.
+    if agent_type == "camera_rig":
+        try:
+            diag_path = output_dir / "trajectory" / "blur_diag.txt"
+            cam = UsdGeom.Camera(stage.GetPrimAtPath(camera_prim_path))
+            t_attr = cam.GetPrim().GetAttribute("xformOp:translate")
+            samples = t_attr.GetTimeSamples() if t_attr.HasAuthoredValue() else []
+            with diag_path.open("w") as f:
+                f.write(f"camera_prim: {camera_prim_path}\n")
+                f.write(f"shutter_open: {cam.GetShutterOpenAttr().Get()}\n")
+                f.write(f"shutter_close: {cam.GetShutterCloseAttr().Get()}\n")
+                f.write(f"projection: {cam.GetProjectionAttr().Get()}\n")
+                f.write(f"focal_length: {cam.GetFocalLengthAttr().Get()}\n")
+                f.write(f"fstop: {cam.GetFStopAttr().Get()}\n")
+                f.write(f"focus_distance: {cam.GetFocusDistanceAttr().Get()}\n")
+                f.write(f"stage_tcps: {stage_tcps}\n")
+                f.write(f"translate time samples ({len(samples)}):\n")
+                for s in samples[:8]:
+                    f.write(f"  tc={s} val={t_attr.Get(s)}\n")
+                if len(samples) > 8:
+                    f.write(f"  ...({len(samples)-8} more)\n")
+        except Exception as exc:
+            print(f"blur_diag write failed: {exc}")
+
+    # ── Fisheye post-render ──────────────────────────────────────────────────
+    # USD has no spherical projection, so we render perspective and remap to
+    # fisheye via OpenCV. Output sits next to the original perspective frames
+    # in Camera/rgb_fisheye/. Bbox labels for OD apply to the perspective
+    # frames; if the downstream task needs fisheye labels, they'd be projected
+    # through the same remap.
+    fisheye_cfg = ego_cam_cfg.get("fisheye") or {}
+    if fisheye_cfg.get("enabled", False) and image_count > 0:
+        import cv2
+        import numpy as np
+
+        rgb_dir = paths["ego"] / "rgb"
+        fish_dir = paths["ego"] / "rgb_fisheye"
+        fish_dir.mkdir(parents=True, exist_ok=True)
+
+        # Perspective camera intrinsics (pixels)
+        fx_p = focal_length * width / horizontal_aperture
+        fy_p = fx_p  # assume square pixels
+        cx_p = width / 2.0
+        cy_p = height / 2.0
+        K_persp = np.array([[fx_p, 0, cx_p], [0, fy_p, cy_p], [0, 0, 1]], dtype=np.float64)
+
+        # Fisheye output uses the same focal length and image size; only the
+        # distortion differs. Distortion coeffs in OpenCV fisheye order.
+        D = np.array([
+            float(fisheye_cfg.get("k1", 0.0)),
+            float(fisheye_cfg.get("k2", 0.0)),
+            float(fisheye_cfg.get("k3", 0.0)),
+            float(fisheye_cfg.get("k4", 0.0)),
+        ], dtype=np.float64)
+
+        # Build the remap once: for every output (fisheye) pixel, undistort
+        # to a 3D ray, then project that ray through the perspective camera.
+        gx, gy = np.meshgrid(np.arange(width), np.arange(height))
+        pts_fish = np.stack([gx, gy], axis=-1).reshape(-1, 1, 2).astype(np.float64)
+        pts_undist = cv2.fisheye.undistortPoints(pts_fish, K_persp, D)
+        x_norm = pts_undist[..., 0].reshape(-1)
+        y_norm = pts_undist[..., 1].reshape(-1)
+        u_persp = K_persp[0, 0] * x_norm + K_persp[0, 2]
+        v_persp = K_persp[1, 1] * y_norm + K_persp[1, 2]
+        map_x = u_persp.reshape(height, width).astype(np.float32)
+        map_y = v_persp.reshape(height, width).astype(np.float32)
+
+        rgb_files = sorted(rgb_dir.glob("*.png"))
+        for rgb_path in rgb_files:
+            img = cv2.imread(str(rgb_path))
+            if img is None:
+                continue
+            warped = cv2.remap(
+                img, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
+            )
+            cv2.imwrite(str(fish_dir / rgb_path.name), warped)
+        print(f"Fisheye post-render: wrote {len(rgb_files)} frames to {fish_dir}")
 
     write_manifest(
         output_dir=output_dir,
