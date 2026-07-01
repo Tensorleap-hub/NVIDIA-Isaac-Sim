@@ -195,10 +195,8 @@ seed dirs / themes):
 - `project_config_second_order_groups.yaml`
 - `project_config_to_30.yaml`
 - `test_isaac_small_loop.yaml`
-- `theme_rounds.yaml`
-
-Delete the runner that depends on `theme_rounds.yaml`:
-- `run_theme_rounds.py`
+- `theme_rounds.yaml` — **DELETE the content but keep the filename slot; will
+  be rewritten in Stage 3 as a trajectory round orchestrator**
 
 Delete the smoke tests that hardcode the old `include/exclude` semantics
 against old seed dirs (rewrite in stage 4 if we want a trajectory smoke test):
@@ -208,6 +206,10 @@ against old seed dirs (rewrite in stage 4 if we want a trajectory smoke test):
 Keep and audit in step 1.5:
 - `__init__.py`, `base_pool.py`, `config.py`, `controller.py`, `data.py`,
   `parameter_schema.py`, `ui.py`
+- `run_theme_rounds.py` — **KEEP**. The iterate-by-group strategy is
+  preserved on this branch; this runner cycles per-group project configs
+  N rounds against a shared `promoted_baseline_dir`. Audit it for
+  hardcoded theme names in step 1.5.
 - `collect_top_runs.py`, `upload_top_runs_to_s3.py`, `visualize_population.py`
   — utilities, not path-specific; keep unless audit shows dependence on
   removed configs.
@@ -315,33 +317,108 @@ Suggested initial optimizable knobs (all present in `sdg_config_stage6.yaml`):
 `infer_parameter_schema` returns the expected paths and value kinds;
 `experiment_mean_std/base_v2/` is deleted.
 
-### Stage 3 — Search-space themes + bounds
+### Stage 3 — Search-space themes, per-group project configs, and round orchestrator
 
-**Goal:** rewrite `SEARCH_SPACE_THEMES` in `config.py` and author
-`project_config_trajectory.yaml` with explicit bounds for every included path.
+**Goal:** replace `SEARCH_SPACE_THEMES` in `config.py` with trajectory themes,
+author **one project config per group** (iterate-by-group strategy preserved
+from the old workflow), and write a new `theme_rounds_trajectory.yaml`
+orchestrator that `run_theme_rounds.py` cycles through.
 
-- Replace `SEARCH_SPACE_THEMES` with a small, curated set:
-  - `traj-camera-intrinsics`: fov, focal, f_stop, focus_distance
-  - `traj-camera-mount`: height, pitch, roll
-  - `traj-camera-jitter`: all four `*_jitter.*` blocks
-  - `traj-agent`: speed_mps, turn_rate_dps
-  - `traj-scene`: palletjack/forklift/pallet counts, clutter_level,
-    lighting mean/std, materials roughness mean/std, materials.textures
-  - `traj-characters`: count, enabled (optional; can be off for first run)
-- Author `project_config_trajectory.yaml`:
-  - `isaac.script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py`
-  - `seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v1`
-  - `search_space.themes: [traj-camera-intrinsics, traj-camera-mount, ...]`
-  - `search_space.exclude: [run.data_dir, run.num_frames, run.headless]`
-    plus every knowingly no-op knob from the readiness gaps list
-  - `search_space.bounds: {...}` — one entry per surviving path, min/max
-    for numeric, list for categorical (materials.textures)
-  - `embedder_backend: rfdetr` +
-    `rfdetr_embedder.checkpoint_path: <path-to-trained-checkpoint>` so
-    scoring uses the trained OD backbone (see the Embedder section above).
+**Why one config per group instead of one big config?** The loop's
+`run_theme_rounds.py` runs each group as its own Optuna study against a shared
+`promoted_baseline_dir`, so the best YAML from group A becomes the baseline
+that group B optimizes on top of. This keeps each study's search space narrow
+(better TPE efficiency), makes rounds visible/auditable, and lets us pause
+and inspect between groups. The alternative — one giant study — is harder
+to interpret and less compute-efficient.
 
-**Exit criteria:** `controller._build_param_bounds_from_config()` succeeds
-without raising for any surviving path.
+#### 3.1 Replace `SEARCH_SPACE_THEMES`
+
+Curated trajectory groups (config.py:95–237):
+
+- `traj-camera-intrinsics`: fov, focal, f_stop, focus_distance
+- `traj-camera-mount`: height, pitch, roll
+- `traj-camera-jitter`: all four `*_jitter.*` blocks
+- `traj-agent`: speed_mps, turn_rate_dps
+- `traj-scene`: palletjack / forklift / pallet counts, clutter_level,
+  lighting mean/std, materials roughness mean/std, materials.textures
+- `traj-characters`: count, enabled (optional; can be off for first run)
+
+Grep `SEARCH_SPACE_THEMES` after replacement to confirm no old theme names
+survive elsewhere in the codebase.
+
+#### 3.2 Author per-group project configs
+
+One YAML per group under `simulation_calibration_loop/`:
+
+- `project_config_trajectory_camera_intrinsics.yaml`
+- `project_config_trajectory_camera_mount.yaml`
+- `project_config_trajectory_camera_jitter.yaml`
+- `project_config_trajectory_agent.yaml`
+- `project_config_trajectory_scene.yaml`
+- `project_config_trajectory_characters.yaml` (optional; skip if pinned off)
+
+Every per-group config sets:
+
+- `isaac.script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py`
+- `seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v1`
+- `search_space.themes: [<single group name>]`
+- `search_space.exclude: [run.data_dir, run.num_frames, run.headless]`
+  plus every knowingly no-op knob from the readiness gaps list
+- `search_space.bounds: {...}` — only the paths for that group's theme,
+  min/max for numeric, list for categorical (materials.textures)
+- `embedder_backend: rfdetr` +
+  `rfdetr_embedder.checkpoint_path: <path-to-trained-checkpoint>`
+  (see the Embedder section)
+
+Shared settings (`iteration_batch_size`, `max_iterations`, `sample_number`,
+`base_pool`, and the RF-DETR checkpoint) can be kept once in the round
+orchestrator's `common:` block and omitted from the per-group configs — the
+orchestrator applies them before each run.
+
+#### 3.3 Write the trajectory round orchestrator
+
+New `simulation_calibration_loop/theme_rounds_trajectory.yaml`:
+
+```yaml
+rounds: 2
+
+common:
+  promoted_baseline_dir: ./promoted_baseline_trajectory
+  max_iterations: 15
+  iteration_batch_size: 4
+  sample_number: 64          # → isaac.num_frames_override in each config
+  base_pool:
+    enabled: true
+    max_size: 60
+    pin_seeds: true
+
+configs:
+  - project_config_trajectory_camera_intrinsics.yaml
+  - project_config_trajectory_camera_mount.yaml
+  - project_config_trajectory_camera_jitter.yaml
+  - project_config_trajectory_agent.yaml
+  - project_config_trajectory_scene.yaml
+#  - project_config_trajectory_characters.yaml
+
+rfdetr_embedder:
+  checkpoint_path: <path-to-trained-rfdetr-checkpoint>
+  num_classes: 3
+  layer_index: 3
+  batch_size: 16
+  resize_size: 256
+  image_size: 224
+
+embedder_backend: rfdetr
+```
+
+**Exit criteria:**
+
+- `controller._build_param_bounds_from_config()` succeeds without raising
+  for every per-group project config.
+- `run_theme_rounds.py --round-config theme_rounds_trajectory.yaml --rounds 0`
+  (or an equivalent dry-run flag if one exists) loads all listed configs
+  without errors.
 
 ### Stage 4 — Smoke test
 
@@ -359,17 +436,25 @@ under 1 GB.
 
 ### Stage 5 — First real optimization round
 
-**Goal:** the smallest meaningful Optuna run to validate signal.
+**Goal:** the smallest meaningful Optuna run to validate signal, using the
+round-orchestrator entry point that Stage 3 delivered.
 
-- Start with a single theme (recommend `traj-camera-intrinsics` because it
-  has the fewest parameters and the tightest link to visual embeddings).
-- `num_frames_override: 30`, `iteration_batch_size: 4`, `max_iterations: 10`.
-- Save top-N configs, back up to S3, record observations in
-  `trajectory_plan.md` progress log.
+- Start with a **single group** by commenting out all but one entry in
+  `theme_rounds_trajectory.yaml`'s `configs:` list. Recommend
+  `project_config_trajectory_camera_intrinsics.yaml` because it has the
+  fewest parameters and the tightest link to visual embeddings.
+- Common overrides for this first run:
+  `sample_number: 30`, `iteration_batch_size: 4`, `max_iterations: 10`,
+  `rounds: 1`.
+- Invoke via `run_theme_rounds.py --round-config theme_rounds_trajectory.yaml`.
+- Save top-N configs, back up to S3 via `upload_top_runs_to_s3.py`, record
+  observations in `trajectory_plan.md` progress log.
 
-Follow-up rounds can layer additional themes (mount, jitter, agent, scene)
-once the first round demonstrates the loop scores trajectory embeddings
-sensibly.
+Follow-up rounds re-enable additional group configs in the orchestrator's
+`configs:` list. The shared `promoted_baseline_dir` means each group builds
+on the previous group's best result. Bump `rounds:` to 2+ once multiple
+groups are stable so later rounds re-optimize each group against the
+new baseline.
 
 ## Risks & Mitigations
 
