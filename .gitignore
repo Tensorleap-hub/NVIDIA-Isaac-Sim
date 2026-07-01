@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.sim_loop_venv/
+.claude/
+palletjack_sdg/palletjack_data/
