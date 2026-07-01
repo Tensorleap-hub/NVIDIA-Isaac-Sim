@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optuna Search Over Trajectory SDG</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-alt: #1c2029;
+    --border: #262b36;
+    --text: #d8dee9;
+    --muted: #8892a6;
+    --accent: #7cc4ff;
+    --accent-2: #ffb454;
+    --ok: #8fd67f;
+    --warn: #ffb454;
+    --danger: #ff7a7a;
+    --code-bg: #0b0d12;
+    --heading: #f5f7fb;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+  header .eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 32px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  h2 {
+    color: var(--heading);
+    font-size: 22px;
+    margin: 48px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 17px;
+    margin: 32px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  h4 {
+    color: var(--heading);
+    font-size: 15px;
+    margin: 20px 0 6px;
+    font-weight: 600;
+  }
+  p { margin: 8px 0 12px; }
+  ul, ol {
+    margin: 6px 0 14px;
+    padding-left: 22px;
+  }
+  li { margin: 3px 0; }
+  li > ul, li > ol { margin: 4px 0; }
+  strong { color: var(--heading); font-weight: 600; }
+  em { color: var(--muted); }
+  code {
+    background: var(--code-bg);
+    color: #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    border: 0;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin: 18px 0;
+  }
+  .card.stage {
+    border-left: 3px solid var(--accent);
+  }
+  .card.readiness-ok {
+    border-left: 3px solid var(--ok);
+  }
+  .card.readiness-gap {
+    border-left: 3px solid var(--warn);
+  }
+  .card.risks {
+    border-left: 3px solid var(--danger);
+  }
+  .card h3 { margin-top: 0; }
+  .card h4 { margin-top: 14px; }
+  .stage-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .stage-header .stage-num {
+    color: var(--accent);
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .stage-header .stage-title {
+    color: var(--heading);
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .goal {
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+    margin: 4px 0 14px;
+  }
+  .exit {
+    background: var(--panel-alt);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 14px 0 0;
+    font-size: 13px;
+  }
+  .exit strong {
+    color: var(--ok);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .file-list {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 8px 0 14px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+  }
+  .file-list ul {
+    margin: 0;
+    padding-left: 18px;
+    list-style-type: none;
+  }
+  .file-list li:before {
+    content: "›  ";
+    color: var(--muted);
+  }
+  .keep-list li:before {
+    content: "✓  ";
+    color: var(--ok);
+  }
+  .delete-list li:before {
+    content: "✕  ";
+    color: var(--danger);
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
+  .badge-keep {
+    background: rgba(143, 214, 127, 0.15);
+    color: var(--ok);
+    border: 1px solid rgba(143, 214, 127, 0.3);
+  }
+  .badge-delete {
+    background: rgba(255, 122, 122, 0.15);
+    color: var(--danger);
+    border: 1px solid rgba(255, 122, 122, 0.3);
+  }
+  .badge-audit {
+    background: rgba(255, 180, 84, 0.15);
+    color: var(--warn);
+    border: 1px solid rgba(255, 180, 84, 0.3);
+  }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 24px 0 32px;
+  }
+  .toc-title {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .toc ol {
+    margin: 0;
+    padding-left: 22px;
+  }
+  .toc a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .toc a:hover {
+    color: var(--accent);
+  }
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Trajectory Branch · Planning Doc</div>
+  <h1>Optuna Search Over Trajectory SDG</h1>
+  <div class="subtitle">Readiness analysis and staged rollout for running <code>simulation_calibration_loop</code> against <code>standalone_palletjack_trajectory_sdg.py</code>.</div>
+</header>
+
+<div class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#purpose">Purpose</a></li>
+    <li><a href="#readiness">Readiness Snapshot</a></li>
+    <li><a href="#stages">Implementation Stages</a>
+      <ol>
+        <li><a href="#stage1">Stage 1 — Purge the branch of random-frame artifacts</a></li>
+        <li><a href="#stage2">Stage 2 — Trajectory seed configs</a></li>
+        <li><a href="#stage3">Stage 3 — Search-space themes + bounds</a></li>
+        <li><a href="#stage4">Stage 4 — Smoke test</a></li>
+        <li><a href="#stage5">Stage 5 — First real optimization round</a></li>
+      </ol>
+    </li>
+    <li><a href="#risks">Risks &amp; Mitigations</a></li>
+  </ol>
+</div>
+
+<h2 id="purpose">Purpose</h2>
+<p>
+The <code>trajectory</code> branch is dedicated to episode-based trajectory generation
+(<code>standalone_palletjack_trajectory_sdg.py</code>). The random-frame generator lives
+on other branches and does not need to coexist here. This document scopes the
+work needed to run <code>simulation_calibration_loop</code> (Isaac → DINOv2 → Optuna)
+against the trajectory pipeline, starting with a hard purge of every
+random-frame artifact that would otherwise leak into schema inference, waste
+Optuna trials on dead knobs, or fill the disk.
+</p>
+
+<h2 id="readiness">Readiness Snapshot</h2>
+
+<div class="card readiness-ok">
+  <h3>What already works</h3>
+  <ul>
+    <li><strong>Trajectory script CLI is loop-compatible</strong> — <code>--config</code>, <code>--headless</code>, <code>--data_dir</code>, <code>--num_frames</code> match <code>data.run_isaac_generation</code>, so the loop launches trajectory runs by changing only <code>isaac.script_path</code>.</li>
+    <li><strong>Image discovery contract is honored</strong> — trajectory writes <code>Camera/rgb/*.png</code>; the <code>Camera_chase/</code> leak was fixed in <code>controller.py:652</code> at stage 3.</li>
+    <li><strong>Bounds are now declared in the project YAML</strong> (commit <code>4dc56fe</code>), so ranges for trajectory paths can be added without touching schema inference.</li>
+    <li><strong>Loop plumbing is generic</strong> — <code>controller.py</code>, <code>parameter_schema.py</code>, <code>data.py</code>, and the <code>SearchSpaceConfig</code> dataclass in <code>config.py</code> are parameter-agnostic. Only <code>SEARCH_SPACE_THEMES</code> (<code>config.py:95–237</code>) hardcodes the old flat schema.</li>
+  </ul>
+</div>
+
+<div class="card readiness-gap">
+  <h3>Gaps blocking Optuna on trajectory</h3>
+  <ol>
+    <li><strong><code>SEARCH_SPACE_THEMES</code> has zero trajectory paths</strong> — every theme still references <code>camera.*</code>, <code>distractors.*</code>, <code>materials.*</code> etc.</li>
+    <li><strong>No trajectory seed-config directory</strong> — <code>controller.py:69</code> requires ≥2 YAMLs whose intersection defines the flattened schema. <code>sdg_config_stage6.yaml</code> is a lone file and inherits <code>sdg_config_mean_std.yaml</code> full of dead knobs.</li>
+    <li><strong>No <code>project_config_trajectory.yaml</code></strong> — needs <code>isaac.script_path</code> → trajectory script, <code>seed_config_dir</code> → new dir, and explicit <code>search_space.bounds</code> for every included path (controller raises at <code>controller.py:772–777</code> on missing bounds).</li>
+    <li><strong>Legacy random-frame params leak through inheritance.</strong> <code>sdg_config_stage6.yaml extends sdg_config_mean_std.yaml</code>, so schema inference will surface <code>camera.camera_height_mean/std</code>, <code>camera.position_mean/std</code>, <code>camera.motion_blur_strength_*</code>, and many others that the trajectory script mostly ignores. Any of these left in the search space burns budget on no-ops.</li>
+    <li><strong>Knowingly no-op knobs must be excluded</strong> until later stages land:
+      <ul>
+        <li><code>cameras.ego.shutter_close_fraction</code> — wired but RTX doesn't integrate camera-xform time samples (stage 6.1 outcome #5). Optimizing before stage 7.5 is meaningless.</li>
+        <li><code>cameras.ego.fisheye.*</code> — post-render only; DINOv2 embeds <code>Camera/rgb/</code> which is untouched.</li>
+        <li><code>capture.video</code> — CosmosWriter adds ~5 MP4s per trial; irrelevant for scoring.</li>
+        <li>Chase-camera fields — chase output lives under <code>Camera_chase/</code> and is ignored by discovery.</li>
+      </ul>
+    </li>
+    <li><strong>Trial cost is higher than random-frame.</strong> Trajectory steps physics + Replicator per frame. Plan <code>num_frames_override</code> and <code>iteration_batch_size</code> accordingly.</li>
+  </ol>
+</div>
+
+<h2 id="stages">Implementation Stages</h2>
+
+<div class="card stage" id="stage1">
+  <div class="stage-header">
+    <span class="stage-num">STAGE 1</span>
+    <span class="stage-title">Purge the branch of random-frame artifacts</span>
+  </div>
+  <div class="goal">Leave this branch with a single, trajectory-only SDG surface and a loop with no lingering old themes / project configs / workspaces. Every delete below is reversible via git on other branches; local run data is already backed up on S3.</div>
+
+  <p>The purge is <em>careful</em> because the trajectory script still inherits from <code>sdg_config_mean_std.yaml</code>. Step 1.1 breaks that inheritance before removing the base file.</p>
+
+  <h4>1.1 Consolidate the trajectory config</h4>
+  <ul>
+    <li>Inline every field the trajectory script actually reads from <code>sdg_config_mean_std.yaml</code> into <code>sdg_config_stage6.yaml</code> (or a renamed <code>sdg_config_trajectory.yaml</code>) so <code>extends:</code> can be dropped. Audit against <code>standalone_palletjack_trajectory_sdg.py</code> — keys used include <code>render.width/height</code>, <code>environment_urls.*</code>, <code>palletjacks.*</code>, <code>forklifts.*</code>, <code>pallets.*</code>, <code>pallet_stacks.*</code>, <code>distractors.*</code>, <code>materials.*</code>, <code>lighting.*</code>, <code>characters.*</code>, and the <code>cameras.ego.*</code>/<code>agent.*</code>/<code>trajectory.*</code>/<code>capture.*</code> blocks already stated explicitly.</li>
+    <li>Rename the consolidated file to <code>palletjack_sdg/sdg_config_trajectory.yaml</code> (the current file with that name is the stale stage-5 version — overwrite it).</li>
+    <li>Confirm the trajectory script runs from the standalone config with <code>--num_frames 3</code>.</li>
+  </ul>
+
+  <h4>1.2 Delete random-frame SDG files under <code>palletjack_sdg/</code></h4>
+  <div class="file-list delete-list">
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">Scripts</div>
+    <ul>
+      <li>standalone_palletjack_sdg.py</li>
+      <li>standalone_palletjack_sdg_mean_std.py</li>
+      <li>palletjack_datagen.sh</li>
+      <li>list_isaac_props.sh</li>
+      <li>run_experiments.sh</li>
+      <li>run_experiments_mean_std.sh</li>
+    </ul>
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin: 10px 0 6px;">Stale trajectory shells (superseded by run_trajectory_stage6.sh)</div>
+    <ul>
+      <li>run_trajectory_stage1.sh</li>
+      <li>run_trajectory_stage3.sh</li>
+      <li>run_trajectory_stage5.sh</li>
+    </ul>
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin: 10px 0 6px;">SDG configs (old base, A/B, sweeps, per-seed variants, ad-hoc tests)</div>
+    <ul>
+      <li>sdg_config.yaml</li>
+      <li>sdg_config_mean_std.yaml</li>
+      <li>sdg_config_blur_ab.yaml, sdg_config_blur_ab_OFF.yaml, sdg_config_blur_ab_ON.yaml</li>
+      <li>sdg_config_blur_clean.yaml, sdg_config_blur_clean_OFF.yaml, sdg_config_blur_clean_ON.yaml</li>
+      <li>sdg_config_panoramic.yaml</li>
+      <li>sdg_config_stage6_blur_off.yaml, sdg_config_stage6_blur_on.yaml</li>
+      <li>sdg_config_stage6_dof.yaml, sdg_config_stage6_dof2.yaml</li>
+      <li>sdg_config_stage6_fish.yaml, sdg_config_stage6_focal.yaml, sdg_config_stage6_posjit.yaml</li>
+      <li>sdg_config_stage6_seed_1.yaml … sdg_config_stage6_seed_5.yaml</li>
+      <li>test_ego_only.yaml, test_fov_seed42.yaml, test_yaw_fix.yaml</li>
+    </ul>
+  </div>
+
+  <div class="file-list keep-list">
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">Keep on the branch</div>
+    <ul>
+      <li>standalone_palletjack_trajectory_sdg.py</li>
+      <li>sdg_config_trajectory.yaml (new consolidated form)</li>
+      <li>sdg_config_stage6.yaml <span class="badge badge-audit">decide</span> keep as trajectory default vs rename above — pick one</li>
+      <li>run_trajectory_stage6.sh</li>
+      <li>utils/</li>
+      <li>requirements.txt</li>
+    </ul>
+  </div>
+
+  <h4>1.3 Prune <code>palletjack_sdg/experiments/</code></h4>
+  <div class="file-list delete-list">
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">Delete</div>
+    <ul>
+      <li>ec2-loop/</li>
+      <li>experiment_first_order/</li>
+      <li>experiment_second_order/</li>
+      <li>test_exp/</li>
+      <li>generate_configs.py</li>
+      <li>generate_configs_mean_std.py</li>
+      <li>summarize_yaml_stats.py</li>
+    </ul>
+  </div>
+  <div class="file-list keep-list">
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">Keep temporarily (delete once Stage 2 lands)</div>
+    <ul>
+      <li>experiment_mean_std/base_v2/ &nbsp;<span class="badge badge-audit">reference only</span></li>
+    </ul>
+  </div>
+  <p style="font-size: 13px; color: var(--muted);">Everything else under <code>experiment_mean_std/</code> (all <code>iter-*</code>, <code>theme</code>, <code>first_order</code>, <code>base_v2_bounded</code>, <code>base_v3/v4</code>, <code>test_*</code>, <code>README.md</code>, <code>1st_optuna_rounds_best</code>) deletes with the parent purge.</p>
+
+  <h4>1.4 Prune <code>simulation_calibration_loop/</code></h4>
+  <div class="file-list delete-list">
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">Delete every project YAML tied to the old flat schema</div>
+    <ul>
+      <li>project_config.yaml</li>
+      <li>project_config_all.yaml</li>
+      <li>project_config_camera.yaml</li>
+      <li>project_config_camera_color.yaml</li>
+      <li>project_config_camera_color_objects.yaml</li>
+      <li>project_config_camera_noise_light.yaml</li>
+      <li>project_config_diversity.yaml</li>
+      <li>project_config_environment.yaml</li>
+      <li>project_config_lighting.yaml</li>
+      <li>project_config_materials.yaml</li>
+      <li>project_config_materials_objects.yaml</li>
+      <li>project_config_noise.yaml</li>
+      <li>project_config_noise_lighting.yaml</li>
+      <li>project_config_objects.yaml</li>
+      <li>project_config_run2.yaml</li>
+      <li>project_config_scene_object.yaml</li>
+      <li>project_config_second_order.yaml</li>
+      <li>project_config_second_order_groups.yaml</li>
+      <li>project_config_to_30.yaml</li>
+      <li>test_isaac_small_loop.yaml</li>
+      <li>theme_rounds.yaml</li>
+    </ul>
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin: 10px 0 6px;">Delete the runner that depends on theme_rounds.yaml</div>
+    <ul>
+      <li>run_theme_rounds.py</li>
+    </ul>
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin: 10px 0 6px;">Delete smoke tests that hardcode old semantics</div>
+    <ul>
+      <li>test_isaac_small_loop.py</li>
+      <li>smoke_test_dinov2.py</li>
+    </ul>
+  </div>
+  <div class="file-list keep-list">
+    <div style="color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">Keep and audit in step 1.5</div>
+    <ul>
+      <li>__init__.py, base_pool.py, config.py, controller.py, data.py, parameter_schema.py, ui.py</li>
+      <li>collect_top_runs.py, upload_top_runs_to_s3.py, visualize_population.py <span class="badge badge-audit">audit</span></li>
+    </ul>
+  </div>
+
+  <h4>1.5 Deep audit of the loop code for random-frame assumptions</h4>
+  <p>Read top-to-bottom with an eye for hardcoded old paths, discovery assumptions, or theme names:</p>
+  <ul>
+    <li><code>config.py:95–237</code> — <strong>replace <code>SEARCH_SPACE_THEMES</code> entirely</strong> with trajectory themes (stage 3 below). Every existing entry references a deleted knob.</li>
+    <li><code>data.py</code> — confirm <code>discover_generated_images</code> still points at <code>Camera/rgb</code>, confirm <code>run_isaac_generation</code> builds the correct Isaac CLI for the trajectory script, confirm any KITTI-style layout expectations are dropped.</li>
+    <li><code>controller.py</code> — confirm no hardcoded references to old themes, no filename patterns like <code>standalone_palletjack_sdg_mean_std.py</code>.</li>
+    <li><code>parameter_schema.py</code> — generic; expected clean.</li>
+    <li><code>base_pool.py</code> — check for hardcoded param paths used for de-duplication.</li>
+    <li><code>ui.py</code> — check the log/status strings.</li>
+    <li>Utility scripts (<code>collect_top_runs.py</code>, <code>upload_top_runs_to_s3.py</code>, <code>visualize_population.py</code>) — flag any hardcoded workspace dirs, S3 prefixes, or theme names; leave them as TODOs to fix when we use them.</li>
+  </ul>
+  <p>Track findings inline with edits or with <code># TODO(trajectory-optuna): ...</code> comments if the fix is bigger than the audit pass.</p>
+
+  <h4>1.6 Delete local run data <span class="badge badge-delete">S3-backed</span></h4>
+  <p><code>palletjack_sdg/palletjack_data/</code> (~28 GB) and the loop workspaces (~225 GB total):</p>
+  <div class="file-list delete-list">
+    <ul>
+      <li>simulation_calibration_loop/may_rounds_freshstart/</li>
+      <li>simulation_calibration_loop/may_rounds_insh/</li>
+      <li>simulation_calibration_loop/may_rounds_ok/</li>
+      <li>simulation_calibration_loop/may_rounds_rfdetr/</li>
+      <li>simulation_calibration_loop/promoted_baseline_rfdetr/</li>
+      <li>simulation_calibration_loop/promoted_baseline_theme_rounds/</li>
+      <li>simulation_calibration_loop/promoted_baseline_theme_rounds_2/</li>
+      <li>simulation_calibration_loop/promoted_saved/</li>
+      <li>simulation_calibration_loop/promoted_saved_v2/</li>
+      <li>simulation_calibration_loop/round_workspaces/</li>
+      <li>simulation_calibration_loop/round_workspaces_run2/</li>
+      <li>simulation_calibration_loop/small_loop_workspace/</li>
+      <li>simulation_calibration_loop/workspace_top_30_groups/</li>
+    </ul>
+  </div>
+  <p style="font-size: 13px; color: var(--muted);">Confirm each is either present on S3 (per user) or intentionally ephemeral before <code>rm -rf</code>.</p>
+
+  <h4>1.7 Commit and push the purge</h4>
+  <p>Single commit titled something like <code>trajectory-branch: purge random-frame SDG + old loop artifacts</code>. Describe scope in the body so the diff is auditable. The commit should compile-check (import the loop package, load the surviving trajectory YAML, dry-run schema inference against a single placeholder seed) even though schema inference will refuse to run until stage 2 adds ≥2 seed YAMLs.</p>
+
+  <div class="exit">
+    <strong>Exit criteria for Stage 1</strong>
+    <ul style="margin: 4px 0 0;">
+      <li>Trajectory YAML runs standalone with no <code>extends:</code>.</li>
+      <li>No file in the branch references <code>standalone_palletjack_sdg*</code> or <code>sdg_config_mean_std.yaml</code>.</li>
+      <li><code>simulation_calibration_loop/</code> contains only generic code + this doc-set; no project YAMLs, no workspaces.</li>
+      <li><code>du -sh palletjack_sdg/palletjack_data simulation_calibration_loop/</code> is under a few hundred MB.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card stage" id="stage2">
+  <div class="stage-header">
+    <span class="stage-num">STAGE 2</span>
+    <span class="stage-title">Trajectory seed configs</span>
+  </div>
+  <div class="goal">Author 5–10 seed YAMLs under palletjack_sdg/experiments/trajectory/base_v1/ that together cover the trajectory knobs we want Optuna to search. experiment_mean_std/base_v2/ is the structural template for how much per-seed variation is enough; delete it once these are in place.</div>
+
+  <h4>Design principles</h4>
+  <ul>
+    <li>Every seed uses the same top-level structure (no <code>extends:</code>).</li>
+    <li>Every path we intend to include in the search space must appear in every seed (schema inference intersects across YAMLs).</li>
+    <li>Seeds should differ meaningfully in the values of each optimizable path so Optuna's initial pool has variance.</li>
+    <li><code>capture.video: false</code>, <code>cameras.chase.enabled: false</code>, <code>fisheye.enabled: false</code>, <code>shutter_close_fraction: 0.0</code> across all seeds (constant → not in the search space unless we add per-seed variance later).</li>
+  </ul>
+
+  <h4>Suggested initial optimizable knobs</h4>
+  <p>All present in <code>sdg_config_stage6.yaml</code>:</p>
+  <ul>
+    <li><strong>Camera intrinsics:</strong> <code>cameras.ego.fov_mean</code>, <code>cameras.ego.fov_std</code>, <code>cameras.ego.focal_length_mm</code> (or <code>fov_mean</code> only, pick one), <code>cameras.ego.f_stop</code>, <code>cameras.ego.focus_distance_m</code></li>
+    <li><strong>Camera mount:</strong> <code>cameras.ego.height_m</code>, <code>cameras.ego.pitch_deg</code>, <code>cameras.ego.roll_deg</code></li>
+    <li><strong>Camera jitter:</strong> <code>cameras.ego.pitch_jitter.amp_deg</code>, <code>cameras.ego.pitch_jitter.hz</code>, same for <code>roll_jitter</code>, <code>lateral_jitter</code>, <code>vertical_jitter</code></li>
+    <li><strong>Agent:</strong> <code>agent.speed_mps</code>, <code>agent.turn_rate_dps</code></li>
+    <li><strong>Scene composition (retained from mean_std, still consumed):</strong> <code>palletjacks.count_per_model</code>, <code>forklifts.count_per_model</code>, <code>pallets.count_per_model</code>, <code>distractors.clutter_level</code>, <code>lighting.intensity_mean</code>, <code>lighting.intensity_std</code>, <code>materials.roughness_mean</code>, <code>materials.roughness_std</code>, <code>materials.textures</code></li>
+    <li><strong>Characters (stage 7):</strong> <code>characters.count</code>, <code>characters.enabled</code> — decide whether to search or pin.</li>
+  </ul>
+
+  <div class="exit">
+    <strong>Exit criteria</strong>
+    <ul style="margin: 4px 0 0;">
+      <li><code>parameter_schema.load_yaml_configs("…/base_v1/")</code> + <code>infer_parameter_schema</code> returns the expected paths and value kinds.</li>
+      <li><code>experiment_mean_std/base_v2/</code> is deleted.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card stage" id="stage3">
+  <div class="stage-header">
+    <span class="stage-num">STAGE 3</span>
+    <span class="stage-title">Search-space themes + bounds</span>
+  </div>
+  <div class="goal">Rewrite SEARCH_SPACE_THEMES in config.py and author project_config_trajectory.yaml with explicit bounds for every included path.</div>
+
+  <ul>
+    <li>Replace <code>SEARCH_SPACE_THEMES</code> with a small, curated set:
+      <ul>
+        <li><code>traj-camera-intrinsics</code>: fov, focal, f_stop, focus_distance</li>
+        <li><code>traj-camera-mount</code>: height, pitch, roll</li>
+        <li><code>traj-camera-jitter</code>: all four <code>*_jitter.*</code> blocks</li>
+        <li><code>traj-agent</code>: speed_mps, turn_rate_dps</li>
+        <li><code>traj-scene</code>: palletjack/forklift/pallet counts, clutter_level, lighting mean/std, materials roughness mean/std, materials.textures</li>
+        <li><code>traj-characters</code>: count, enabled (optional; can be off for first run)</li>
+      </ul>
+    </li>
+    <li>Author <code>project_config_trajectory.yaml</code>:
+      <ul>
+        <li><code>isaac.script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py</code></li>
+        <li><code>seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v1</code></li>
+        <li><code>search_space.themes: [traj-camera-intrinsics, traj-camera-mount, ...]</code></li>
+        <li><code>search_space.exclude: [run.data_dir, run.num_frames, run.headless]</code> plus every knowingly no-op knob from the readiness gaps list</li>
+        <li><code>search_space.bounds: {...}</code> — one entry per surviving path, min/max for numeric, list for categorical (<code>materials.textures</code>)</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="exit">
+    <strong>Exit criteria</strong>
+    <ul style="margin: 4px 0 0;">
+      <li><code>controller._build_param_bounds_from_config()</code> succeeds without raising for any surviving path.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card stage" id="stage4">
+  <div class="stage-header">
+    <span class="stage-num">STAGE 4</span>
+    <span class="stage-title">Smoke test</span>
+  </div>
+  <div class="goal">End-to-end dry run with tiny numbers.</div>
+
+  <ul>
+    <li><code>iteration_batch_size: 1</code>, <code>num_frames_override: 5</code>, <code>max_iterations: 2</code>.</li>
+    <li>Confirm: Isaac launches from the trajectory script, <code>Camera/rgb/</code> populates, embeddings compute, state store writes, second iteration suggests different params than the first.</li>
+    <li>Inspect the generated per-trial YAMLs — every trajectory path should be populated with a value inside its declared bounds.</li>
+  </ul>
+
+  <div class="exit">
+    <strong>Exit criteria</strong>
+    <ul style="margin: 4px 0 0;">
+      <li>Two clean iterations, no schema/bounds errors, workspace under 1 GB.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card stage" id="stage5">
+  <div class="stage-header">
+    <span class="stage-num">STAGE 5</span>
+    <span class="stage-title">First real optimization round</span>
+  </div>
+  <div class="goal">The smallest meaningful Optuna run to validate signal.</div>
+
+  <ul>
+    <li>Start with a single theme (recommend <code>traj-camera-intrinsics</code> because it has the fewest parameters and the tightest link to visual embeddings).</li>
+    <li><code>num_frames_override: 30</code>, <code>iteration_batch_size: 4</code>, <code>max_iterations: 10</code>.</li>
+    <li>Save top-N configs, back up to S3, record observations in <code>trajectory_plan.md</code> progress log.</li>
+  </ul>
+
+  <p>Follow-up rounds can layer additional themes (mount, jitter, agent, scene) once the first round demonstrates the loop scores trajectory embeddings sensibly.</p>
+</div>
+
+<h2 id="risks">Risks &amp; Mitigations</h2>
+<div class="card risks">
+  <ul>
+    <li><strong><code>sdg_config_mean_std.yaml</code> inline may miss a key.</strong> Diff the resolved merged config before/after step 1.1 by loading it via <code>parameter_schema._load_yaml_with_extends</code> and dumping — anything that changes value or key set is a bug.</li>
+    <li><strong>Deleting <code>experiment_mean_std/base_v2/</code> too early.</strong> It's the only structural reference for authoring diverse seed YAMLs. Delete only in stage 2 exit.</li>
+    <li><strong><code>SEARCH_SPACE_THEMES</code> replacement breaks importers.</strong> <code>run_theme_rounds.py</code> is deleted in stage 1.4, but grep for any surviving references to the old theme names before pushing stage 3.</li>
+    <li><strong>Trial cost.</strong> Trajectory frames are physics-stepped; budget accordingly. A 60-frame trial ≈ N seconds of Isaac wall-clock — measure once in the smoke test and extrapolate.</li>
+  </ul>
+</div>
+
+<footer>
+  Trajectory branch · Rendered from <code>optuna_search_trajectory.md</code>
+</footer>
+
+</div>
+</body>
+</html>
