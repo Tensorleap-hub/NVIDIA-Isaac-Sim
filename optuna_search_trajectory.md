@@ -87,15 +87,24 @@ Optuna trials on dead knobs, or fill the disk.
     Note for the full run: at 60 frames × more trials, a late flake is an
     expensive restart (the Optuna study DB persists, so scored trials aren't fully
     lost, but generation re-runs). Consider a per-run retry instead of whole-workflow.
-  - **Thematic-rounds: partially validated.** The orchestrator harness works —
-    it loaded the round-config, applied the `common:` overrides
-    (`sample_number → num_frames_override`, max_iterations, iteration_batch_size,
-    embedder, base_pool), derived a round workspace, drove the config through the
-    retry wrapper, and **promoted a baseline** (`promoted_baseline_trajectory_smoke/`
-    now has `best.json`, `best.yaml`, `base_pool.json`). NOT yet exercised because
-    the smoke used 1 theme × 1 round: cross-theme handoff (group B inheriting group
-    A's promoted baseline) and multi-round re-optimization. Those are the next
-    thing to confirm on the full run (or a 2-theme × 2-round mini-run).
+  - **Thematic-rounds: FULLY validated (2026-07-03).** A 2-theme × 2-round mini
+    run (`theme_rounds_trajectory_handoff.yaml`: camera_intrinsics + camera_mount,
+    `--workspace-root handoff_ws` to avoid stale-workspace reuse) ran all four
+    theme-rounds cleanly. Behavioral proof of cross-theme handoff: after
+    intrinsics-r1 promoted `best.yaml` (fov_mean 68→77.89, f_stop 0→7.61,
+    focus_distance 5→7.86), the camera_mount theme's iteration-1 suggestion YAML
+    carried exactly those tuned intrinsics values (not the seed defaults) while
+    independently searching its own mount params (height/pitch/roll). Round 2
+    inherited the same. Confirms: baseline promotion, cross-theme inheritance,
+    per-group search isolation, multi-round sequencing.
+    NOTE: `_load_base_template` runs at controller `__init__` and merges
+    `promoted_baseline_dir/best.yaml` into the base template; its `[baseline]`
+    log line goes through `ui.append_log`, which is IN-MEMORY ONLY (never written
+    to `main_loop_screen.log`) — so verify handoff by inspecting materialized
+    YAMLs, not by grepping logs.
+    GOTCHA: re-running a theme whose `workspace_<name>_r01/` already holds a
+    completed Optuna study short-circuits (`runs=0/0`, replays old best). Always
+    launch rounds with a fresh `--workspace-root`.
 - **Stragglers noted (non-blocking).** Old-theme references remain in
   `README.md:146` (`camera-color` mention), `tensorleap_intgration_code/data_preprocess.py:1020–1021`
   (parses legacy output-folder names), and `tests/test_base_pool.py`
