@@ -8,3 +8,4 @@ opencv-python-headless
 pandas
 optuna
 scikit-learn
+transformers==4.46.3  # RF-DETR DINOv2 encoder embedder (backend=rfdetr); torch-2.1.2 compatible

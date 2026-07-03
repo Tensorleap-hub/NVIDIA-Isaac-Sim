@@ -1,0 +1,25 @@
+# Stage-4 smoke: tiny end-to-end dry run of the trajectory Optuna loop.
+# Single group, 5 frames/trial, 1 trial/batch, 2 iterations. Validates:
+# Isaac trajectory launch -> Camera/rgb discovery -> RF-DETR encoder embed ->
+# MMD vs real -> Optuna suggests new params on iteration 2.
+# Uses the SMOKE-ONLY placeholder checkpoint; swap to the fresh model for the full run.
+rounds: 1
+common:
+  promoted_baseline_dir: ./promoted_baseline_trajectory_smoke
+  max_iterations: 2
+  iteration_batch_size: 1
+  sample_number: 5           # -> isaac.num_frames_override
+  embedder_backend: rfdetr
+  base_pool:
+    enabled: true
+    max_size: 10
+    pin_seeds: true
+  rfdetr_embedder:
+    checkpoint_path: /home/ubuntu/warehouse3cls_traj_v2/output/rfdetr_traj_v2_base/checkpoint_best_ema.pth
+    num_classes: 3
+    layer_index: 3
+    batch_size: 16
+    resize_size: 256
+    image_size: 224
+configs:
+- project_config_trajectory_camera_intrinsics.yaml

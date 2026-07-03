@@ -10,6 +10,99 @@ against the trajectory pipeline, starting with a hard purge of every
 random-frame artifact that would otherwise leak into schema inference, waste
 Optuna trials on dead knobs, or fill the disk.
 
+## Progress log
+
+- **Stage 1 — Purge random-frame + old loop artifacts.** Landed 2026-07-01
+  in commit `0bdab27`. Trajectory YAML runs standalone; `simulation_calibration_loop/`
+  contains only generic code + this doc-set.
+- **Stage 2 — Trajectory seed configs.** Landed 2026-07-01 (uncommitted at
+  time of writing). `palletjack_sdg/experiments/trajectory/base_v1/` holds
+  **20** standalone flat seeds (no `extends:`). `parameter_schema.load_yaml_configs`
+  + `infer_parameter_schema` returns **144 params**; `validate_configs_against_schema`
+  OK. `experiment_mean_std/base_v2/` deleted. Only exp03 has
+  `cameras.ego.fisheye.enabled: true`. Pinned constants held across all 20:
+  `capture.video=false`, `cameras.chase.enabled=false`,
+  `cameras.ego.shutter_close_fraction=0.0`, `environment.name=full_warehouse`.
+  5-frame smoke pass: **20/20 seeds** after two config fixes discovered by
+  the smoke: exp02 `buffer_m 1.4 → 1.0` and exp14 `z_slice_m 1.4 → 1.7`
+  (both fixed occupancy-path-planner freespace collapses in `full_warehouse`).
+- **Stage 3 — Search-space themes, per-group configs, round orchestrator.**
+  Landed 2026-07-02 (uncommitted at time of writing). `SEARCH_SPACE_THEMES`
+  rewritten (`config.py:100–142`) with the 6 trajectory groups; old-theme
+  names raise a clear `ValueError`. 6 per-group project configs
+  (`simulation_calibration_loop/project_config_trajectory_{camera_intrinsics,
+  camera_mount, camera_jitter, agent, scene, characters}.yaml`) validate with
+  0 missing bounds. Orchestrator `theme_rounds_trajectory.yaml` written with
+  `rounds: 2` and a `common:` block carrying the shared knobs (max_iterations,
+  iteration_batch_size, sample_number, promoted_baseline_dir, embedder_backend,
+  base_pool, rfdetr_embedder). `materials.textures` categorical uses the
+  19 unique JSON-encoded texture bundles harvested from base_v1 so seed rows
+  replay through Optuna's categorical without collision.
+  **Blocking TBDs:** `rfdetr_embedder.checkpoint_path` (currently
+  `TBD_rfdetr_checkpoint_path` in the orchestrator's `common:`) and
+  `real_dataset_root` / `real_annotations_file` (currently `TBD_*` in every
+  per-group YAML — required by `load_workflow_config`).
+- **Stage 3 blockers resolved + embedder rebuilt.** Landed 2026-07-03
+  (uncommitted at time of writing).
+  - All `TBD_*` placeholders filled across the 6 per-group configs +
+    `theme_rounds_trajectory.yaml`: `real_dataset_root: /home/ubuntu/loco_dataset`
+    (LOCO-nested source — the flat Roboflow `valid/` folder resolves 0 images
+    because annotations carry `/dataset/subset-3/...` paths),
+    `real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json`
+    (858 real images resolve), and a **SMOKE-ONLY** placeholder checkpoint
+    `warehouse3cls_traj_v2/.../checkpoint_best_ema.pth` (tagged in-line;
+    swap to the fresh model for the full run).
+  - **Embedder blocker found + fixed.** `RFDETREmbedder` used to `import rfdetr`,
+    but rfdetr 1.7.0 (the checkpoint's version) needs transformers 5.x → torch≥2.4,
+    which collides with the loop venv's pinned torch 2.1.2. The torch pin is *not*
+    an Isaac constraint (Isaac runs as a subprocess via its own `./python.sh`,
+    `data.py:294`). Rather than upgrade torch, we exploit that the RF-DETR backbone
+    **is** a DINOv2 ViT-S/14 whose checkpoint stores encoder weights under
+    `backbone.0.encoder.encoder.*` with exact HuggingFace `Dinov2Model` key naming
+    (223/223 keys match, 0 missing/unexpected). `RFDETREmbedder` now builds a
+    `Dinov2Model` and loads just those weights — same constructor + `embed_paths`
+    contract, so `controller.py`/`config.py` are untouched. Added
+    `transformers==4.46.3` to `local_requirements.txt` (torch-2.1.2 compatible).
+    Verified end-to-end: 384-dim finite embeddings, cache round-trips.
+  - `theme_rounds_trajectory_smoke.yaml` authored for Stage 4 (single group
+    `camera_intrinsics`, 5 frames/trial, 1/batch, 2 iterations).
+  - **Verified non-Isaac plumbing:** `load_workflow_config` OK; 32 seeds →
+    144-param schema; the 4 intrinsics bounds paths present + matched. Only the
+    Isaac launch itself (Stage 4) remains untested.
+- **Stage 4 — Smoke test PASSED.** Ran 2026-07-03 via
+  `run_theme_rounds.py --round-config theme_rounds_trajectory_smoke.yaml`
+  (single group `camera_intrinsics`, 5 frames/trial, 1/batch, 2 iterations,
+  `rounds: 1`). All exit criteria met:
+  - Isaac launched from the trajectory script; `Camera/rgb/` populated (5 PNGs/run).
+  - Real embeddings computed via the reworked DINOv2-encoder embedder: `(858, 384)`.
+  - Synthetic embeddings + MMD scored: iter-1 `best_obj=0.574626` (trial_9);
+    iteration 2 suggested a new point and scored it (`iter_best=0.624434`).
+  - 33 trials total (32 pinned seeds + 1 iter-2 trial); workspace 142 MB (< 1 GB);
+    no schema/bounds errors.
+  - **Transient CDN flake observed + auto-recovered.** Two individual Isaac runs
+    died with exit 1 on "Maximum loading time reached while waiting for assets to
+    load" (Omniverse S3 asset streaming), not param/schema errors. The retry
+    wrapper (`run_main_loop_with_retry.sh`) restarts the *whole* workflow on any
+    single Isaac failure, so it re-ran the seed batch and succeeded on attempt 3.
+    Note for the full run: at 60 frames × more trials, a late flake is an
+    expensive restart (the Optuna study DB persists, so scored trials aren't fully
+    lost, but generation re-runs). Consider a per-run retry instead of whole-workflow.
+  - **Thematic-rounds: partially validated.** The orchestrator harness works —
+    it loaded the round-config, applied the `common:` overrides
+    (`sample_number → num_frames_override`, max_iterations, iteration_batch_size,
+    embedder, base_pool), derived a round workspace, drove the config through the
+    retry wrapper, and **promoted a baseline** (`promoted_baseline_trajectory_smoke/`
+    now has `best.json`, `best.yaml`, `base_pool.json`). NOT yet exercised because
+    the smoke used 1 theme × 1 round: cross-theme handoff (group B inheriting group
+    A's promoted baseline) and multi-round re-optimization. Those are the next
+    thing to confirm on the full run (or a 2-theme × 2-round mini-run).
+- **Stragglers noted (non-blocking).** Old-theme references remain in
+  `README.md:146` (`camera-color` mention), `tensorleap_intgration_code/data_preprocess.py:1020–1021`
+  (parses legacy output-folder names), and `tests/test_base_pool.py`
+  (synthetic test data using `camera.camera_height_mean` — tests still pass
+  because they don't hit the real schema). `sdg_config_mean_std.yaml` still
+  present as a Stage 1 leftover.
+
 ## Readiness Snapshot
 
 ### What already works
@@ -23,8 +116,9 @@ Optuna trials on dead knobs, or fill the disk.
   ranges for trajectory paths can be added without touching schema inference.
 - **Loop plumbing is generic** — `controller.py`, `parameter_schema.py`,
   `data.py`, and the `SearchSpaceConfig` dataclass in `config.py` are
-  parameter-agnostic. Only `SEARCH_SPACE_THEMES` (config.py:95–237) hardcodes
-  the old flat schema.
+  parameter-agnostic. `SEARCH_SPACE_THEMES` (originally `config.py:95–237`,
+  now `config.py:100–142`) was rewritten at Stage 3.1 to reference only
+  trajectory paths.
 
 ### Gaps blocking Optuna on trajectory
 
@@ -219,9 +313,8 @@ Keep and audit in step 1.5:
 Read top-to-bottom with an eye for hardcoded old paths, discovery
 assumptions, or theme names:
 
-- `config.py:95–237` — **replace `SEARCH_SPACE_THEMES` entirely** with
-  trajectory themes (stage 3 below). Every existing entry references a
-  deleted knob.
+- `config.py:100–142` — **`SEARCH_SPACE_THEMES` rewritten at Stage 3.1**
+  with trajectory themes. Every prior entry referenced a deleted knob.
 - `data.py` — confirm `discover_generated_images` still points at
   `Camera/rgb`, confirm `run_isaac_generation` builds the correct Isaac CLI
   for the trajectory script, confirm any KITTI-style layout expectations are
@@ -345,7 +438,7 @@ to interpret and less compute-efficient.
 
 #### 3.1 Replace `SEARCH_SPACE_THEMES`
 
-Curated trajectory groups (config.py:95–237):
+Curated trajectory groups (delivered at `config.py:100–142`):
 
 - `traj-camera-intrinsics`: fov, focal, f_stop, focus_distance
 - `traj-camera-mount`: height, pitch, roll

@@ -1,0 +1,35 @@
+project_name: trajectory_characters
+workspace_dir: ./workspace_trajectory_characters
+seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v1
+real_dataset_root: /home/ubuntu/loco_dataset
+real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json
+max_iterations: 15
+iteration_batch_size: 4
+isaac:
+  script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py
+search_space:
+  themes:
+  - traj-characters
+  exclude:
+  - run.data_dir
+  - run.num_frames
+  - run.headless
+  - cameras.ego.shutter_close_fraction
+  - cameras.chase.enabled
+  - cameras.ego.fisheye.enabled
+  - cameras.ego.fisheye.k1
+  - cameras.ego.fisheye.k2
+  - cameras.ego.fisheye.k3
+  - cameras.ego.fisheye.k4
+  - capture.video
+  - environment.name
+  bounds:
+    characters.enabled:
+    - true
+    - false
+    characters.count:
+    - 0
+    - 10
+embedder_backend: rfdetr
+rfdetr_embedder:
+  checkpoint_path: /home/ubuntu/warehouse3cls_traj_v2/output/rfdetr_traj_v2_base/checkpoint_best_ema.pth  # SMOKE-ONLY placeholder - swap to fresh model for full run

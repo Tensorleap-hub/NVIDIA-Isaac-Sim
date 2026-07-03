@@ -116,41 +116,74 @@ class DINOv2Embedder:
             return self.transform(image.convert("RGB"))
 
 
-class RFDETREmbedder:
-    """RF-DETR backbone feature extractor using global-average-pool on a selected scale.
+# The RF-DETR backbone is a DINOv2 ViT-S/14 (hidden 384, 12 layers, 6 heads,
+# patch 14, no register tokens). Its checkpoint stores the encoder weights under
+# ``backbone.0.encoder.encoder.*`` with exact HuggingFace ``Dinov2Model`` key
+# naming, so we load them straight into a plain ``Dinov2Model`` — no rfdetr /
+# transformers-5.x / torch>=2.4 dependency needed, just the fine-tuned encoder.
+_RFDETR_ENCODER_PREFIX = "backbone.0.encoder.encoder."
+# ``layer_index`` (0-3) selects a depth among 4 evenly-spaced transformer stages,
+# mapping onto Dinov2Model's ``hidden_states`` (index 0 = embeddings, 1..12 = layers).
+_RFDETR_SCALE_LAYERS = (3, 6, 9, 12)
 
-    The WindowedDinov2WithRegistersBackbone returns 4 multi-scale feature maps of shape
-    (B, 384, H, W). ``layer_index`` (0-3) selects which scale; default 3 uses the
-    deepest features. GAP over (H, W) yields a (B, 384) embedding per image.
+
+class RFDETREmbedder:
+    """RF-DETR DINOv2 encoder feature extractor using global-average-pool on a selected depth.
+
+    Loads the fine-tuned RF-DETR backbone (a DINOv2 ViT-S/14) into a HuggingFace
+    ``Dinov2Model``. ``layer_index`` (0-3) picks one of 4 evenly-spaced transformer
+    stages; default 3 uses the deepest. Patch tokens (cls dropped) are mean-pooled
+    to a (B, 384) embedding per image.
     """
 
     def __init__(
         self,
         checkpoint_path: str,
-        num_classes: int,
+        num_classes: int,  # kept for interface compatibility; unused by the encoder
         layer_index: int,
         device: str,
         resize_size: int,
         image_size: int,
     ):
-        from rfdetr import RFDETRBase  # lazy import – only needed when backend="rfdetr"
+        from transformers import Dinov2Config, Dinov2Model  # lazy import – only for backend="rfdetr"
 
         self.device = torch.device(device)
         self.layer_index = layer_index
+        self._hidden_state_index = _RFDETR_SCALE_LAYERS[max(0, min(layer_index, len(_RFDETR_SCALE_LAYERS) - 1))]
 
-        rfdetr = RFDETRBase(num_classes=num_classes)
-        lwdetr = self._unwrap_lwdetr(rfdetr)
+        config = Dinov2Config(
+            hidden_size=384,
+            num_hidden_layers=12,
+            num_attention_heads=6,
+            mlp_ratio=4,
+            patch_size=14,
+            image_size=518,
+            num_register_tokens=0,
+        )
+        model = Dinov2Model(config)
 
         if checkpoint_path:
             ckpt = torch.load(checkpoint_path, map_location=str(self.device), weights_only=False)
             state_dict = ckpt.get("model", ckpt.get("state_dict", ckpt))
-            if isinstance(state_dict, dict):
-                lwdetr.load_state_dict(state_dict, strict=False)
+            encoder_sd = {
+                key[len(_RFDETR_ENCODER_PREFIX) :]: value
+                for key, value in state_dict.items()
+                if key.startswith(_RFDETR_ENCODER_PREFIX)
+            }
+            if not encoder_sd:
+                raise ValueError(
+                    f"No RF-DETR encoder weights found under prefix '{_RFDETR_ENCODER_PREFIX}' in {checkpoint_path}"
+                )
+            result = model.load_state_dict(encoder_sd, strict=False)
+            if result.missing_keys or result.unexpected_keys:
+                raise ValueError(
+                    "RF-DETR encoder weights did not map cleanly onto Dinov2Model "
+                    f"(missing={len(result.missing_keys)}, unexpected={len(result.unexpected_keys)})"
+                )
 
-        # backbone[0].encoder.encoder is WindowedDinov2WithRegistersBackbone
-        self._backbone = lwdetr.backbone[0].encoder.encoder
-        self._backbone.eval()
-        self._backbone.to(self.device)
+        self._model = model
+        self._model.eval()
+        self._model.to(self.device)
 
         self.transform = transforms.Compose(
             [
@@ -160,18 +193,6 @@ class RFDETREmbedder:
                 transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
             ]
         )
-
-    @staticmethod
-    def _unwrap_lwdetr(rfdetr_instance: Any) -> Any:
-        m = rfdetr_instance
-        for _ in range(5):
-            if hasattr(m, "backbone"):
-                return m
-            if hasattr(m, "model"):
-                m = m.model
-            else:
-                break
-        raise RuntimeError("Cannot locate LWDETR backbone in RF-DETR model hierarchy.")
 
     def embed_paths(
         self,
@@ -194,9 +215,10 @@ class RFDETREmbedder:
             for start in range(0, len(image_paths), batch_size):
                 batch_paths = image_paths[start : start + batch_size]
                 images = torch.stack([self._load_image(p) for p in batch_paths], dim=0).to(self.device)
-                feat_maps, *_ = self._backbone(images)
-                feat = feat_maps[self.layer_index]  # (B, C, H, W)
-                batches.append(feat.mean(dim=[2, 3]).cpu().numpy())  # (B, C)
+                outputs = self._model(images, output_hidden_states=True)
+                hidden = outputs.hidden_states[self._hidden_state_index]  # (B, 1+N, C)
+                patch_tokens = hidden[:, 1:, :]  # drop cls token (no register tokens)
+                batches.append(patch_tokens.mean(dim=1).cpu().numpy())  # (B, C)
         embeddings = np.concatenate(batches, axis=0)
         np.save(cache_path, embeddings)
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
