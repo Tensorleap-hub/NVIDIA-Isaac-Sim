@@ -1,6 +1,6 @@
 rounds: 2
 common:
-  promoted_baseline_dir: ./promoted_baseline_trajectory
+  promoted_baseline_dir: ./promoted_baseline_trajectory_v2
   max_iterations: 15
   iteration_batch_size: 4
   sample_number: 60
@@ -22,4 +22,7 @@ configs:
 - project_config_trajectory_camera_jitter.yaml
 - project_config_trajectory_agent.yaml
 - project_config_trajectory_scene.yaml
-- project_config_trajectory_characters.yaml
+# characters theme disabled: Isaac runs die at generation (omni.anim.people
+# character spawn), stalling the whole round with endless retries. Optional per
+# the plan; re-enable only after the crash is diagnosed + fixed.
+#- project_config_trajectory_characters.yaml
