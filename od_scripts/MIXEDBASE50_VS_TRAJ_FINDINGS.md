@@ -49,6 +49,27 @@ just under the 0.202 reference. The run plateaued around 0.19–0.197 from ~epoc
 > Note: the "0.202" reference for traj_v3 sits between its best-EMA (0.210 @ ep16) and
 > its best-EMA-at-best-raw-epoch (0.207 @ ep18). traj_v3's true peak EMA is **0.210**.
 
+### ⚠️ Confound: mixedbase50 also has *half the real data*, not just half the synth
+"50% of the train data" was a **uniform random subsample of the full mixedbase**
+(4,110 real + 2,868 synth = 6,978), so it halved the **real** portion too:
+
+| Run | Real imgs | Synth imgs | Peak EMA |
+|---|---:|---:|---:|
+| traj_v3 | **4,110** (full) | 1,056 trajectory | 0.210 |
+| mixedbase50 | **2,068** (half) | 1,421 random-frame | 0.197 |
+
+Because **eval is on real valid**, real training images are the highest-value data — and
+mixedbase50 is handicapped on exactly that. So the mixedbase50-vs-traj_v3 pair is **not** a
+clean "random-frame vs trajectory synth" comparison: it mixes a *synth-type* difference with
+a *real-data-volume* difference. Two consequences:
+- mixedbase50 reaching 0.197 with **half the real data** is arguably *more* impressive, but
+- the "diversity-bound, not volume-bound" conclusion (Finding 3) **cannot be attributed to
+  synth type alone** from this pair — real volume differs too.
+
+A clean synth-type control (`warehouse3cls_rftypematch`: **full 4,110 real + 1,056
+random-frame synth**, matching traj_v3 on *both* real and synth counts) is run separately —
+see **Finding 5 / rftypematch** below. That isolates random-frame vs trajectory synth.
+
 ---
 
 ## Findings (the reasoning thread)
@@ -83,6 +104,11 @@ traj_v3 has **27% less data** than traj_v2 **and** peaks in **~1/3 the steps**
 ~5k–7k regime, **train-set size barely moves the converged mAP** — the ceiling is set by
 synth **diversity/quality**, not raw image count. traj_v3 is the more *efficient* run.
 
+> Scope: this holds cleanly *within the trajectory family* (v2 vs v3 differ mostly in synth
+> volume/composition). It does **not**, on its own, license comparing mixedbase50 to traj_v3
+> as a synth-type test — that pair also differs in real-data volume (see the ⚠️ confound box).
+> The `rftypematch` run (Finding 5) is the clean control.
+
 ### 4. But within the *same distribution*, more data = faster per-step convergence
 The cleanest size ablation is mixedbase50 vs. **full mixedbase** (a "sanity" run, also
 COCO-init, 3 epochs, 436 steps/epoch) — identical distribution, only size differs.
@@ -99,6 +125,20 @@ model ~2× as many *unique* images (one pass vs. mixedbase50's two passes over h
 so its gradients are less redundant. (Caveat: the sanity run evaluated on the mixed
 879-img valid, which inflates by only ~1 pp — the ~5 pp gap is real.)
 
+### 5. Clean synth-type control — `rftypematch` (full real + count-matched random-frame synth)
+To isolate **random-frame vs trajectory synth** with everything else held equal, built
+`warehouse3cls_rftypematch` = **4,110 real + 1,056 random-frame synth** (5,166 imgs) — matching
+traj_v3 on real count, synth count, valid set, and Config B. The *only* difference vs traj_v3
+is synth **type**.
+
+| Run | Real | Synth (type) | Train imgs | Peak EMA mAP@50:95 |
+|---|---:|---|---:|---:|
+| traj_v3 | 4,110 | 1,056 (trajectory) | 5,166 | 0.2103 |
+| `rftypematch` | 4,110 | 1,056 (random-frame) | 5,166 | _TBD — training_ |
+
+_Result pending; this section will be filled when the run converges. Output:
+`~/warehouse3cls_rftypematch/output/rfdetr_rftypematch_base/`. Build: `od_scripts/build_rftypematch.py`._
+
 ### These are two different axes and don't conflict
 - **Convergence *speed* (per step):** more data helps — full mixedbase > mixedbase50 on the
   identical distribution. ✔ size matters here.
@@ -111,9 +151,13 @@ so its gradients are less redundant. (Caveat: the sanity run evaluated on the mi
 ## Bottom line
 
 - **Answer to the task:** mixedbase-50% (3,489 imgs, Config B) peaks at **EMA mAP@50:95 = 0.197**,
-  just **below traj_v3's 0.202/0.210** — despite ~1.7× less data. Effectively a tie.
-- **Data size mainly buys convergence *speed*, not a higher *ceiling***. Peak mAP in this
-  3-class warehouse family plateaus around **0.20–0.21** and is **diversity/quality-bound**.
+  just **below traj_v3's 0.202/0.210** — despite ~1.7× fewer images **and half the real data**.
+  Effectively a tie, but see the ⚠️ confound: this pair varies both synth *type* and real
+  *volume*, so it does not cleanly attribute the near-tie to synth type. The `rftypematch`
+  control (Finding 5) is the clean random-frame-vs-trajectory test.
+- **Data size mainly buys convergence *speed*, not a higher *ceiling*** — established cleanly
+  *within* a distribution (mixedbase50 vs full mixedbase, Finding 4) and *within* the trajectory
+  family (v2 vs v3, Finding 3). Peak mAP in this 3-class family plateaus around **0.20–0.21**.
 - **Random-frame mixed synth is more sample-efficient than trajectory synth** per image
   (correlated consecutive trajectory frames → low effective diversity), consistent with
   `TRAINING_PROTOCOL.md`'s earlier random-frame-vs-trajectory read.
