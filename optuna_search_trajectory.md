@@ -105,6 +105,27 @@ Optuna trials on dead knobs, or fill the disk.
     GOTCHA: re-running a theme whose `workspace_<name>_r01/` already holds a
     completed Optuna study short-circuits (`runs=0/0`, replays old best). Always
     launch rounds with a fresh `--workspace-root`.
+- **Stage 5 — First real optimization run (2026-07-03 → ongoing).** Swapped the
+  SMOKE-ONLY placeholder for the freshly-trained
+  `warehouse3cls_mixedbase_50/output/rfdetr_mixedbase50_base/checkpoint_best_ema.pth`
+  (loads 223/223 into the Dinov2 encoder) across the orchestrator `common:` block
+  and all per-group configs. Committed `1bb639c`.
+  - **First launch (6 themes × 2 rounds, 60 frames) STALLED on `characters`.**
+    Themes 1–5 of round 1 (intrinsics, mount, jitter, agent, scene) completed fine
+    with only ~11 total flake-retries and MMD tracking ~0.58–0.60. Theme 6
+    `characters` then failed **1493×** — its Isaac runs die at generation
+    (`omni.anim.people` character spawn), never producing normal output — and the
+    whole-workflow retry wrapper looped for ~24h without a single clean pass,
+    blocking the round. (Confirms the retry-granularity risk noted in Stage 4: a
+    theme that can't pass cleanly wedges the entire run.)
+  - **Recovery:** killed the stuck run by PID, **disabled the `characters` theme**
+    in the orchestrator (commented out; it was always optional per the plan), and
+    relaunched as **5 themes × 2 rounds** with a fresh `--workspace-root full_run_ws2`
+    and fresh `promoted_baseline_trajectory_v2` (clean cold start). Committed
+    `d0308b6`. This run is healthy and in progress.
+  - **TODO before re-enabling characters:** diagnose why `omni.anim.people`
+    character spawn crashes Isaac at generation (Stage 7b feature). Until then it
+    stays out of the search.
 - **Stragglers noted (non-blocking).** Old-theme references remain in
   `README.md:146` (`camera-color` mention), `tensorleap_intgration_code/data_preprocess.py:1020–1021`
   (parses legacy output-folder names), and `tests/test_base_pool.py`
