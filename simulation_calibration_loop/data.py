@@ -300,6 +300,7 @@ def run_isaac_generation(
     headless: bool,
     num_frames_override: int | None,
     log_callback,
+    seed: int | None = None,
 ) -> None:
     """Launch one Isaac SDG job and stream its logs into the workflow."""
     nvjitlink_lib_dir = isaac_sim_path / "exts" / "omni.isaac.ml_archive" / "pip_prebundle" / "nvidia" / "nvjitlink" / "lib"
@@ -324,6 +325,8 @@ def run_isaac_generation(
     ]
     if num_frames_override is not None:
         command.extend(["--num_frames", str(num_frames_override)])
+    if seed is not None:
+        command.extend(["--seed", str(seed)])
 
     process = subprocess.Popen(
         command,

@@ -611,41 +611,65 @@ class SimulationCalibrationController:
 
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
             self._prepare_run_output_dir(output_dir, run_id, run_fingerprint)
-            local_rgb_dir = output_dir / "Camera" / "rgb"
             embedding_reused = False
-            # Only RGB images should feed DINOv2. Embedding the full output tree
-            # would mix in depth, semantic, or instance renders.
-            image_paths = discover_generated_images(local_rgb_dir)
-            if not image_paths:
+            eval_seeds = list(self.config.isaac.eval_seeds) or [0]
+
+            # Single-seed reuse fast-paths (pool replay / prior synthetic base)
+            # only apply to the legacy one-run layout (output_dir/Camera/rgb) and
+            # are inactive for trajectory configs (no synthetic_rgb_base_dir, no
+            # direct pool replay). Keep them only when a single seed is requested.
+            image_paths: list[Path] = []
+            if len(eval_seeds) == 1:
+                single_seed_dir = output_dir / f"seed_{eval_seeds[0]}"
                 image_paths, embedding_reused = self._copy_synthetic_artifacts_from_pool_replay(
-                    output_dir=output_dir,
+                    output_dir=single_seed_dir,
                     embedding_path=embedding_path,
                     row_record=row_record,
                 )
-            if not image_paths:
-                image_paths, embedding_reused = self._copy_synthetic_artifacts_from_base(
-                    output_dir=output_dir,
-                    embedding_path=embedding_path,
-                    run_id=run_id,
-                    run_fingerprint=run_fingerprint,
-                    yaml_path=yaml_path,
-                )
-            if image_paths:
-                reused_seed_runs += 1
-            if not image_paths:
-                run_isaac_generation(
-                    isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
-                    script_path=Path(self.config.isaac.script_path),
-                    yaml_path=yaml_path,
-                    output_dir=output_dir,
-                    log_path=log_path,
-                    headless=self.config.isaac.headless,
-                    num_frames_override=self.config.isaac.num_frames_override,
-                    log_callback=self.ui.append_log,
-                )
-                image_paths = discover_generated_images(local_rgb_dir)
+                if not image_paths:
+                    image_paths, embedding_reused = self._copy_synthetic_artifacts_from_base(
+                        output_dir=single_seed_dir,
+                        embedding_path=embedding_path,
+                        run_id=run_id,
+                        run_fingerprint=run_fingerprint,
+                        yaml_path=yaml_path,
+                    )
                 if image_paths:
-                    generated_runs += 1
+                    reused_seed_runs += 1
+
+            if not image_paths:
+                # Multi-seed evaluation: generate the SAME candidate YAML once per
+                # seed (each into its own subdir), then POOL every seed's RGB
+                # frames before embedding. Re-rolling the seed re-rolls the scene
+                # layout + trajectory, so the pooled embedding samples the
+                # config's distribution instead of one realization. Only RGB
+                # images feed the embedder — discovery is scoped to each seed's
+                # Camera/rgb tree so depth/semantic renders never leak in.
+                for seed in eval_seeds:
+                    seed_dir = output_dir / f"seed_{seed}"
+                    seed_rgb_dir = seed_dir / "Camera" / "rgb"
+                    seed_images = discover_generated_images(seed_rgb_dir)
+                    if not seed_images:
+                        run_isaac_generation(
+                            isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
+                            script_path=Path(self.config.isaac.script_path),
+                            yaml_path=yaml_path,
+                            output_dir=seed_dir,
+                            log_path=seed_dir / "isaac.log",
+                            headless=self.config.isaac.headless,
+                            num_frames_override=self.config.isaac.num_frames_override,
+                            seed=seed,
+                            log_callback=self.ui.append_log,
+                        )
+                        seed_images = discover_generated_images(seed_rgb_dir)
+                        if seed_images:
+                            generated_runs += 1
+                    if not seed_images:
+                        raise ValueError(
+                            f"No generated images discovered under {seed_dir} (seed={seed})"
+                        )
+                    image_paths.extend(seed_images)
+                image_paths = sorted(image_paths)
             if not image_paths:
                 raise ValueError(f"No generated images discovered under {output_dir}")
             self._write_run_manifest(output_dir, run_id, run_fingerprint, yaml_path)
@@ -987,6 +1011,7 @@ class SimulationCalibrationController:
                 str(self.config.isaac.script_path),
                 str(self.config.isaac.headless),
                 str(self.config.isaac.num_frames_override),
+                str(list(self.config.isaac.eval_seeds)),
             ]
         )
 

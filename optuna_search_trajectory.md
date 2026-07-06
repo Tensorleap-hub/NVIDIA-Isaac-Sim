@@ -132,6 +132,62 @@ Optuna trials on dead knobs, or fill the disk.
   (synthetic test data using `camera.camera_height_mean` — tests still pass
   because they don't hit the real schema). `sdg_config_mean_std.yaml` still
   present as a Stage 1 leftover.
+- **Stage 6 — Search-space expansion + multi-seed evaluation + base_v4 seeds
+  (2026-07-06, uncommitted at time of writing; NOT yet smoke-tested — Isaac is
+  under repair, run the two checks below before the next real run).**
+  - **Seed set switched `base_v1` → `base_v4`** across all six existing per-group
+    project configs + the three new ones (21 seeds). Validated: schema resolves,
+    every bound covered, and every base_v4 `materials.textures` value is within
+    the `traj-scene` categorical choices (the seed-switch risk — clean).
+  - **Three new themes in `config.py:SEARCH_SPACE_THEMES`:**
+    - `traj-environment` (`environment.name`) — **promoted to FIRST** in the
+      round (reverses §3.5's "do env last"): env is the biggest domain-gap lever
+      and the promoted baseline it yields becomes the substrate every later theme
+      conditions on, so it must lead, not trail. Safe because base_v4 already
+      exercises all four warehouses in trajectory mode and their roam bounds
+      differ by ≤1m (occupancy-planner tolerant) — no per-env geometry preset or
+      Isaac-script change was needed. New `project_config_trajectory_environment.yaml`.
+    - `traj-distractor-occurrence` (8 groups' `occurrence`; `0` removes a group,
+      subsuming the old `.use`). New `project_config_trajectory_distractor_occurrence.yaml`.
+    - `traj-distractor-diversity` (8 groups' `diversity`; script clamps to each
+      group's asset-pool size, so out-of-range values are harmless). New
+      `project_config_trajectory_distractor_diversity.yaml`. Staged AFTER
+      occurrence (commented out in the orchestrator) — don't stack two fresh
+      object themes in one round.
+  - **`traj-scene` placement std deliberately NOT added.** With uniform scatter
+    kept (shown better for the trajectory direction), `*.position_std` is a genuine
+    no-op — `_scatter_position` ignores `position_mean/std` under
+    `scatter: uniform` (`standalone_palletjack_trajectory_sdg.py:970-981`) — and
+    every base_v4 seed has `rotation_std=[0,0,~104°]` (x/y dead for floor objects,
+    yaw already near-saturated). So "reinstate scene-objects fully" collapses to
+    `count_per_model`, which is already in `traj-scene`. `pallet_stacks.*` remains
+    out — unimplemented in the trajectory script (future).
+  - **Multi-seed per-trial evaluation.** Each candidate YAML is now generated once
+    per seed in `IsaacConfig.eval_seeds` (each into `output_dir/seed_<k>/`) and all
+    seeds' RGB frames are POOLED before embedding, so MMD-to-real reflects the
+    config's DISTRIBUTION (many layouts/trajectories) instead of one realization.
+    `num_frames_override` is now PER-SEED; the seed set is FIXED across trials
+    (paired comparison) and folded into the run fingerprint. Orchestrator uses
+    `sample_number: 15` × `eval_seeds: [1,2,3,4]` = 60 frames/trial (same budget as
+    the old single-run 60, decorrelated across 4 layouts). Wiring: `IsaacConfig.eval_seeds`
+    (default `[0]`, backward-compatible), `run_isaac_generation(..., seed=)` →
+    `--seed`, the per-seed loop in `controller._materialize_and_execute_iteration`,
+    and `eval_seeds` threaded through `run_theme_rounds._apply_common_overrides`.
+  - **Replicator RNG now seeded from the episode seed (root-cause fix).** Object/
+    light placement uses `rep.distribution.*` (via `rep_normal`/`_scatter_position`),
+    which is governed by Replicator's global RNG — NOT `random.seed()`/
+    `np.random.seed()`. Before this, `--seed` re-rolled only the trajectory path,
+    leaving the scene layout identical across seeds, which would have silently
+    defeated both multi-seed evaluation AND multi-seed dataset generation (e.g.
+    base_v4's per-config seeds). Added a guarded `rep.set_global_seed(seed)` right
+    after the `omni.replicator.core` import in `run_stage4`
+    (`standalone_palletjack_trajectory_sdg.py`).
+  - **Smoke checks owed before the next real run (Isaac was down):**
+    1. Confirm two seeds now yield DIFFERENT layouts (5-frame runs; eyeball
+       `seed_1/` vs `seed_2/`) — validates `rep.set_global_seed`.
+    2. Confirm `warehouse_multiple_shelves` / `warehouse_with_forklifts` env
+       switches don't stall the occupancy planner (the `characters`-style wedge)
+       — a 5-frame run each.
 
 ## Readiness Snapshot
 
@@ -587,6 +643,15 @@ Genuinely new (no old counterpart): `traj-agent`, `traj-characters`.
 
 #### 3.5 Deferred themes — layer in after the baseline is set
 
+> **Superseded in part by Stage 6 (see progress log).** `traj-distractor-groups`
+> (now `traj-distractor-occurrence`) and `traj-distractor-diversity` have landed,
+> and `traj-environment` was **promoted to FIRST**, not last: in the
+> promoted-baseline flow the theme tuned first becomes the substrate everyone
+> else conditions on, so the highest-leverage axis must lead. The "do env last
+> because it invalidates prior tuning" rationale below only holds if env is a
+> trailing add-on — it isn't anymore. The remaining entries (placement std,
+> emissive, motion blur, color-aug, dataset noise) are still deferred as written.
+
 Anything not in the six starting themes is intentionally deferred. Add
 them one at a time to `theme_rounds_trajectory.yaml`'s `configs:` list
 once the initial rounds have produced a stable `promoted_baseline_dir`.
@@ -666,6 +731,69 @@ Follow-up rounds re-enable additional group configs in the orchestrator's
 on the previous group's best result. Bump `rounds:` to 2+ once multiple
 groups are stable so later rounds re-optimize each group against the
 new baseline.
+
+### Stage 7 — Exploration-boundary optimization (PLANNED — next task)
+
+**Goal:** let Optuna optimize *where in the scene the camera is allowed to
+roam* — i.e. treat the exploration area as a searchable knob instead of a
+fixed per-config constant. Motivation: real capture is often confined to
+sub-regions of a warehouse (specific aisles / zones), and constraining the
+synthetic exploration boundary may close domain gap that a full-floor roam
+can't. This is a NEW search axis (a candidate `traj-exploration-bounds`
+theme), distinct from the object-placement axes.
+
+**What defines the exploration area today.** The occupancy path planner roams
+`trajectory.bounds_xy = [x_min, x_max, y_min, y_max]` (consumed at
+`standalone_palletjack_trajectory_sdg.py:_build_occupancy_waypoints`, ~line
+416), subject to `trajectory.occupancy.{boundary_margin_m, buffer_m,
+min_path_m, max_retries, z_slice_m, cell_size_m}`. Bounds are currently fixed
+per config (full ≈ `[-13,13,-13,15]`, plain ≈ `[-12,12,-12,14]`).
+
+**Parameterization — do NOT search the 4 raw bounds directly.** Four
+independent floats let Optuna propose invalid boxes (`x_min > x_max`) and make
+the box size confound its position. Prefer a constrained reparameterization,
+e.g. **center + extent**: `center_x, center_y` (offset within the warehouse
+envelope) + `width, height` (or a single `roam_fraction` ∈ (0,1] that shrinks
+the full envelope, plus an offset). The loop or the script then derives
+`bounds_xy` from these. Recommended: add the derived-bounds computation in the
+Isaac script so `bounds_xy` stays a deterministic function of the searched
+params (mirrors how env geometry could be handled), keeping the loop
+parameter-agnostic.
+
+**Hard couplings to respect (each is a potential `characters`-style stall):**
+
+1. **Occupancy feasibility.** Shrinking the box below what `min_path_m` (=12m)
+   needs makes `_build_occupancy_waypoints` fail to plan a path → whole-workflow
+   retry loop. Either bound the minimum area well above the min-path envelope,
+   or scale `min_path_m` with the box size. A smoke test at the smallest
+   proposed box is mandatory before a full run.
+2. **Object scatter is coupled, not independent.** Uniform scatter places
+   objects inside `trajectory.bounds_xy` (inset) — see `_scatter_position`
+   (`~:970-981`). Shrinking the exploration box therefore also shrinks the
+   object-placement region (objects stay camera-reachable — desirable — but this
+   is a side effect to state explicitly, not an independent knob).
+3. **Environment coupling.** The box must stay inside the *chosen* warehouse's
+   physical extent. Since `traj-environment` is now searched (Stage 6), express
+   the exploration bounds as **fractions of the env envelope**, not absolute
+   metres, or the same absolute box will be valid in `full_warehouse` and
+   out-of-walls in a smaller env.
+
+**Implementation sketch:**
+- Add `traj-exploration-bounds` to `SEARCH_SPACE_THEMES` (`config.py`) over the
+  chosen reparameterized paths (e.g. `trajectory.roam.{center_x,center_y,
+  width_frac,height_frac}` — new config keys the script consumes).
+- Teach `standalone_palletjack_trajectory_sdg.py` to compute `bounds_xy` from
+  those keys (clamped to the env envelope, with a feasibility floor vs
+  `min_path_m`) before occupancy planning.
+- Add these keys to every base_v4 seed (schema inference intersects across
+  seeds) with sensible defaults that reproduce today's full-floor roam, and add
+  a `project_config_trajectory_exploration_bounds.yaml`.
+- Exclude the raw `trajectory.bounds_xy` indexed paths from search (they become
+  derived, not tuned).
+
+**Smoke checks owed:** smallest proposed box still plans a ≥`min_path_m` route;
+box stays within walls for every searchable env; objects remain visible (not all
+clipped outside the roam region).
 
 ## Risks & Mitigations
 

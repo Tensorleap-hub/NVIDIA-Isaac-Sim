@@ -48,7 +48,18 @@ class IsaacConfig:
     isaac_sim_path: str = "/opt/IsaacSim"
     script_path: str = "palletjack_sdg/standalone_palletjack_trajectory_sdg.py"
     headless: bool = True
+    # Per-seed frame count. Each trial is generated once per entry in
+    # `eval_seeds`, each Isaac run using this many frames, and the resulting
+    # images are pooled before embedding — so total frames = num_frames_override
+    # * len(eval_seeds).
     num_frames_override: int | None = None
+    # Seeds used to evaluate a single candidate config. Running the same YAML
+    # across several seeds re-rolls the scene layout + trajectory each time, so
+    # the pooled embedding samples the config's DISTRIBUTION (many layouts)
+    # rather than one lucky/unlucky realization. A FIXED seed set across all
+    # trials makes trial-to-trial MMD differences reflect the config, not seed
+    # luck. Default [0] reproduces the historical single-run behavior.
+    eval_seeds: list[int] = field(default_factory=lambda: [0])
 
 
 @dataclass
@@ -98,6 +109,15 @@ class BasePoolConfig:
 # blur, image augmentation, dataset noise) are intentionally absent — see
 # optuna_search_trajectory.md §3.5 for the reintroduction order.
 SEARCH_SPACE_THEMES: dict[str, list[str]] = {
+    # Tune FIRST in a round: the environment is the biggest single domain-gap
+    # lever, and the promoted-baseline flow means whatever is tuned first becomes
+    # the substrate every later theme conditions on. base_v4 already exercises
+    # all four warehouses in trajectory mode, so switching between them is
+    # validated (the per-env roam bounds differ by <=1m, which the occupancy
+    # planner tolerates).
+    "traj-environment": [
+        "environment.name",
+    ],
     "traj-camera-intrinsics": [
         "cameras.ego.fov_mean",
         "cameras.ego.fov_std",
@@ -137,6 +157,33 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
     "traj-characters": [
         "characters.enabled",
         "characters.count",
+    ],
+    # Per-distractor-group frequency. `occurrence` directly shapes what the OD
+    # model learns to ignore / suppress false positives on, so it's the first
+    # object theme to reintroduce (occurrence=0 disables a group, subsuming the
+    # old `.use` boolean). The 8 groups match those present in every base_v4
+    # seed (schema inference intersects across seeds).
+    "traj-distractor-occurrence": [
+        "distractors.groups.BarelPlastic.occurrence",
+        "distractors.groups.BottlePlastic.occurrence",
+        "distractors.groups.Bucket.occurrence",
+        "distractors.groups.CardBox.occurrence",
+        "distractors.groups.CratePlastic.occurrence",
+        "distractors.groups.PushCart.occurrence",
+        "distractors.groups.RackPile.occurrence",
+        "distractors.groups.TrafficSigns.occurrence",
+    ],
+    # Asset variety within each distractor group. Layer in AFTER occurrence has
+    # converged — it's naturally downstream of how often each group appears.
+    "traj-distractor-diversity": [
+        "distractors.groups.BarelPlastic.diversity",
+        "distractors.groups.BottlePlastic.diversity",
+        "distractors.groups.Bucket.diversity",
+        "distractors.groups.CardBox.diversity",
+        "distractors.groups.CratePlastic.diversity",
+        "distractors.groups.PushCart.diversity",
+        "distractors.groups.RackPile.diversity",
+        "distractors.groups.TrafficSigns.diversity",
     ],
 }
 

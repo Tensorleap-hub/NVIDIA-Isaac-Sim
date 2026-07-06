@@ -1,5 +1,5 @@
-project_name: trajectory_characters
-workspace_dir: ./workspace_trajectory_characters
+project_name: trajectory_distractor_occurrence
+workspace_dir: ./workspace_trajectory_distractor_occurrence
 seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4
 real_dataset_root: /home/ubuntu/loco_dataset
 real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json
@@ -9,7 +9,7 @@ isaac:
   script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py
 search_space:
   themes:
-  - traj-characters
+  - traj-distractor-occurrence
   exclude:
   - run.data_dir
   - run.num_frames
@@ -24,12 +24,32 @@ search_space:
   - capture.video
   - environment.name
   bounds:
-    characters.enabled:
-    - true
-    - false
-    characters.count:
+    # count = round(occurrence * clutter_level); 0 removes the group entirely
+    # (subsumes the old `.use` boolean).
+    distractors.groups.BarelPlastic.occurrence:
     - 0
-    - 10
+    - 4
+    distractors.groups.BottlePlastic.occurrence:
+    - 0
+    - 4
+    distractors.groups.Bucket.occurrence:
+    - 0
+    - 4
+    distractors.groups.CardBox.occurrence:
+    - 0
+    - 4
+    distractors.groups.CratePlastic.occurrence:
+    - 0
+    - 4
+    distractors.groups.PushCart.occurrence:
+    - 0
+    - 4
+    distractors.groups.RackPile.occurrence:
+    - 0
+    - 4
+    distractors.groups.TrafficSigns.occurrence:
+    - 0
+    - 4
 embedder_backend: rfdetr
 rfdetr_embedder:
   checkpoint_path: /home/ubuntu/warehouse3cls_mixedbase_50/output/rfdetr_mixedbase50_base/checkpoint_best_ema.pth

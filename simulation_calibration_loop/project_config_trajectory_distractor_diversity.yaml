@@ -1,0 +1,56 @@
+project_name: trajectory_distractor_diversity
+workspace_dir: ./workspace_trajectory_distractor_diversity
+seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4
+real_dataset_root: /home/ubuntu/loco_dataset
+real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json
+max_iterations: 15
+iteration_batch_size: 4
+isaac:
+  script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py
+search_space:
+  themes:
+  - traj-distractor-diversity
+  exclude:
+  - run.data_dir
+  - run.num_frames
+  - run.headless
+  - cameras.ego.shutter_close_fraction
+  - cameras.chase.enabled
+  - cameras.ego.fisheye.enabled
+  - cameras.ego.fisheye.k1
+  - cameras.ego.fisheye.k2
+  - cameras.ego.fisheye.k3
+  - cameras.ego.fisheye.k4
+  - capture.video
+  - environment.name
+  bounds:
+    # Number of distinct assets sampled per group; clamped to each group's asset
+    # pool size in the SDG script (min(diversity, len(pool))), so values above a
+    # small group's asset count are harmless no-ops.
+    distractors.groups.BarelPlastic.diversity:
+    - 1
+    - 4
+    distractors.groups.BottlePlastic.diversity:
+    - 1
+    - 4
+    distractors.groups.Bucket.diversity:
+    - 1
+    - 4
+    distractors.groups.CardBox.diversity:
+    - 1
+    - 4
+    distractors.groups.CratePlastic.diversity:
+    - 1
+    - 4
+    distractors.groups.PushCart.diversity:
+    - 1
+    - 4
+    distractors.groups.RackPile.diversity:
+    - 1
+    - 4
+    distractors.groups.TrafficSigns.diversity:
+    - 1
+    - 4
+embedder_backend: rfdetr
+rfdetr_embedder:
+  checkpoint_path: /home/ubuntu/warehouse3cls_mixedbase_50/output/rfdetr_mixedbase50_base/checkpoint_best_ema.pth

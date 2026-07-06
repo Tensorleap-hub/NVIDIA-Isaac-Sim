@@ -3,7 +3,15 @@ common:
   promoted_baseline_dir: ./promoted_baseline_trajectory_v2
   max_iterations: 15
   iteration_batch_size: 4
-  sample_number: 60
+  # Multi-seed evaluation: each candidate is generated once per seed and the
+  # RGB frames are POOLED before embedding, so MMD-to-real reflects the config's
+  # distribution (many layouts/trajectories) rather than one realization. The
+  # seed set is FIXED across trials so ranking differences reflect the config,
+  # not seed luck. sample_number is now PER-SEED, so total frames per trial =
+  # sample_number * len(eval_seeds) = 15 * 4 = 60 (same budget as the old
+  # single-run 60, but decorrelated across 4 layouts).
+  sample_number: 15
+  eval_seeds: [1, 2, 3, 4]
   embedder_backend: rfdetr
   base_pool:
     enabled: true
@@ -17,11 +25,18 @@ common:
     resize_size: 256
     image_size: 224
 configs:
+# environment FIRST — biggest domain-gap lever, and the promoted baseline it
+# produces becomes the substrate every later theme conditions on.
+- project_config_trajectory_environment.yaml
 - project_config_trajectory_camera_intrinsics.yaml
 - project_config_trajectory_camera_mount.yaml
 - project_config_trajectory_camera_jitter.yaml
 - project_config_trajectory_agent.yaml
 - project_config_trajectory_scene.yaml
+- project_config_trajectory_distractor_occurrence.yaml
+# diversity layers in AFTER occurrence has converged (don't stack two fresh
+# object themes in one round — it muddies attribution). Uncomment next round.
+#- project_config_trajectory_distractor_diversity.yaml
 # characters theme disabled: Isaac runs die at generation (omni.anim.people
 # character spawn), stalling the whole round with endless retries. Optional per
 # the plan; re-enable only after the crash is diagnosed + fixed.

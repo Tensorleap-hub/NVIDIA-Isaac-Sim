@@ -241,6 +241,9 @@ def _apply_common_overrides(raw: dict, common: dict) -> None:
     if "sample_number" in common:
         isaac_cfg = raw.setdefault("isaac", {})
         isaac_cfg["num_frames_override"] = int(common["sample_number"])
+    if "eval_seeds" in common:
+        isaac_cfg = raw.setdefault("isaac", {})
+        isaac_cfg["eval_seeds"] = [int(s) for s in common["eval_seeds"]]
 
 
 def _write_round_config(

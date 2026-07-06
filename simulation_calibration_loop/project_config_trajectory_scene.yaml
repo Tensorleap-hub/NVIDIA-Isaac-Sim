@@ -1,6 +1,6 @@
 project_name: trajectory_scene
 workspace_dir: ./workspace_trajectory_scene
-seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v1
+seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4
 real_dataset_root: /home/ubuntu/loco_dataset
 real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json
 max_iterations: 15
