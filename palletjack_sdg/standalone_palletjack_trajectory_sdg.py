@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--environment", type=str, default=None)
     parser.add_argument("--data_dir", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--capture_dt", type=float, default=None,
+                        help="Override agent.capture_dt (sim seconds per frame)")
+    parser.add_argument("--no_video", action="store_true",
+                        help="Force capture.video=false for training-profile sweeps")
     return parser
 
 
@@ -100,6 +104,12 @@ def apply_cli_overrides(cfg: dict[str, Any], args: argparse.Namespace) -> None:
     if args.seed is not None:
         cfg.setdefault("simulation", {})
         cfg["simulation"]["seed"] = args.seed
+    if args.capture_dt is not None:
+        cfg.setdefault("agent", {})
+        cfg["agent"]["capture_dt"] = args.capture_dt
+    if args.no_video:
+        cfg.setdefault("capture", {})
+        cfg["capture"]["video"] = False
 
 
 def resolve_output_dir(cfg: dict[str, Any]) -> Path:
@@ -305,6 +315,54 @@ def _compressed_path_is_clear(path_ij: "np.ndarray", freespace: "np.ndarray") ->
     return True
 
 
+def _save_path_overlay(
+    occ_data: "np.ndarray",
+    freespace: "np.ndarray",
+    path_ij: "np.ndarray",
+    start_ij: tuple,
+    end_ij: tuple,
+    out_path: "Path",
+) -> None:
+    """Render the planned path over the occupancy grid for visual QA.
+
+    White=freespace, black=occupied (scanned collision), gray=unknown, and a
+    translucent red wash = the buffer_m inflation the planner actually routed
+    around. The path polyline (blue), start (green) and end (red) let a reviewer
+    confirm the camera stays in real free space — the recurring wall/shelf
+    clipping shows up here as a path crossing white cells that are actually
+    walls the scan missed. Upscaled 4x since maps are small.
+    """
+    import numpy as _np
+    try:
+        from PIL import Image, ImageDraw
+    except Exception as _e:  # pragma: no cover - QA aid only, never fatal
+        print(f"  OMap: path overlay skipped (PIL: {_e})")
+        return
+    from isaacsim.replicator.mobility_gen.impl.occupancy_map import OccupancyMapDataValue
+
+    rows, cols = occ_data.shape
+    rgb = _np.full((rows, cols, 3), 128, dtype=_np.uint8)          # unknown → gray
+    rgb[occ_data == OccupancyMapDataValue.FREESPACE] = (255, 255, 255)
+    rgb[occ_data == OccupancyMapDataValue.OCCUPIED] = (0, 0, 0)
+    # buffer wash: free in raw scan but blocked after inflation
+    buffered_only = (occ_data == OccupancyMapDataValue.FREESPACE) & (~freespace)
+    rgb[buffered_only] = (255, 170, 170)
+
+    scale = 4
+    img = Image.fromarray(rgb, "RGB").resize((cols * scale, rows * scale), Image.NEAREST)
+    draw = ImageDraw.Draw(img)
+    pts = [(int(c) * scale, int(r) * scale) for r, c in path_ij]     # (col=x, row=y)
+    if len(pts) >= 2:
+        draw.line(pts, fill=(0, 90, 255), width=2)
+    def _dot(ij, color):
+        r, c = int(ij[0]) * scale, int(ij[1]) * scale
+        draw.ellipse([c - 4, r - 4, c + 4, r + 4], fill=color)
+    _dot(start_ij, (0, 200, 0))
+    _dot(end_ij, (230, 0, 0))
+    img.save(str(out_path))
+    print(f"  OMap: path overlay saved → {out_path.name}")
+
+
 def _interpolate_waypoints(
     waypoints: list[list[float]], num_frames: int
 ) -> list[tuple[float, ...]]:
@@ -407,20 +465,30 @@ def _build_occupancy_waypoints(
     x_min, x_max, y_min, y_max = [float(v) for v in bounds_xy]
 
     cell_size = float(occ_cfg.get("cell_size_m", 0.1))
-    z_slice = float(occ_cfg.get("z_slice_m", 1.0))
     buffer_m = float(occ_cfg.get("buffer_m", 0.5))
     min_path_m = float(occ_cfg.get("min_path_m", 3.0))
     max_retries = int(occ_cfg.get("max_retries", 20))
+    # Scan a VERTICAL BAND, not a single z-plane. The 2D occupancy projects any
+    # geometry within [scan_z_min_m, scan_z_max_m] to occupied. A single thin
+    # slice (the old z_slice_m) let pallet racks/shelves — thin posts with gaps
+    # at that height — scan as free floor, so the planner drove the camera
+    # straight through them. Banding floor→above-camera-height makes racks,
+    # shelves and walls solid obstacles. Legacy z_slice_m, if set, seeds the band.
+    _legacy_slice = occ_cfg.get("z_slice_m")
+    scan_z_min = float(occ_cfg.get("scan_z_min_m", 0.1))
+    scan_z_max = float(occ_cfg.get("scan_z_max_m",
+                                   (float(_legacy_slice) + 1.0) if _legacy_slice else 2.0))
 
     np.random.seed(seed)
 
-    print(f"Occupancy map: bounds=({x_min},{y_min})→({x_max},{y_max}) z={z_slice}m cell={cell_size}m")
+    print(f"Occupancy map: bounds=({x_min},{y_min})→({x_max},{y_max}) "
+          f"z-band=[{scan_z_min},{scan_z_max}]m cell={cell_size}m")
     om_iface = _omap.acquire_omap_interface()
     om_iface.set_cell_size(cell_size)
     om_iface.set_transform(
-        (0.0, 0.0, z_slice),
-        (x_min, y_min, 0.0),
-        (x_max, y_max, 0.0),
+        (0.0, 0.0, 0.0),
+        (x_min, y_min, scan_z_min),
+        (x_max, y_max, scan_z_max),
     )
     om_iface.update()
     simulation_app.update()
@@ -520,6 +588,8 @@ def _build_occupancy_waypoints(
             "waypoints_world_xy": [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in path_world],
         }
         (nav_dir / "planned_path.json").write_text(json.dumps(path_record, indent=2))
+        _save_path_overlay(occ_data, freespace, path_ij, start_ij, end_ij,
+                           nav_dir / "path_overlay.png")
         # Release the omap interface so its C++ render callbacks are unregistered,
         # preventing debug lines from being redrawn in captured frames.
         _omap.release_omap_interface(om_iface)
@@ -567,6 +637,16 @@ def run_stage4(args: argparse.Namespace) -> None:
     from omni.isaac.core.utils.stage import open_stage
     from pxr import Gf, Semantics, Usd, UsdGeom
     from palletjack_sdg.utils.camera import rep_normal
+
+    # Drive Replicator's RNG from the episode seed too. Object/light placement
+    # uses rep.distribution.* (see rep_normal / _scatter_position), which is
+    # governed by Replicator's global RNG — NOT by random.seed()/np.random.seed()
+    # above. Without this, two runs with different --seed re-roll the trajectory
+    # path but keep the SAME scene layout, so multi-seed evaluation (and
+    # multi-seed dataset generation) would fail to sample the config's layout
+    # distribution. Guarded so an older Replicator without the API won't crash.
+    if hasattr(rep, "set_global_seed"):
+        rep.set_global_seed(seed)
 
     # CosmosWriter uses OmniGraph script nodes (Canny edge annotator) — without
     # this, the annotator chain silently fails to attach and write() is never called.
@@ -950,32 +1030,57 @@ def run_stage4(args: argparse.Namespace) -> None:
     mat_cfg = cfg.get("materials", {})
     textures = [prefix_with_isaac_asset_server(p) for p in mat_cfg.get("textures", [])]
 
+    # Object XY placement. Default is the original central Gaussian. When an
+    # object class sets `scatter: uniform`, positions are drawn UNIFORMLY across
+    # the navigable floor (trajectory.bounds_xy, inset off the walls) instead —
+    # so targets populate the open/near-wall areas too, and a roaming
+    # start-anywhere camera keeps objects in view (fewer empty frames).
+    _traj_bounds = cfg.get("trajectory", {}).get("bounds_xy", [-10.0, 10.0, -10.0, 10.0])
+
+    def _scatter_position(obj_cfg):
+        if str(obj_cfg.get("scatter", "")).lower() == "uniform":
+            b = obj_cfg.get("scatter_bounds_xy")
+            if b is None:
+                m = float(obj_cfg.get("scatter_inset_m", 2.0))
+                b = [_traj_bounds[0] + m, _traj_bounds[1] - m,
+                     _traj_bounds[2] + m, _traj_bounds[3] - m]
+            z = float(tuple(obj_cfg.get("position_mean", (0.0, 0.0, 0.0)))[2])
+            return rep.distribution.uniform(
+                (float(b[0]), float(b[2]), z), (float(b[1]), float(b[3]), z)
+            )
+        return rep_normal(tuple(obj_cfg["position_mean"]), tuple(obj_cfg["position_std"]))
+
     with rep.trigger.on_frame(num_frames=1):
         if pj_group is not None:
             with pj_group:
                 rep.modify.pose(
-                    position=rep_normal(tuple(pj_cfg["position_mean"]), tuple(pj_cfg["position_std"])),
+                    position=_scatter_position(pj_cfg),
                     rotation=rep_normal(tuple(pj_cfg["rotation_mean"]), tuple(pj_cfg["rotation_std"])),
                     scale=rep_normal(tuple(pj_cfg["scale_mean"]), tuple(pj_cfg["scale_std"])),
                 )
         if fl_group is not None:
             with fl_group:
                 rep.modify.pose(
-                    position=rep_normal(tuple(fl_cfg["position_mean"]), tuple(fl_cfg["position_std"])),
+                    position=_scatter_position(fl_cfg),
                     rotation=rep_normal(tuple(fl_cfg["rotation_mean"]), tuple(fl_cfg["rotation_std"])),
                     scale=rep_normal(tuple(fl_cfg["scale_mean"]), tuple(fl_cfg["scale_std"])),
                 )
         if pa_group is not None:
             with pa_group:
                 rep.modify.pose(
-                    position=rep_normal(tuple(pa_cfg["position_mean"]), tuple(pa_cfg["position_std"])),
+                    position=_scatter_position(pa_cfg),
                     rotation=rep_normal(tuple(pa_cfg["rotation_mean"]), tuple(pa_cfg["rotation_std"])),
                     scale=rep_normal(tuple(pa_cfg["scale_mean"]), tuple(pa_cfg["scale_std"])),
                 )
         if dist_group is not None:
             with dist_group:
+                # `scatter: uniform` on distractor_randomization spreads distractors
+                # UNIFORMLY across the navigable floor (same helper/bounds as the
+                # target objects) so a roaming tight-framed camera actually sees
+                # them. Without it, _scatter_position falls back to the original
+                # central Gaussian (position_mean/std) — backward-compatible.
                 rep.modify.pose(
-                    position=rep_normal(tuple(dr_cfg["position_mean"]), tuple(dr_cfg["position_std"])),
+                    position=_scatter_position(dr_cfg),
                     rotation=rep_normal(tuple(dr_cfg["rotation_mean"]), tuple(dr_cfg["rotation_std"])),
                     scale=rep_normal(dr_cfg["scale_mean"], dr_cfg["scale_std"]),
                 )
@@ -1764,6 +1869,39 @@ def run_stage4(args: argparse.Namespace) -> None:
             )
             cv2.imwrite(str(fish_dir / rgb_path.name), warped)
         print(f"Fisheye post-render: wrote {len(rgb_files)} frames to {fish_dir}")
+
+    # ── Sensor-noise + image-augmentation post-render ─────────────────────────
+    # USD/RTX renders are clean; real deployment cameras have shot/read noise,
+    # JPEG compression, and exposure/colour drift. Reuse the pre-trajectory
+    # (mean_std) implementation in palletjack_sdg.utils.image_effects verbatim
+    # so noise semantics match the historical datasets exactly:
+    #   cameras.ego.dataset_noise.mode: no-noise|gaussian|shot|jpeg|
+    #                                    gaussian_jpeg|shot_jpeg
+    # Params sampled per-frame (each frame an independent sensor draw, as before
+    # — physically correct for shot/read noise). Applied in place to Camera/rgb;
+    # bounding boxes are pixel-position invariant so labels stay valid.
+    from palletjack_sdg.utils.image_effects import (
+        apply_post_write_effects_to_saved_rgb,
+        get_dataset_noise_cfg,
+        resolve_image_augmentation_cfg,
+    )
+
+    noise_cfg = get_dataset_noise_cfg(ego_cam_cfg)
+    aug_cfg = resolve_image_augmentation_cfg(
+        ego_cam_cfg.get("image_augmentation"), ego_cam_cfg
+    )
+    noise_active = str(noise_cfg.get("mode", "no-noise")) != "no-noise"
+    if (noise_active or aug_cfg.get("enabled", False)) and image_count > 0:
+        # Seed noise deterministically off the episode seed unless overridden,
+        # so seed42 / seed123 reruns differ but are each reproducible.
+        if not int(noise_cfg.get("seed", 0) or 0):
+            noise_cfg["seed"] = seed
+        apply_post_write_effects_to_saved_rgb(str(output_dir), noise_cfg, aug_cfg)
+        append_event(events_path, "stage5_dataset_noise_applied", {
+            "mode": noise_cfg.get("mode"),
+            "image_augmentation": bool(aug_cfg.get("enabled", False)),
+            "frames": image_count,
+        })
 
     write_manifest(
         output_dir=output_dir,

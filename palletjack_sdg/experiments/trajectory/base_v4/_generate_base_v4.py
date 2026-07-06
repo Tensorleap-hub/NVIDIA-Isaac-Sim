@@ -74,6 +74,29 @@ SCATTER_ONLY = {
     "pallets": {"scatter": "uniform"},
 }
 
+# Distractors were left on the OLD central Gaussian when targets moved to uniform
+# scatter, so a roaming tight-framed camera almost never saw them. Mirror the
+# objects fix: force uniform scatter (co-locate with targets on the same floor)
+# AND raise clutter_level so they're actually present in tight shots. Density
+# imports keep their own clutter_level (the dense/sparse contrast) but still
+# scatter uniformly. Scatter is honored by _scatter_position() in the SDG script.
+FORCE_DISTRACTORS = {
+    "distractors": {"clutter_level": 3.0},
+    "distractor_randomization": {"scatter": "uniform"},
+}
+SCATTER_ONLY_DIST = {
+    "distractor_randomization": {"scatter": "uniform"},
+}
+
+# Wall/shelf-clipping fix (applied to every config). The occupancy scan now
+# spans a vertical band (scan_z_min_m..scan_z_max_m in the SDG script, default
+# 0.1..2.0) so pallet racks/shelves/walls become solid obstacles instead of a
+# thin z=1.0 slice the camera drove through. buffer_m raised 0.4->0.6 for extra
+# clearance so the camera stops staring at / grazing walls.
+OCC_TUNE = {
+    "trajectory": {"occupancy": {"buffer_m": 0.6}},
+}
+
 FULL_BOUNDS = [-13.0, 13.0, -13.0, 15.0]
 PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
 
@@ -201,6 +224,9 @@ def main() -> None:
     v3_dir = ROOT / "base_v3"
     for name in _v3.EXPERIMENTS:
         cfg = yaml.safe_load((v3_dir / f"{name}.yaml").read_text())
+        # Tight set is all non-density → uniform scatter + raised distractor count.
+        cfg = deep_merge(cfg, FORCE_DISTRACTORS)
+        cfg = deep_merge(cfg, OCC_TUNE)
         write_cfg(name, cfg)
 
     # --- IMPORTS: base on real v1 source + de-correlation + counts + overrides -
@@ -208,6 +234,8 @@ def main() -> None:
         base = yaml.safe_load((V1 / spec["src"]).read_text())
         cfg = deep_merge(base, IMPORT_COMMON)
         cfg = deep_merge(cfg, SCATTER_ONLY if spec.get("keep_counts") else FORCE_TARGETS)
+        cfg = deep_merge(cfg, SCATTER_ONLY_DIST if spec.get("keep_counts") else FORCE_DISTRACTORS)
+        cfg = deep_merge(cfg, OCC_TUNE)
         cfg = deep_merge(cfg, spec["over"])
         write_cfg(spec["name"], cfg)
 

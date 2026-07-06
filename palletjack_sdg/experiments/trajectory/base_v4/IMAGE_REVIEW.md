@@ -7,22 +7,70 @@ Reviewer comments on images generated from the `base_v4` trajectory yamls.
 1. **Camera clips through walls / shelves** — the dominant problem, seen across
    many seeds (exp01, 02, 04, 06, 07, 09, 13, 16, 17). Sometimes the camera even
    passes through a wall into a new area. This should not be allowed.
+   → **[FIXED, verified]** Root cause was NOT missing collision (the warehouses
+   are 100% collided). The occupancy scan was a zero-thickness slice at z=1.0m, so
+   pallet racks (thin posts + gaps at that height) scanned as free floor and the
+   planner routed straight through them. Now scans a vertical band. See Fixes #2.
 2. **Objects placed in/behind walls** — object placement has no boundaries either.
+   → **[OPEN]** Targets/distractors use `scatter: uniform` across `bounds_xy`,
+   whose edges abut the walls, so some land in/behind them. Same family as the
+   "edge of scene" dark frames (camera near a bound edge stares at the dim
+   perimeter). Fix direction: inset scatter + camera path well inside the walls
+   (raise `boundary_margin_m` / `scatter_inset_m`), or clip both to occupancy
+   freespace. Not yet done.
 3. **Lighting knob has no visible effect** — `intensity_mean` changes don't read;
    internal warehouse lights dominate (exp14 night, exp15 very-dark both look lit).
+   → **[OPEN, diagnosed]** The lighting randomization only drives `RectLight`
+   prims; the warehouse USD's own ceiling/dome lights dominate and are untouched,
+   so night/very-dark stay lit. Fix direction: also scale/disable the env's
+   built-in lights (or add exposure control). Not yet done.
 4. **Distractors / clutter not appearing** — configured in yaml but missing or too
    few in renders (exp01 none, exp05 too few, exp20 "dense" not dense).
+   → **[FIXED, verified]** Distractors were pinned to a central Gaussian while
+   targets moved to uniform scatter + a roaming tight camera, so they were off-
+   frame. Now uniform-scatter (co-located with targets) + raised `clutter_level`.
+   See Fixes #1.
 5. **Tight-set camera variance is invisible** — fov/height/pitch/low-angle look
    identical across exp01–10 (exp07 mid-fov, exp09 low-angle-closeup, exp10 == exp08);
    pitch may render as roll (exp12); "low" configs aren't low (exp19). FOV only
    reads at the extreme (exp18, 90°). Overhead height does read (exp11).
+   → **[OPEN]** Needs: widen FOV deltas beyond the 53–60 band; push "low" configs
+   to near-floor height; and verify the pitch→roll suspicion (exp12 -18° reading
+   as roll) in how `pitch_deg` maps to the camera euler. Not yet done.
 6. **Naming vs reality mismatches** — "tight", "steep downward", "night/very dark",
    "low", "dense clutter" don't match what the images show.
+   → **[PARTIAL]** Resolves as #2/#3/#5 land; "dense clutter" (exp20) should now
+   read after Fix #1 (clutter_level kept at its own high value + uniform scatter).
 
 Debug/next-step ideas (see General notes): draw allowed trajectories from the env
 nav/occupancy map and curate an acceptable-trajectory list; let Optuna control the
 start point (favor near-shelf views); add more camera variation, objects, textures,
 and noise.
+
+## Fixes applied (SDG dev pass, 2026-07-06)
+
+Code: `standalone_palletjack_trajectory_sdg.py`; configs regenerated via
+`_generate_base_v4.py`. All 21 base_v4 yamls regenerated. Verified by smoke
+renders of exp01 (distractors) and exp02 (wall-clipping); consolidated full
+re-run pending.
+
+1. **Distractors now co-located + denser** (issue #4). Distractor pose routes
+   through `_scatter_position()`, honoring `scatter: uniform` (backward-compatible
+   Gaussian fallback). Generator `FORCE_DISTRACTORS` sets `scatter: uniform` +
+   `clutter_level: 3.0` on all non-density configs; `SCATTER_ONLY_DIST` gives
+   dense/sparse uniform scatter while keeping their own counts (exp20=5.0,
+   exp21=0.1). Verified: exp01 frames now show barrels/bottles/signs/buckets/
+   crates across the floor.
+2. **Occupancy scan = vertical band, not a slice** (issue #1). `set_transform`
+   now scans `[scan_z_min_m, scan_z_max_m]` (defaults 0.1 → `z_slice_m`+1 ≈ camera
+   height+1) instead of min_z=max_z=0. Racks/shelves/walls become solid obstacles.
+   `buffer_m` raised 0.4 → 0.6 (generator `OCC_TUNE`) for edge clearance. Verified
+   on exp02: occupied cells 24% → 33%; planned path routes around the racks; no
+   through-wall clipping in renders; planner still finds long valid paths.
+3. **Nav path-overlay QA artifact** (reviewer's requested debug aid). Each run now
+   writes `nav/path_overlay.png`: the planned path (blue), start (green), end (red)
+   over the occupancy grid with the `buffer_m` inflation shown as a red wash —
+   so wall/shelf clipping is visually debuggable per run. `_save_path_overlay()`.
 
 ## Tight set (from base_v3)
 

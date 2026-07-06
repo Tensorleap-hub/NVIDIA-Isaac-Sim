@@ -68,7 +68,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 0.4
   turn_rate_dps: 50.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 trajectory:
   mode: occupancy_path
   bounds_xy:
@@ -79,7 +79,7 @@ trajectory:
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 1.6
-    buffer_m: 0.4
+    buffer_m: 0.6
     boundary_margin_m: 1.5
     min_path_m: 12.0
     max_retries: 20
@@ -92,11 +92,11 @@ cameras:
     - 960
     - 544
     fov_mean: 32.0
-    fov_std: 0.5
+    fov_std: 3.0
     projection: perspective
     shutter_close_fraction: 0.0
     f_stop: 0.0
-    focus_distance_m: 6.0
+    focus_distance_m: 4.5
     fisheye:
       enabled: false
       k1: -0.2
@@ -244,8 +244,9 @@ distractor_randomization:
   - 103.923048
   scale_mean: 1.25
   scale_std: 0.144338
+  scatter: uniform
 distractors:
-  clutter_level: 0.7
+  clutter_level: 3.0
   groups:
     CardBox:
       assets:
