@@ -103,8 +103,8 @@ cameras:
       k2: 0.04
       k3: 0.0
       k4: 0.0
-    height_m: 1.1
-    pitch_deg: 0.0
+    height_m: 0.75
+    pitch_deg: 3.0
     roll_deg: 0.0
     pitch_jitter:
       amp_deg: 1.0
@@ -166,6 +166,7 @@ palletjacks:
   - 0.0
   - 0.0
   scatter: uniform
+  scatter_inset_m: 3.0
 forklifts:
   count_per_model: 3
   assets:
@@ -195,6 +196,7 @@ forklifts:
   - 0.0
   - 0.0
   scatter: uniform
+  scatter_inset_m: 3.0
 pallets:
   count_per_model: 6
   assets:
@@ -225,6 +227,7 @@ pallets:
   - 0.0
   - 0.0
   scatter: uniform
+  scatter_inset_m: 3.0
 distractor_randomization:
   position_mean:
   - 0.0
@@ -245,6 +248,7 @@ distractor_randomization:
   scale_mean: 1.25
   scale_std: 0.144338
   scatter: uniform
+  scatter_inset_m: 3.0
 distractors:
   clutter_level: 3.0
   groups:

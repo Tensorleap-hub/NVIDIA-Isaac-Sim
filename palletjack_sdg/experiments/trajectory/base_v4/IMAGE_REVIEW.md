@@ -12,18 +12,23 @@ Reviewer comments on images generated from the `base_v4` trajectory yamls.
    pallet racks (thin posts + gaps at that height) scanned as free floor and the
    planner routed straight through them. Now scans a vertical band. See Fixes #2.
 2. **Objects placed in/behind walls** — object placement has no boundaries either.
-   → **[OPEN]** Targets/distractors use `scatter: uniform` across `bounds_xy`,
-   whose edges abut the walls, so some land in/behind them. Same family as the
-   "edge of scene" dark frames (camera near a bound edge stares at the dim
-   perimeter). Fix direction: inset scatter + camera path well inside the walls
-   (raise `boundary_margin_m` / `scatter_inset_m`), or clip both to occupancy
-   freespace. Not yet done.
+   → **[FIXED, re-run pending]** Targets/distractors used `scatter: uniform`
+   across `bounds_xy` at the SDG default `scatter_inset_m` of 2.0, whose inset
+   edges still reached the walls. Generator now forces `scatter_inset_m: 3.0` on
+   ALL scatter blocks (3 target classes + distractors) of every config. See
+   Fixes #4. Smoke frames (exp12/exp15 seed42) show objects pulled inward though
+   one forklift still grazed a wall — full re-run needed to judge; occupancy-
+   freespace clipping of objects remains the more robust fallback if 3.0m isn't
+   enough. Same family as the "edge of scene" dark frames.
 3. **Lighting knob has no visible effect** — `intensity_mean` changes don't read;
    internal warehouse lights dominate (exp14 night, exp15 very-dark both look lit).
-   → **[OPEN, diagnosed]** The lighting randomization only drives `RectLight`
-   prims; the warehouse USD's own ceiling/dome lights dominate and are untouched,
-   so night/very-dark stay lit. Fix direction: also scale/disable the env's
-   built-in lights (or add exposure control). Not yet done.
+   → **[FIXED, verified]** The replicator randomization only drove `RectLight`
+   prims; the warehouse USD's own ceiling/dome lights dominated and were untouched.
+   The SDG script now scales EVERY UsdLux light's authored intensity at stage
+   load by `intensity_mean / env_reference_intensity` (ref default 120000; auto-
+   derived, override via `lighting.env_light_scale`). See Fixes #5. Verified:
+   exp15 (very_dark, scale 0.125, 39 lights) now renders genuinely dark; exp12
+   (scale 0.83) mildly dimmed.
 4. **Distractors / clutter not appearing** — configured in yaml but missing or too
    few in renders (exp01 none, exp05 too few, exp20 "dense" not dense).
    → **[FIXED, verified]** Distractors were pinned to a central Gaussian while
@@ -34,25 +39,58 @@ Reviewer comments on images generated from the `base_v4` trajectory yamls.
    identical across exp01–10 (exp07 mid-fov, exp09 low-angle-closeup, exp10 == exp08);
    pitch may render as roll (exp12); "low" configs aren't low (exp19). FOV only
    reads at the extreme (exp18, 90°). Overhead height does read (exp11).
-   → **[OPEN]** Needs: widen FOV deltas beyond the 53–60 band; push "low" configs
-   to near-floor height; and verify the pitch→roll suspicion (exp12 -18° reading
-   as roll) in how `pitch_deg` maps to the camera euler. Not yet done.
+   → **[FIXED (pitch, verified) + tuned (heights/fov), re-run pending]** The
+   pitch→roll suspicion was correct: `pitch_deg` was fed to the Y (roll) rotation
+   channel instead of the X channel that actually tilts the camera up/down (the
+   base 90° that makes the camera horizontal lives on X). Now pitch + pitch-jitter
+   go to X, roll to Y — matching the chase cam's `(90 + tilt_down, 0, yaw)`. See
+   Fixes #6. Verified: exp12 (-18°) now renders a downward tilt with a LEVEL
+   horizon (was a diagonal roll). Also (generator): "low" imports pushed to near-
+   floor (exp18 1.1→0.7m, exp19 1.2→0.65m); the two tight configs whose NAMES
+   promise variance nudged so they read (exp07 mid-fov 60→70°, exp09 low-angle
+   1.1→0.75m + slight up-pitch). FOV band on the other 8 tight configs left
+   intentionally consistent — the FOV variance axis lives in the imports (32°
+   telephoto exp13 … 90° wide exp18, both confirmed to read).
 6. **Naming vs reality mismatches** — "tight", "steep downward", "night/very dark",
    "low", "dense clutter" don't match what the images show.
-   → **[PARTIAL]** Resolves as #2/#3/#5 land; "dense clutter" (exp20) should now
-   read after Fix #1 (clutter_level kept at its own high value + uniform scatter).
+   → **[MOSTLY RESOLVED, re-run pending]** "steep downward" now pitches down
+   (Fix #6, verified); "night"/"very dark" now dark (Fix #5, verified); "low"
+   configs pushed near-floor + "mid-fov"/"low-angle" nudged (issue #5 tuning);
+   "dense clutter" (exp20) keeps its own high clutter_level + uniform scatter
+   (Fix #1). "tight" remains a framing descriptor for the consistent exp01–10 set.
 
 Debug/next-step ideas (see General notes): draw allowed trajectories from the env
 nav/occupancy map and curate an acceptable-trajectory list; let Optuna control the
 start point (favor near-shelf views); add more camera variation, objects, textures,
 and noise.
 
-## Fixes applied (SDG dev pass, 2026-07-06)
+## Fixes applied (SDG dev pass 2, 2026-07-06) — issues #2/#3/#5/#6
 
 Code: `standalone_palletjack_trajectory_sdg.py`; configs regenerated via
-`_generate_base_v4.py`. All 21 base_v4 yamls regenerated. Verified by smoke
-renders of exp01 (distractors) and exp02 (wall-clipping); consolidated full
-re-run pending.
+`_generate_base_v4.py`. Verified by smoke renders of exp12 (pitch) + exp15
+(very-dark lighting) seed42; consolidated full re-run still pending.
+
+4. **Object scatter inset off the walls** (issue #2). Generator forces
+   `scatter_inset_m: 3.0` on all 3 target classes AND distractors of every config
+   (tight set via `SCATTER_ONLY` overlay; imports via `FORCE_TARGETS`/
+   `SCATTER_ONLY` + `FORCE_DISTRACTORS`). Was the SDG default 2.0, whose inset
+   still reached the walls. Full re-run needed to confirm 3.0m clears the interior.
+5. **Env built-in lights now scaled** (issue #3). New load-time pass in the SDG
+   script multiplies EVERY UsdLux light's authored intensity by
+   `intensity_mean / env_reference_intensity` (ref default 120000, auto-derived;
+   override `lighting.env_light_scale`; disable with scale≈1 or ref≤0). Emits a
+   `stage5_env_lights_scaled` event. Verified: exp15 dimmed 39 lights ×0.125 →
+   genuinely dark; exp12 ×0.833.
+6. **Camera pitch axis fixed** (issue #5). `_ghost_rot_with_jitter` fed
+   `pitch_deg`/pitch-jitter into the Y (roll) euler channel; the X channel (base
+   90° → horizontal) is what tilts up/down. Swapped so pitch→X, roll→Y (matches
+   the chase cam). Verified: exp12 (-18°) renders a downward tilt, level horizon.
+   Plus generator tuning: low imports → near-floor (exp18 0.7m, exp19 0.65m); tight
+   `TIGHT_OVERRIDES` for exp07 (fov 70°) + exp09 (0.75m, +3° pitch).
+
+## Fixes applied (SDG dev pass 1, 2026-07-06) — issues #1/#4
+
+Verified by smoke renders of exp01 (distractors) and exp02 (wall-clipping).
 
 1. **Distractors now co-located + denser** (issue #4). Distractor pose routes
    through `_scatter_position()`, honoring `scatter: uniform` (backward-compatible

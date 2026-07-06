@@ -61,17 +61,24 @@ IMPORT_COMMON = {
     },
 }
 
+# Object placement is inset this far off the walls (IMAGE_REVIEW #2). The
+# scatter bounds default to trajectory.bounds_xy, whose edges abut the walls, so
+# a small inset left targets/distractors landing in/behind walls. 3.0m keeps
+# every object (incl. large forklifts) clearly inside the interior floor.
+# Honored by _scatter_position(scatter_inset_m) in the SDG script.
+SCATTER_INSET_M = 3.0
+
 # v3 empties fix: raised counts + uniform scatter (forced on non-density imports).
 FORCE_TARGETS = {
-    "palletjacks": {"count_per_model": 7, "scatter": "uniform"},
-    "forklifts": {"count_per_model": 3, "scatter": "uniform"},
-    "pallets": {"count_per_model": 6, "scatter": "uniform"},
+    "palletjacks": {"count_per_model": 7, "scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
+    "forklifts": {"count_per_model": 3, "scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
+    "pallets": {"count_per_model": 6, "scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
 }
 # Density imports keep their own counts but still scatter uniformly.
 SCATTER_ONLY = {
-    "palletjacks": {"scatter": "uniform"},
-    "forklifts": {"scatter": "uniform"},
-    "pallets": {"scatter": "uniform"},
+    "palletjacks": {"scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
+    "forklifts": {"scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
+    "pallets": {"scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
 }
 
 # Distractors were left on the OLD central Gaussian when targets moved to uniform
@@ -82,10 +89,10 @@ SCATTER_ONLY = {
 # scatter uniformly. Scatter is honored by _scatter_position() in the SDG script.
 FORCE_DISTRACTORS = {
     "distractors": {"clutter_level": 3.0},
-    "distractor_randomization": {"scatter": "uniform"},
+    "distractor_randomization": {"scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
 }
 SCATTER_ONLY_DIST = {
-    "distractor_randomization": {"scatter": "uniform"},
+    "distractor_randomization": {"scatter": "uniform", "scatter_inset_m": SCATTER_INSET_M},
 }
 
 # Wall/shelf-clipping fix (applied to every config). The occupancy scan now
@@ -99,6 +106,18 @@ OCC_TUNE = {
 
 FULL_BOUNDS = [-13.0, 13.0, -13.0, 15.0]
 PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
+
+# The tight set (exp01-10) is intentionally consistent framing — the FOV/height
+# VARIANCE lives in the imports (exp11-21). But two tight configs carry names
+# that promise camera variance the ~55°/eye-level cluster never delivered
+# (IMAGE_REVIEW #5/#6). Nudge only those two so their names read, without
+# disturbing the other 8. Applied on top of the copied base_v3 config.
+TIGHT_OVERRIDES = {
+    # "mid-fov": lift out of the 53-58 cluster so the wider framing is visible.
+    "exp07_mid_fov_survey": {"cameras": {"ego": {"fov_mean": 70.0}}},
+    # "low-angle close-up": drop to a near-floor mount looking slightly up.
+    "exp09_low_angle_closeup": {"cameras": {"ego": {"height_m": 0.75, "pitch_deg": 3.0}}},
+}
 
 
 def cam(fov, height, pitch, f_stop=0.0):
@@ -172,15 +191,18 @@ IMPORTS = [
     {
         "name": "exp18_wide_low_fast",
         "src": "exp02_forklift_driver_low_wide.yaml",  # the ONE kept wide FOV
+        # height 0.7m: genuinely near-floor so "low" reads (IMAGE_REVIEW #5); slight
+        # up-pitch to keep the horizon/shelves in frame from that low mount.
         "over": merged({"trajectory": {"bounds_xy": FULL_BOUNDS}},
-                       cam(90.0, 1.1, -5.0), light(90000.0, 40000.0),
+                       cam(90.0, 0.7, 2.0), light(90000.0, 40000.0),
                        {"agent": {"speed_mps": 3.0}}),
     },
     {
         "name": "exp19_patrol_robot_low",
         "src": "exp08_patrol_robot.yaml",  # low steady wheeled platform, mid speed
+        # height 0.65m: near-floor patrol-robot POV (was 1.2m, didn't read as low).
         "over": merged({"trajectory": {"bounds_xy": FULL_BOUNDS}},
-                       cam(75.0, 1.2, -2.0), light(110000.0, 30000.0),
+                       cam(75.0, 0.65, 2.0), light(110000.0, 30000.0),
                        {"agent": {"speed_mps": 2.0}}),
     },
     {
@@ -225,8 +247,14 @@ def main() -> None:
     for name in _v3.EXPERIMENTS:
         cfg = yaml.safe_load((v3_dir / f"{name}.yaml").read_text())
         # Tight set is all non-density → uniform scatter + raised distractor count.
+        # base_v3 already scatters tight-set targets uniformly but without an
+        # inset, so they used the SDG 2.0m default and still reached the walls;
+        # overlay the wider inset (#2). SCATTER_ONLY = uniform + scatter_inset_m.
+        cfg = deep_merge(cfg, SCATTER_ONLY)
         cfg = deep_merge(cfg, FORCE_DISTRACTORS)
         cfg = deep_merge(cfg, OCC_TUNE)
+        if name in TIGHT_OVERRIDES:
+            cfg = deep_merge(cfg, TIGHT_OVERRIDES[name])
         write_cfg(name, cfg)
 
     # --- IMPORTS: base on real v1 source + de-correlation + counts + overrides -

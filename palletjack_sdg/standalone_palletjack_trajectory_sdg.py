@@ -719,6 +719,45 @@ def run_stage4(args: argparse.Namespace) -> None:
 
     stage = omni.usd.get_context().get_stage()
 
+    # ── Dim/brighten the environment's OWN built-in lights ────────────────────
+    # The per-frame replicator randomization further below only drives prims
+    # matching "RectLight"; the warehouse USD's dominant ceiling/dome lights are
+    # otherwise untouched, so "night" / "very dark" configs still rendered fully
+    # lit (IMAGE_REVIEW #3). Scale EVERY UsdLux light's authored intensity by
+    # intensity_mean / env_reference_intensity (a ~"normal" brightness) so the
+    # existing lighting knob now controls actual scene brightness. Set
+    # lighting.env_light_scale to override the auto-derived factor; set it to 1.0
+    # (or env_reference_intensity<=0) to disable this pass entirely.
+    _lt_cfg = cfg.get("lighting", {})
+    if _lt_cfg:
+        _ref = float(_lt_cfg.get("env_reference_intensity", 120000.0))
+        _scale = _lt_cfg.get("env_light_scale")
+        if _scale is None:
+            _mean = float(_lt_cfg.get("intensity_mean", _ref))
+            _scale = (_mean / _ref) if _ref > 1e-9 else 1.0
+        _scale = float(_scale)
+        if abs(_scale - 1.0) > 1e-3:
+            from pxr import UsdLux
+            _n_scaled = 0
+            for _prim in stage.Traverse():
+                if not (_prim.HasAPI(UsdLux.LightAPI) or "Light" in _prim.GetTypeName()):
+                    continue
+                _attr = _prim.GetAttribute("inputs:intensity")
+                if not (_attr and _attr.IsValid()):
+                    _attr = _prim.GetAttribute("intensity")  # pre-UsdLux-2 fallback
+                if not (_attr and _attr.IsValid()):
+                    continue
+                _cur = _attr.Get()
+                if _cur is None:
+                    continue
+                _attr.Set(float(_cur) * _scale)
+                _n_scaled += 1
+            print(f"Env lighting: scaled {_n_scaled} built-in light(s) by {_scale:.3f} "
+                  f"(intensity_mean={_lt_cfg.get('intensity_mean')} / ref={_ref})")
+            append_event(events_path, "stage5_env_lights_scaled",
+                         {"scale": round(_scale, 4), "num_lights": _n_scaled,
+                          "reference_intensity": _ref})
+
     # ── Scene objects — spawn once ────────────────────────────────────────────
     def _add_palletjacks():
         pj_cfg = cfg.get("palletjacks", {})
@@ -1653,7 +1692,17 @@ def run_stage4(args: argparse.Namespace) -> None:
             def _ghost_rot_with_jitter(roll_in: float, pitch_in: float, t_sec: float):
                 pj = pitch_jit_amp * math.sin(2.0 * math.pi * pitch_jit_hz * t_sec + pitch_jit_phase)
                 rj = roll_jit_amp * math.sin(2.0 * math.pi * roll_jit_hz * t_sec + roll_jit_phase)
-                return (roll_in + ego_roll_static + rj, pitch_in + ego_pitch_static + pj)
+                # Pose index-3 ("roll_in") carries the base 90° X-rotation that tilts the
+                # camera from looking-down to looking-horizontal, so the X-rotation channel
+                # is the one that physically pitches the view up/down — the camera PITCH
+                # knob + pitch-jitter belong there (negative = look down, matching the
+                # chase cam's (90 + tilt_down, 0, yaw) and configs like exp12 pitch=-18).
+                # Index-4 ("pitch_in", base 0) feeds the Y-rotation channel, which banks/
+                # ROLLs the image. Previously pitch_deg was fed to Y and rendered as roll
+                # (exp12 "steep downward" showed a horizontal tilt) — see IMAGE_REVIEW #5.
+                x_rot = roll_in + ego_pitch_static + pj    # base horizontal + look up/down
+                y_rot = pitch_in + ego_roll_static + rj    # bank / roll
+                return (x_rot, y_rot)
 
             def _ghost_pos_with_jitter(x_in: float, y_in: float, z_in: float, t_sec: float):
                 # Lateral jitter is perpendicular to the camera's heading
