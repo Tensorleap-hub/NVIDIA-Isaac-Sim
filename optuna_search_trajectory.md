@@ -182,12 +182,127 @@ Optuna trials on dead knobs, or fill the disk.
     base_v4's per-config seeds). Added a guarded `rep.set_global_seed(seed)` right
     after the `omni.replicator.core` import in `run_stage4`
     (`standalone_palletjack_trajectory_sdg.py`).
-  - **Smoke checks owed before the next real run (Isaac was down):**
-    1. Confirm two seeds now yield DIFFERENT layouts (5-frame runs; eyeball
-       `seed_1/` vs `seed_2/`) — validates `rep.set_global_seed`.
-    2. Confirm `warehouse_multiple_shelves` / `warehouse_with_forklifts` env
-       switches don't stall the occupancy planner (the `characters`-style wedge)
-       — a 5-frame run each.
+  - **Smoke checks owed before the next real run (Isaac was down): BOTH PASSED
+    2026-07-06.** Ran 4 × 5-frame generations off `base_v4/exp10_reference_tight.yaml`
+    via `/opt/IsaacSim/python.sh` (`--headless True --no_video`); all 4 succeeded
+    on driver-attempt 1 (rc=0, 5 RGB frames each; no whole-workflow retry needed).
+    1. **`rep.set_global_seed` decorrelation — CONFIRMED.** `full_warehouse` at
+       seed 1 vs seed 2 produced visibly DIFFERENT scene layouts (distinct pallet/
+       distractor scatter, forklift placement, lighting tint), not merely different
+       camera paths — and the planned trajectories also diverged (19.78 m/33 wpts vs
+       13.38 m/11 wpts). Object scatter world-positions are NOT dumped to disk and
+       `_scatter_position` returns lazy `rep.distribution` nodes, so the check is
+       necessarily visual (as the plan intended); montage saved in scratchpad.
+    2. **Env-switch stall — CONFIRMED CLEAR.** `warehouse_multiple_shelves` and
+       `warehouse_with_forklifts` both loaded + generated 5 frames with no
+       `characters`-style wedge. Occupancy planner planned real paths (multishelf
+       needed a 2nd *internal* planner attempt — normal `max_retries` behavior, not
+       a workflow stall — len 14.37 m; forklifts 16.90 m attempt 1).
+    - **CDN flake note:** both env runs logged one non-fatal
+      "Maximum loading time reached while waiting for assets" WARNING from the
+      Replicator orchestrator (the Stage-4 Omniverse-S3 signature) but did NOT
+      exit 1 — all frames still rendered. So this signature is sometimes a warning,
+      sometimes fatal; the per-run retry improvement (Stage 4 note) remains worth doing.
+- **Stage 7 — Exploration-boundary optimization LANDED + smoke-verified
+  (2026-07-07, uncommitted at time of writing).** The camera roam region is now a
+  searchable axis via a constrained reparameterization (NOT the raw `bounds_xy`).
+  - **Reparameterization.** New `trajectory.roam` block: `center_x_frac`,
+    `center_y_frac` ∈ [-1,1] and `width_frac`, `height_frac` ∈ (0,1], interpreted
+    as fractions of the *env envelope* — which is the config's pre-existing
+    `trajectory.bounds_xy` (the per-env box the seed author tuned). `apply_roam_bounds()`
+    (`standalone_palletjack_trajectory_sdg.py`) derives `bounds_xy` from these
+    right after CLI overrides, before object scatter + occupancy planning read it
+    and before `write_run_config` dumps the resolved config. Construction keeps
+    the box strictly inside the envelope for any in-range frac (center offset
+    scales by leftover slack → 0 as size→1), so it's env-relative (coupling #3)
+    and cannot clip walls. At defaults (center 0, size 1.0) the box == envelope
+    exactly → behavior unchanged when disabled/defaulted. Object scatter reads the
+    same `bounds_xy` (coupling #2) so a smaller box also insets object placement.
+    Emits a `stage5_roam_bounds_derived` event.
+  - **Anti-wedge (coupling #1), two layers.** (a) `apply_roam_bounds` scales
+    `occupancy.min_path_m` down toward the box's free-region diagonal. (b) THE REAL
+    FIX: `_build_occupancy_waypoints` no longer raises when no attempt meets
+    `min_path_m` — it tracks the longest valid, obstacle-clear path across attempts
+    and falls back to it (`relaxed_below_min_path: true` in `planned_path.json`).
+    Only raises if ZERO clear paths exist. Root cause found in smoke test: a
+    centered 0.5×0.5 box in `full_warehouse` yields 20 clear paths of 1–10.5 m —
+    all rejected as < 11.45 m — so the pre-fix code raised and the whole-workflow
+    retry wrapper looped forever (the exact `characters`-style wedge).
+  - **Short-path frame fill = ping-pong traversal + smooth in-place pivot** (both
+    user ideas, combined). When a path is too short to space `num_frames` ≥
+    `min_spacing_m` (default 0.3 m) apart, `_plan_traversal` reflects the route
+    forward-and-back enough times to restore spacing (backward legs flip heading
+    180°, facing the camera the opposite way = new information, not re-views), AND
+    at each forward↔reverse turnaround the camera PIVOTS IN PLACE — a set of frames
+    at the turnaround point whose yaw sweeps from the incoming heading to the
+    reversed one — so the view rotates smoothly instead of snapping 180° between
+    consecutive frames. Pivot cost is modelled as `pivot_arc_m` (default 1.5 m) of
+    virtual arc so the frame budget divides smoothly between travel and rotation.
+    Implemented via `seg_idx`+`yaw_rel` on the reflected waypoints (no change to
+    the hot per-frame loop). Collision-free (same clear path). No-op for long paths
+    / low frame counts. Config:
+    `trajectory.short_path_fill.{enabled,min_spacing_m,max_passes,pivot_arc_m}`
+    (script defaults, no seed change needed). Verified in `poses.jsonl`: yaw ramps
+    (e.g. −32→+19→+71→+122° over 4 pivot frames) then the reverse leg departs
+    continuously; montage `cmp_pivot.png` shows the view panning across the scene.
+  - **New search axis.** `traj-exploration-bounds` theme (`config.py`) over the 4
+    roam fracs; new `project_config_trajectory_exploration_bounds.yaml` (bounds:
+    center ±0.6, size 0.5–1.0; raw `trajectory.bounds_xy` excluded — it's derived).
+    `roam` block added to all 21 base_v4 seeds at full-roam defaults (schema
+    intersects). Staged commented in `theme_rounds_trajectory.yaml` (add after
+    `traj-environment` promotes a baseline env; don't stack a fresh axis mid-round).
+  - **Offline validation.** All 10 per-group configs still load + validate (no
+    regression); exploration config's filtered schema = exactly the 4 roam fracs
+    (`enabled` + `bounds_xy` correctly dropped); `apply_roam_bounds` + `_plan_traversal`
+    unit-tested (full=envelope, corner stays inside, tiny→min_path scaled, ping-pong
+    restores spacing + flips heading, no zero-length segments).
+  - **Isaac smoke — ALL 4 PASSED (driver-attempt 1, no wedge).** r1 full 0.5
+    centered (path 10.46 m, relaxed, 5 frames); r2 full 0.5 CORNER offset (8.55 m,
+    relaxed, within walls — 2 frames dark from facing a wall, valid but low-info);
+    r3 multishelf 0.5 (9.62 m, relaxed, objects visible); r4 full 0.3 box (BELOW the
+    0.5 search floor) + 24 frames → 4.14 m path, min_path auto-scaled to 4.81 m,
+    ping-pong x-passes filled all 24 frames with forward→reverse heading flip
+    (0°→−180°) confirmed in `poses.jsonl`. Objects visible + within walls in all;
+    montage `cmp_stage7.png` in scratchpad.
+  - **Follow-up (non-blocking):** extreme corner offsets (center ±0.6 with a small
+    box) can push the camera flush against a wall → a few dark/low-info frames.
+    Consider tightening `center_*_frac` bounds or adding a wall-proximity inset if
+    those frames dilute MMD signal in the real run.
+
+- **Stage 8 — full_warehouse camera-trajectory perimeter bounds VALIDATED
+  (2026-07-07).** Iteratively dialed the ego-camera perimeter loop for
+  `full_warehouse` by rendering a clockwise rectangle walk (waypoint_list mode,
+  `yaw_rel=0` so the camera faces the direction of travel) and reviewing frames
+  edge-by-edge. Per-iteration loop enforced: run sim → upload to S3 → analyze →
+  wait for feedback.
+  - **Final loop:** rectangle **x∈[-22.5, 3], y∈[-11, 29], FOV 120°**, clockwise,
+    camera faces travel direction. Config `push8_run/perim_fw_push8.yaml`.
+  - **Walls confirmed by render:** west wall ≈ x=-22.5; north wall ≈ y=29 (top edge
+    runs the clean cross-aisle *past* the north shelves, tight to the wall); east
+    set to x=3 (not the ~x=5 wall) so the east edge runs a rack aisle in its north
+    half (y≈13–27) then opens to floor near the east wall below. East pushed to 10.5
+    showed **exterior void** → do not exceed ~5 on east.
+  - **Corrects the [-5,5,-11,13] "main hall" assumption** (see
+    `base_v4_bounds_offset_bug`): the interior is ONE connected hall reaching
+    x=-22.5 west — there is NO partition wall at x=-5; the occupancy-map "gray"
+    west strip was just unscanned floor, not unreachable space.
+  - **Caveat:** these are CAMERA (ghost waypoint) bounds — waypoint_list ignores
+    occupancy — so they are NOT drop-in for OBJECT SCATTER (needs collision-free
+    floor via occupancy). Keep camera-trajectory bounds separate from `ENV_BOUNDS`
+    (scatter) in `_generate_base_v4.py`.
+  - **Artifacts:** 9 iterations uploaded to
+    `s3://nvidia-isaac-bucket/trajectory-tests/20260707_perim_full_warehouse_*`;
+    progression montage `COMPARE_all_turns.png` in scratchpad.
+  - **Written to repo (uncommitted):** (1) `perim_full_warehouse.yaml` = the exact
+    camera loop x[-22.5,3] y[-11,29] FOV120. (2) `ENV_BOUNDS["full_warehouse"]` in
+    `_generate_base_v4.py` = `[-22.5, 5.0, -11.0, 29.0]` (scatter envelope, east=5 at
+    the wall). Before writing ENV_BOUNDS, an `occupancy_path` re-check over the box
+    passed: planner found a clean 7-wp path reaching x=-18.6 west (not relaxed, met
+    min_path), objects scattered in-bounds — so the west region is genuinely
+    occupancy-reachable, not just camera-flyable. This large box should also relieve
+    the min_path-12m pathfinding failure noted in the earlier main-hall bounds. Other
+    3 envs (`warehouse`, `warehouse_multiple_shelves`, `warehouse_with_forklifts`) NOT
+    yet re-validated this way.
 
 ## Readiness Snapshot
 
@@ -732,7 +847,7 @@ on the previous group's best result. Bump `rounds:` to 2+ once multiple
 groups are stable so later rounds re-optimize each group against the
 new baseline.
 
-### Stage 7 — Exploration-boundary optimization (PLANNED — next task)
+### Stage 7 — Exploration-boundary optimization (LANDED 2026-07-07 — see progress log for the as-built summary; the design notes below are the original plan)
 
 **Goal:** let Optuna optimize *where in the scene the camera is allowed to
 roam* — i.e. treat the exploration area as a searchable knob instead of a
