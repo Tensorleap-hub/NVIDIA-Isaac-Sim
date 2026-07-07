@@ -105,6 +105,31 @@ OCC_TUNE = {
     "trajectory": {"occupancy": {"buffer_m": 0.6}},
 }
 
+# Wall-texture diversity fix (IMAGE_REVIEW: "most walls share the same stone
+# texture"). The v1/v3 templates carried only 2 near-identical stone textures, so
+# every scene's walls read as the same concrete/granite. Broaden the palette to a
+# warehouse-plausible mix (concrete, brick, painted stucco, wood siding, stone)
+# so that (a) the pool sampled per episode is diverse and (b) the SDG's per-wall
+# material randomization — count>1 pool in standalone_..._sdg.py — actually has
+# distinct textures to spread across walls. deep_merge replaces the list wholesale.
+# All paths verified present under the Isaac asset server /Isaac/Materials/Textures.
+WALL_TEXTURES = {
+    "materials": {
+        "textures": [
+            "/Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_granite_tile.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_brick_red_stacked.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_stone_painted_grey.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_stucco_smooth_blue.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_stucco_red_painted.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_wooden_wall.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_wood_siding_weathered_green.jpg",
+            "/Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg",
+        ],
+    },
+}
+
 FULL_BOUNDS = [-13.0, 13.0, -13.0, 15.0]
 PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
 
@@ -289,6 +314,7 @@ def main() -> None:
         cfg = deep_merge(cfg, SCATTER_ONLY)
         cfg = deep_merge(cfg, FORCE_DISTRACTORS)
         cfg = deep_merge(cfg, OCC_TUNE)
+        cfg = deep_merge(cfg, WALL_TEXTURES)
         if name in TIGHT_OVERRIDES:
             cfg = deep_merge(cfg, TIGHT_OVERRIDES[name])
         write_cfg(name, cfg)
@@ -300,6 +326,7 @@ def main() -> None:
         cfg = deep_merge(cfg, SCATTER_ONLY if spec.get("keep_counts") else FORCE_TARGETS)
         cfg = deep_merge(cfg, SCATTER_ONLY_DIST if spec.get("keep_counts") else FORCE_DISTRACTORS)
         cfg = deep_merge(cfg, OCC_TUNE)
+        cfg = deep_merge(cfg, WALL_TEXTURES)
         cfg = deep_merge(cfg, spec["over"])
         write_cfg(spec["name"], cfg)
 

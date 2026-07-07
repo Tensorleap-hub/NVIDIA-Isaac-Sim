@@ -1403,7 +1403,31 @@ def run_stage4(args: argparse.Namespace) -> None:
             )
             with rep.get.prims(path_pattern="SM_Floor"):
                 rep.randomizer.materials(floor_mat)
-            wall_mat = rep.create.material_omnipbr(
+            # Diagnostic: how many prims actually match path_pattern="SM_Wall"?
+            # If 0 (or fewer than the visible walls), some wall prims use a
+            # different name and keep the default USD concrete — i.e. the
+            # per-wall texturing below silently misses them. Surfaced in events.
+            try:
+                _wall_prims = [
+                    str(p.GetPath()) for p in stage.Traverse()
+                    if "SM_Wall" in p.GetName()
+                ]
+                print(f"  wall-texture: {len(_wall_prims)} prims match 'SM_Wall'"
+                      f" (e.g. {_wall_prims[:3]})")
+                append_event(events_path, "stage5_wall_prims_matched", {
+                    "count": len(_wall_prims),
+                    "sample_paths": _wall_prims[:5],
+                })
+            except Exception as _exc:
+                print(f"  wall-texture prim scan failed (non-fatal): {_exc}")
+
+            # PER-WALL variety: create a POOL of wall materials (count>1) rather
+            # than one. rep.randomizer.materials() then samples a *different*
+            # material per matched SM_Wall prim, so walls in a scene no longer all
+            # read as the same texture. Diversity of the pool comes from the
+            # (now diversified) `textures` palette in the config materials block.
+            n_wall_mats = max(8, len(textures))
+            wall_mats = rep.create.material_omnipbr(
                 diffuse_texture=rep.distribution.choice(textures),
                 roughness=rep_normal(mat_cfg["roughness_mean"], mat_cfg["roughness_std"]),
                 metallic=rep.distribution.choice(mat_cfg["metallic_choices"]),
@@ -1411,9 +1435,10 @@ def run_stage4(args: argparse.Namespace) -> None:
                 emissive_intensity=rep_normal(
                     mat_cfg["emissive_intensity_mean"], mat_cfg["emissive_intensity_std"]
                 ),
+                count=n_wall_mats,
             )
             with rep.get.prims(path_pattern="SM_Wall"):
-                rep.randomizer.materials(wall_mat)
+                rep.randomizer.materials(wall_mats)
 
     # ── Camera parameters — sampled once per episode ──────────────────────────
     ego_cam_cfg = cameras_cfg.get("ego", {})
