@@ -123,7 +123,12 @@ PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
 # warehouse-family (shared geometry) +X@9.3, -X@-10.9, -Y@-12.3, +Y open. Bounds
 # below are inset ~0.5-1m inside those walls.
 ENV_BOUNDS = {
-    "full_warehouse":             [-11.0, 5.0, -11.0, 13.0],
+    # full_warehouse: the occupancy-reachable MAIN HALL (green region on the
+    # annotated map). x_min=-5 is the partition wall (a separate section lies
+    # beyond it that the occupancy scan can't observe and the camera can't reach —
+    # scattering objects there would strand them behind the wall). +X=5 sits just
+    # inside the wall (apron/exterior beyond ~6, the original escape bug).
+    "full_warehouse":             [-5.0, 5.0, -11.0, 13.0],
     "warehouse":                  [-9.5, 8.0, -11.0, 13.0],
     "warehouse_multiple_shelves": [-9.5, 8.0, -11.0, 13.0],
     "warehouse_with_forklifts":   [-9.5, 8.0, -11.0, 13.0],
