@@ -11,15 +11,23 @@ Reviewer comments on images generated from the `base_v4` trajectory yamls.
    are 100% collided). The occupancy scan was a zero-thickness slice at z=1.0m, so
    pallet racks (thin posts + gaps at that height) scanned as free floor and the
    planner routed straight through them. Now scans a vertical band. See Fixes #2.
-2. **Objects placed in/behind walls** — object placement has no boundaries either.
-   → **[FIXED, re-run pending]** Targets/distractors used `scatter: uniform`
-   across `bounds_xy` at the SDG default `scatter_inset_m` of 2.0, whose inset
-   edges still reached the walls. Generator now forces `scatter_inset_m: 3.0` on
-   ALL scatter blocks (3 target classes + distractors) of every config. See
-   Fixes #4. Smoke frames (exp12/exp15 seed42) show objects pulled inward though
-   one forklift still grazed a wall — full re-run needed to judge; occupancy-
-   freespace clipping of objects remains the more robust fallback if 3.0m isn't
-   enough. Same family as the "edge of scene" dark frames.
+2. **Objects placed in/behind walls / camera renders OUTSIDE the building** —
+   → **[ROOT CAUSE FOUND + FIXED, verified]** The real bug was NOT insufficient
+   inset — it was `bounds_xy`. Every config used a generous SYMMETRIC box
+   (`[-13,13,-13,15]`) far larger than the real warehouse interior. full_warehouse
+   in particular is OFFSET toward -X (interior only reaches +X≈5.8), so the +X
+   half of the window was exterior apron that scans as free floor → the occupancy
+   planner routed the CAMERA outside the building, and objects scattered out there
+   too. Confirmed with a `DEBUG_WAYPOINT_SHIFT` sanity test (shifting the path -4m
+   in X moved the camera from "outside" to a clean interior aisle). Fix: measured
+   each env's true interior with a "star" step-walk probe (walk out until the view
+   hits VOID = the exterior wall) and set per-env `ENV_BOUNDS` in the generator
+   (full_warehouse [-11,5,-11,13]; warehouse/multishelf/forklifts [-9.5,8,-11,13]),
+   applied to BOTH the occupancy path and the object scatter region. Reverted the
+   scatter_inset_m 3.0→1.5 (the 3.0 was a symptom-patch that also over-concentrated
+   obstacles and caused a 4→61 occupancy-path failure regression). Verified by
+   wall-on-left perimeter loops: full_warehouse + warehouse now hug interior walls
+   all the way around (0 void frames). S3: 20260707_perimeter_bounds_check/.
 3. **Lighting knob has no visible effect** — `intensity_mean` changes don't read;
    internal warehouse lights dominate (exp14 night, exp15 very-dark both look lit).
    → **[FIXED, verified]** The replicator randomization only drove `RectLight`

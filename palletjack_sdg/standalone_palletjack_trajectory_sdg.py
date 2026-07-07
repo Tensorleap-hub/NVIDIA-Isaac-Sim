@@ -411,6 +411,142 @@ def _interpolate_waypoints(
     return result
 
 
+def _path_length(waypoints: list[list[float]]) -> float:
+    total = 0.0
+    for i in range(len(waypoints) - 1):
+        dx = waypoints[i + 1][0] - waypoints[i][0]
+        dy = waypoints[i + 1][1] - waypoints[i][1]
+        dz = waypoints[i + 1][2] - waypoints[i][2]
+        total += math.sqrt(dx * dx + dy * dy + dz * dz)
+    return total
+
+
+def _reflect_waypoints(waypoints: list[list[float]], passes: int) -> list[list[float]]:
+    """Ping-pong a path: forward, backward, forward, ... for ``passes`` legs.
+
+    The shared turnaround point between consecutive legs is dropped so no
+    zero-length segment is produced (which would break arc-length interpolation).
+    Traversing a leg in reverse flips the per-segment heading by 180°, so the
+    ego camera faces the opposite way and reveals the scene *behind* it — new
+    information rather than a re-view.
+    """
+    seq = [list(w) for w in waypoints]
+    out = list(seq)
+    for p in range(1, max(1, passes)):
+        leg = seq[::-1] if (p % 2 == 1) else list(seq)
+        out.extend(leg[1:])
+    return out
+
+
+def _pose_on_leg(
+    E: list[list[float]], s0: int, s1: int, arc: float
+) -> tuple[float, ...]:
+    """Interpolate a pose at ``arc`` metres into the leg spanning E segments s0..s1.
+
+    Returns (x, y, z, roll, pitch, yaw_rel, seg) with ``seg`` the E segment the
+    point lies on and ``yaw_rel`` carried straight from the waypoints (0), so the
+    caller's per-frame loop derives heading from E[seg+1]-E[seg].
+    """
+    acc = 0.0
+    for s in range(s0, s1 + 1):
+        dx = E[s + 1][0] - E[s][0]
+        dy = E[s + 1][1] - E[s][1]
+        dz = E[s + 1][2] - E[s][2]
+        seg_len = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if arc <= acc + seg_len or s == s1:
+            local = 0.0 if seg_len < 1e-9 else max(0.0, min(1.0, (arc - acc) / seg_len))
+            p0, p1 = E[s], E[s + 1]
+            interp = [p0[k] + local * (p1[k] - p0[k]) for k in range(6)]
+            return tuple(interp) + (s,)
+        acc += seg_len
+    p0, p1 = E[s1], E[s1 + 1]
+    return tuple(p1[:6]) + (s1,)
+
+
+def _plan_traversal(
+    waypoints: list[list[float]], num_frames: int, traj_cfg: dict[str, Any]
+) -> tuple[list[tuple[float, ...]], list[list[float]]]:
+    """Spread ``num_frames`` poses along the path, ping-ponging a route that is too
+    short to fill the frame budget with meaningfully spaced views, and rotating
+    smoothly in place at each turnaround (no 180° heading jump).
+
+    When the planned path is short (a relaxed occupancy path / a small Stage-7
+    roam box), spreading every frame along it packs near-duplicate frames a few
+    centimetres apart. Instead, reflect the path forward-and-back enough times
+    that consecutive frames sit >= ``min_spacing_m`` apart; a reversed leg faces
+    the camera the opposite way (new information, not a re-view). To avoid the
+    heading snapping 180° between a forward and a reverse leg, the camera pivots
+    IN PLACE at each turnaround — a set of frames at the turnaround point whose
+    yaw sweeps from the incoming heading to the outgoing (reversed) one — which
+    also spends the "spare" frames on rotation as intended. Pivot cost is modelled
+    as ``pivot_arc_m`` of virtual arc so frames divide smoothly between travel and
+    rotation. Returns (poses, effective_waypoints); the effective (reflected)
+    waypoints MUST replace the caller's ``waypoints`` so per-frame heading (indexed
+    by segment) stays aligned. No-op (normal interpolation) when the path is
+    already long enough, when disabled, or for degenerate inputs.
+    """
+    fill_cfg = traj_cfg.get("short_path_fill", {}) if isinstance(traj_cfg, dict) else {}
+    if not bool(fill_cfg.get("enabled", True)) or num_frames < 3 or len(waypoints) < 2:
+        return _interpolate_waypoints(waypoints, num_frames), waypoints
+
+    total = _path_length(waypoints)
+    if total < 1e-6:
+        return _interpolate_waypoints(waypoints, num_frames), waypoints
+
+    min_spacing = float(fill_cfg.get("min_spacing_m", 0.3))
+    max_passes = int(fill_cfg.get("max_passes", 8))
+    spacing_actual = total / (num_frames - 1)
+    if spacing_actual >= min_spacing or max_passes <= 1:
+        return _interpolate_waypoints(waypoints, num_frames), waypoints
+
+    target_len = min_spacing * (num_frames - 1)
+    passes = min(max_passes, int(math.ceil(target_len / total)))
+    effective = _reflect_waypoints(waypoints, passes)
+
+    seg_per_leg = len(waypoints) - 1
+    leg_len = _path_length(waypoints)
+    pivot_arc = float(fill_cfg.get("pivot_arc_m", 1.5))
+
+    # Virtual timeline: leg0 (leg_len) | pivot0 (pivot_arc) | leg1 | pivot1 | ...
+    spans: list[tuple[str, int, float]] = []
+    for i in range(passes):
+        spans.append(("leg", i, leg_len))
+        if i < passes - 1:
+            spans.append(("pivot", i, pivot_arc))
+    cum = [0.0]
+    for _, _, length in spans:
+        cum.append(cum[-1] + length)
+    total_v = cum[-1]
+
+    poses: list[tuple[float, ...]] = []
+    for f in range(num_frames):
+        v = (f / (num_frames - 1)) * total_v
+        si = 0
+        while si < len(spans) and v > cum[si + 1] + 1e-9:
+            si += 1
+        si = min(si, len(spans) - 1)
+        kind, idx, span_len = spans[si]
+        local = 0.0 if span_len < 1e-9 else max(0.0, min(1.0, (v - cum[si]) / span_len))
+        if kind == "leg":
+            s0 = idx * seg_per_leg
+            s1 = s0 + seg_per_leg - 1
+            poses.append(_pose_on_leg(effective, s0, s1, local * leg_len))
+        else:
+            # Pivot at the turnaround vertex between leg idx and idx+1. Anchor to
+            # the INCOMING segment so its base heading matches the arriving leg;
+            # sweep yaw_rel 0 -> 180 so the view rotates smoothly to the reversed
+            # heading the next leg departs on (continuous at both ends).
+            v_t = (idx + 1) * seg_per_leg
+            in_seg = v_t - 1
+            pt = effective[v_t]
+            poses.append((pt[0], pt[1], pt[2], pt[3], pt[4], 180.0 * local, in_seg))
+
+    print(f"  Short-path fill: {total:.1f}m path, {num_frames} frames "
+          f"(spacing {spacing_actual:.2f}m<{min_spacing}m) -> ping-pong x{passes} "
+          f"+ {passes-1} in-place pivot(s)", flush=True)
+    return poses, effective
+
+
 def _build_occupancy_waypoints(
     cfg: dict[str, Any],
     simulation_app,
@@ -545,14 +681,46 @@ def _build_occupancy_waypoints(
     nav_dir.mkdir(parents=True, exist_ok=True)
     omap.save_ros(str(nav_dir))
 
+    freespace = omap_buffered.freespace_mask()
+
+    def _finalize(path_world, path_ij, start_pose, start_ij, end_ij, attempt, path_length, relaxed):
+        waypoints = [[float(p[0]), float(p[1]), camera_z, 90.0, 0.0, 0.0] for p in path_world]
+        tag = "longest-available" if relaxed else "found"
+        print(f"  Path {tag}: {len(waypoints)} pts, {path_length:.1f}m (attempt {attempt+1})")
+        path_record = {
+            "attempt": attempt + 1,
+            "path_length_m": round(path_length, 3),
+            "min_path_m": round(min_path_m, 3),
+            "relaxed_below_min_path": bool(relaxed),
+            "num_waypoints": len(waypoints),
+            "start_world_xy": [round(float(start_pose.x), 4), round(float(start_pose.y), 4)],
+            "end_world_xy": [round(float(path_world[-1, 0]), 4), round(float(path_world[-1, 1]), 4)],
+            "waypoints_world_xy": [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in path_world],
+        }
+        (nav_dir / "planned_path.json").write_text(json.dumps(path_record, indent=2))
+        _save_path_overlay(occ_data, freespace, path_ij, start_ij, end_ij,
+                           nav_dir / "path_overlay.png")
+        # Release the omap interface so its C++ render callbacks are unregistered,
+        # preventing debug lines from being redrawn in captured frames.
+        _omap.release_omap_interface(om_iface)
+        return waypoints
+
     sampler = UniformPoseSampler()
+    # Track the longest valid, obstacle-clear path seen across attempts. When no
+    # attempt yields a >= min_path_m route (e.g. a small Stage-7 roam box), fall
+    # back to this best path rather than raising — the short clear path is then
+    # walked forward AND in reverse (ping-pong) to fill the frame budget with
+    # genuinely new views (see _plan_traversal), so a small exploration box
+    # degrades gracefully instead of wedging the whole-workflow retry wrapper.
+    # generate_paths guarantees the path lies in buffered freespace, so the
+    # fallback is always collision-clear.
+    best = None  # (path_length, path_world, path_ij, start_pose, start_ij, end_ij, attempt)
     for attempt in range(max_retries):
         start_pose = sampler.sample(omap_buffered)
         start_px = omap.world_to_pixel_numpy(np.array([[start_pose.x, start_pose.y]]))
         # generate_paths expects (row, col) = (y_px, x_px)
         start_ij = (int(start_px[0, 1]), int(start_px[0, 0]))
 
-        freespace = omap_buffered.freespace_mask()
         result = generate_paths(start_ij, freespace)
 
         valid = result.get_valid_end_points()
@@ -572,30 +740,107 @@ def _build_occupancy_waypoints(
 
         diffs = np.diff(path_world, axis=0)
         path_length = float(np.sum(np.sqrt(np.sum(diffs ** 2, axis=1))))
+        if best is None or path_length > best[0]:
+            best = (path_length, path_world, path_ij, start_pose, start_ij, end_ij, attempt)
         if path_length < min_path_m:
             print(f"  Attempt {attempt+1}: path {path_length:.1f}m < {min_path_m}m, retry")
             continue
 
-        waypoints = [[float(p[0]), float(p[1]), camera_z, 90.0, 0.0, 0.0] for p in path_world]
-        print(f"  Path found: {len(waypoints)} pts, {path_length:.1f}m (attempt {attempt+1})")
+        return _finalize(path_world, path_ij, start_pose, start_ij, end_ij, attempt, path_length, relaxed=False)
 
-        path_record = {
-            "attempt": attempt + 1,
-            "path_length_m": round(path_length, 3),
-            "num_waypoints": len(waypoints),
-            "start_world_xy": [round(float(start_pose.x), 4), round(float(start_pose.y), 4)],
-            "end_world_xy": [round(float(path_world[-1, 0]), 4), round(float(path_world[-1, 1]), 4)],
-            "waypoints_world_xy": [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in path_world],
-        }
-        (nav_dir / "planned_path.json").write_text(json.dumps(path_record, indent=2))
-        _save_path_overlay(occ_data, freespace, path_ij, start_ij, end_ij,
-                           nav_dir / "path_overlay.png")
-        # Release the omap interface so its C++ render callbacks are unregistered,
-        # preventing debug lines from being redrawn in captured frames.
-        _omap.release_omap_interface(om_iface)
-        return waypoints
+    if best is not None:
+        path_length, path_world, path_ij, start_pose, start_ij, end_ij, attempt = best
+        print(f"  No path >= {min_path_m}m in {max_retries} tries; "
+              f"using longest clear path {path_length:.1f}m (frames top up via reverse traversal)")
+        return _finalize(path_world, path_ij, start_pose, start_ij, end_ij, attempt, path_length, relaxed=True)
 
     raise RuntimeError(f"No valid occupancy path found after {max_retries} attempts")
+
+
+def apply_roam_bounds(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Derive ``trajectory.bounds_xy`` from a constrained roam reparameterization.
+
+    Stage 7 (exploration-boundary optimization). Rather than let Optuna search the
+    four raw ``bounds_xy`` floats — which admits invalid boxes (``x_min > x_max``)
+    and confounds box *size* with box *position* — the search space exposes a
+    constrained center+extent form under ``trajectory.roam``:
+
+        center_x_frac, center_y_frac  in [-1, 1]   (offset within the envelope)
+        width_frac,    height_frac    in (0, 1]     (box size as a fraction)
+
+    interpreted as fractions of the *env envelope*, which here is the config's
+    pre-existing ``trajectory.bounds_xy`` (the per-env box the seed author tuned).
+    Because the envelope IS the config's own bounds, the box stays env-relative
+    (coupling #3 in the plan): the same fractions yield an appropriately sized box
+    in ``full_warehouse`` and in the smaller warehouses. At the default
+    (center 0, width/height_frac 1.0) the derived box equals the envelope exactly,
+    so behavior is unchanged when roam is absent, disabled, or left at defaults.
+
+    The construction keeps the box strictly inside the envelope for any frac in
+    range (the center offset scales by the leftover slack, which shrinks to zero
+    as width/height_frac -> 1), so no wall-clipping is possible. Object scatter
+    reads the same ``bounds_xy`` (coupling #2), so shrinking the roam box also
+    insets object placement — objects stay camera-reachable, which is desirable.
+
+    To avoid the occupancy planner wedging on a box too small to contain a
+    ``min_path_m`` route (coupling #1 — the ``characters``-style stall), the
+    effective ``occupancy.min_path_m`` is scaled down to what the shrunken free
+    region can actually yield. Returns a summary dict for event logging, or
+    ``None`` when roam is not active.
+    """
+    import math
+
+    traj_cfg = cfg.get("trajectory")
+    if not isinstance(traj_cfg, dict):
+        return None
+    roam = traj_cfg.get("roam")
+    if not isinstance(roam, dict) or not bool(roam.get("enabled", False)):
+        return None
+
+    def _clamp(v, lo, hi):
+        return max(lo, min(hi, float(v)))
+
+    envelope = [float(v) for v in traj_cfg.get("bounds_xy", [-6.0, 6.0, -6.0, 8.0])]
+    x0, x1, y0, y1 = envelope
+    ew, eh = (x1 - x0), (y1 - y0)
+    cx0, cy0 = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+
+    wf = _clamp(roam.get("width_frac", 1.0), 0.05, 1.0)
+    hf = _clamp(roam.get("height_frac", 1.0), 0.05, 1.0)
+    cxf = _clamp(roam.get("center_x_frac", 0.0), -1.0, 1.0)
+    cyf = _clamp(roam.get("center_y_frac", 0.0), -1.0, 1.0)
+
+    w, h = wf * ew, hf * eh
+    slack_x, slack_y = (ew - w) / 2.0, (eh - h) / 2.0
+    cx, cy = cx0 + cxf * slack_x, cy0 + cyf * slack_y
+    derived = [cx - w / 2.0, cx + w / 2.0, cy - h / 2.0, cy + h / 2.0]
+    traj_cfg["bounds_xy"] = [round(v, 4) for v in derived]
+
+    # Feasibility floor vs min_path_m (coupling #1). The planner samples two free
+    # cells and returns the path between them; its length is bounded by roughly the
+    # free-region diagonal. If min_path_m exceeds that, every attempt is rejected
+    # and the whole-workflow retry wrapper loops forever. Scale min_path_m to the
+    # box so the study can never wedge on a small proposal.
+    occ = traj_cfg.setdefault("occupancy", {})
+    inset = float(occ.get("boundary_margin_m", 2.0)) + float(occ.get("buffer_m", 0.5))
+    inner_diag = math.hypot(max(0.0, w - 2.0 * inset), max(0.0, h - 2.0 * inset))
+    requested_min_path = float(occ.get("min_path_m", 3.0))
+    feasible_min_path = inner_diag / 1.15
+    adjusted = None
+    if requested_min_path > feasible_min_path:
+        adjusted = round(max(3.0, feasible_min_path), 3)
+        occ["min_path_m"] = adjusted
+        if "min_path_m" in traj_cfg:      # keep the mirrored legacy key consistent
+            traj_cfg["min_path_m"] = adjusted
+
+    return {
+        "envelope_xy": [round(v, 4) for v in envelope],
+        "roam_params": {"center_x_frac": cxf, "center_y_frac": cyf,
+                        "width_frac": wf, "height_frac": hf},
+        "derived_bounds_xy": traj_cfg["bounds_xy"],
+        "min_path_m_requested": requested_min_path,
+        "min_path_m_effective": adjusted if adjusted is not None else requested_min_path,
+    }
 
 
 def run_stage4(args: argparse.Namespace) -> None:
@@ -615,6 +860,18 @@ def run_stage4(args: argparse.Namespace) -> None:
     paths = prepare_output_tree(output_dir, chase_enabled=chase_enabled)
     events_path = paths["trajectory"] / "events.jsonl"
     events_path.write_text("")
+
+    # Stage 7: derive trajectory.bounds_xy from the searchable roam box (if
+    # enabled) BEFORE anything reads bounds_xy (object scatter + occupancy
+    # planning both consume it) and before write_run_config dumps the resolved
+    # config, so the run_config.yaml records the box actually used.
+    roam_info = apply_roam_bounds(cfg)
+    if roam_info is not None:
+        print(f"Roam bounds: envelope={roam_info['envelope_xy']} "
+              f"-> derived={roam_info['derived_bounds_xy']} "
+              f"(min_path {roam_info['min_path_m_requested']}->{roam_info['min_path_m_effective']}m)",
+              flush=True)
+        append_event(events_path, "stage5_roam_bounds_derived", roam_info)
 
     write_run_config(output_dir, cfg, config_path)
     append_event(
@@ -1536,7 +1793,24 @@ def run_stage4(args: argparse.Namespace) -> None:
     if traj_mode == "occupancy_path":
         nav_dir = output_dir / "nav"
         waypoints = _build_occupancy_waypoints(cfg, simulation_app, nav_dir, camera_z, seed)
-        poses = _interpolate_waypoints(waypoints, num_frames)
+        # DEBUG sanity knob: rigidly translate the planned path in world XY before
+        # rendering (occupancy map/overlay are unshifted). Used to test whether the
+        # nav map is offset from the rendered warehouse geometry — if shifting the
+        # camera moves it from "outside the building" to a proper interior view,
+        # the map<->world frames are misaligned. Set env DEBUG_WAYPOINT_SHIFT="dx,dy".
+        _dbg_shift = os.environ.get("DEBUG_WAYPOINT_SHIFT")
+        if _dbg_shift:
+            _sx, _sy = (float(v) for v in _dbg_shift.split(","))
+            for _wp in waypoints:
+                _wp[0] += _sx
+                _wp[1] += _sy
+            print(f"[DEBUG] shifted {len(waypoints)} waypoints by ({_sx:+.1f},{_sy:+.1f}) m")
+        # Spread frames along the path; ping-pong (forward+reverse) a short path so
+        # a small roam box / relaxed path fills the frame budget with new views
+        # instead of near-duplicate frames, rotating smoothly in place at each
+        # turnaround (no 180° heading snap). Reassign waypoints to the effective
+        # (reflected) route so per-frame heading stays aligned.
+        poses, waypoints = _plan_traversal(waypoints, num_frames, traj_cfg)
         append_event(events_path, "stage5_occupancy_path_sampled", {
             "num_waypoints": len(waypoints),
             "nav_dir": str(nav_dir),

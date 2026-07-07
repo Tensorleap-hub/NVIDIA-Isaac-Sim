@@ -72,10 +72,10 @@ agent:
 trajectory:
   mode: occupancy_path
   bounds_xy:
-  - -13.0
+  - -9.5
+  - 8.0
+  - -11.0
   - 13.0
-  - -13.0
-  - 15.0
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 1.55
@@ -166,7 +166,7 @@ palletjacks:
   - 0.0
   - 0.0
   scatter: uniform
-  scatter_inset_m: 3.0
+  scatter_inset_m: 1.5
 forklifts:
   count_per_model: 3
   assets:
@@ -196,7 +196,7 @@ forklifts:
   - 0.0
   - 0.0
   scatter: uniform
-  scatter_inset_m: 3.0
+  scatter_inset_m: 1.5
 pallets:
   count_per_model: 4
   assets:
@@ -227,7 +227,7 @@ pallets:
   - 0.0
   - 0.0
   scatter: uniform
-  scatter_inset_m: 3.0
+  scatter_inset_m: 1.5
 distractor_randomization:
   position_mean:
   - 0.0
@@ -248,7 +248,7 @@ distractor_randomization:
   scale_mean: 1.25
   scale_std: 0.144338
   scatter: uniform
-  scatter_inset_m: 3.0
+  scatter_inset_m: 1.5
 distractors:
   clutter_level: 5.0
   groups:

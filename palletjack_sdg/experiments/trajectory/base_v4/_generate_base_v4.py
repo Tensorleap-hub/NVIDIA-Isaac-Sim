@@ -61,12 +61,13 @@ IMPORT_COMMON = {
     },
 }
 
-# Object placement is inset this far off the walls (IMAGE_REVIEW #2). The
-# scatter bounds default to trajectory.bounds_xy, whose edges abut the walls, so
-# a small inset left targets/distractors landing in/behind walls. 3.0m keeps
-# every object (incl. large forklifts) clearly inside the interior floor.
-# Honored by _scatter_position(scatter_inset_m) in the SDG script.
-SCATTER_INSET_M = 3.0
+# Object placement is inset this far off the walls. The REAL fix for "objects in
+# walls / outside" (IMAGE_REVIEW #2) is correct per-env interior bounds_xy (see
+# ENV_BOUNDS below) — objects scatter within the true interior now, so only a
+# small inset is needed to keep them off the interior walls. A large inset (the
+# earlier 3.0) over-concentrated obstacles centrally and starved the occupancy
+# planner (4->61 path failures), so keep this modest. _scatter_position() honors it.
+SCATTER_INSET_M = 1.5
 
 # v3 empties fix: raised counts + uniform scatter (forced on non-density imports).
 FORCE_TARGETS = {
@@ -106,6 +107,27 @@ OCC_TUNE = {
 
 FULL_BOUNDS = [-13.0, 13.0, -13.0, 15.0]
 PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
+
+# Per-environment TRUE interior box (occupancy scan + object scatter region).
+# Measured 2026-07-07 via the "look straight up" probe (ceiling => inside, black
+# void => outside) over a 13x10 grid, then inset ~1m off the shell walls. The old
+# symmetric [-13,13,-13,15] guess was the bug: full_warehouse's interior is
+# OFFSET toward -X (shell X[-12,7]), so the +X side of the window was exterior
+# apron that scans as free floor -> the planner routed the camera OUTSIDE the
+# building (and objects scattered out there too). The other three warehouses are
+# ~centered (shell X[-10,11]) so they were mostly fine. See base-v4-bounds-offset-bug.
+# Refined 2026-07-07 with the "star" step-walk probe (walk out from an interior
+# center along +/-X, +/-Y until the view crosses into VOID = the exterior wall;
+# interior partitions/shelves don't trigger since interior lies beyond them).
+# Measured exterior walls: full_warehouse +X@5.8 (others open past window);
+# warehouse-family (shared geometry) +X@9.3, -X@-10.9, -Y@-12.3, +Y open. Bounds
+# below are inset ~0.5-1m inside those walls.
+ENV_BOUNDS = {
+    "full_warehouse":             [-11.0, 5.0, -11.0, 13.0],
+    "warehouse":                  [-9.5, 8.0, -11.0, 13.0],
+    "warehouse_multiple_shelves": [-9.5, 8.0, -11.0, 13.0],
+    "warehouse_with_forklifts":   [-9.5, 8.0, -11.0, 13.0],
+}
 
 # The tight set (exp01-10) is intentionally consistent framing — the FOV/height
 # VARIANCE lives in the imports (exp11-21). But two tight configs carry names
@@ -233,6 +255,14 @@ HEADER = (
 
 def write_cfg(name: str, cfg: dict) -> None:
     cfg["run"]["data_dir"] = f"{DATA_ROOT}/{name}"
+    # Override bounds_xy with the measured TRUE interior for this config's env
+    # (replaces every source's symmetric guess). This confines BOTH the occupancy
+    # camera path and the object scatter region to the real building interior.
+    env = cfg.get("environment", {}).get("name")
+    if env in ENV_BOUNDS:
+        cfg.setdefault("trajectory", {})["bounds_xy"] = list(ENV_BOUNDS[env])
+    else:
+        print(f"  WARNING: {name} env={env!r} has no ENV_BOUNDS entry — left as-is")
     out = HERE / f"{name}.yaml"
     out.write_text(HEADER + yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
     print(f"wrote {out.relative_to(ROOT.parent.parent)}")
