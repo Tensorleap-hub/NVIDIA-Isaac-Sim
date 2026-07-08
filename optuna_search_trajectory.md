@@ -304,6 +304,53 @@ Optuna trials on dead knobs, or fill the disk.
     3 envs (`warehouse`, `warehouse_multiple_shelves`, `warehouse_with_forklifts`) NOT
     yet re-validated this way.
 
+- **Stage 7 addendum — roam-block regression fixed + yaw-jitter axis added
+  (2026-07-08, uncommitted at time of writing).**
+  - **Roam regression.** The `trajectory.roam` block added to the 21 base_v4
+    seeds on 2026-07-07 was never committed and got WIPED when the wall-texture
+    fix (`588b1ef`) regenerated the seeds from `_generate_base_v4.py`, which
+    didn't emit it — schema inference (intersection) therefore dropped all roam
+    params and `traj-exploration-bounds` resolved to zero knobs. Fix: `ROAM_DEFAULTS`
+    now lives IN the generator (`write_cfg`, merged right where the per-env
+    `bounds_xy` envelope is stamped) so regeneration can't wipe it again; all 21
+    seeds regenerated (purely additive diff). Verified `apply_roam_bounds` against
+    the new envelopes (full_warehouse `[-22.5,5,-11,29]`, family `[-9.5,8,-11,13]`):
+    defaults → box == envelope exactly; worst-case searchable box (0.5×0.5 at ±0.6
+    corner) stays inside walls in both, `min_path_m` auto-scales 12→6.9 on the
+    small envs.
+  - **New knob: `cameras.ego.yaw_jitter.{amp_deg,hz}`** — sinusoidal gaze wander
+    around the travel heading (the camera otherwise always faces the direction of
+    travel; yaw had no tunable at all). Same machinery as pitch/roll jitter:
+    per-episode random phase, sampled at shutter open+close so motion blur
+    integrates the sweep. Script defaults amp 0/0.9 Hz (no-op when absent);
+    generator emits amp 0.0 into every seed (behavior-preserving vs the
+    image-reviewed baseline); added to `traj-camera-jitter` theme (`config.py`)
+    with bounds amp 0–12°, hz 0.2–2.5 in `project_config_trajectory_camera_jitter.yaml`.
+  - **Offline validation:** all 10 per-group configs load; schema = 160 params;
+    `traj-camera-jitter` (now 10 paths) and `traj-exploration-bounds` (4) fully
+    covered. NOT yet Isaac-smoked (GPU busy with rfdetr_traj_v4b_base training) —
+    owe a 1-seed smoke with yaw_jitter amp > 0 before the real run.
+  - **Seed-vs-bounds audit + bounds widened (same day).** A systematic scan of
+    all 21 base_v4 seed values against every declared bound found **44 values
+    outside bounds** — the bounds were authored for base_v1 (counts ≤4) and never
+    widened for the denser base_v4 (18 seeds force `palletjacks.count_per_model=7`
+    / `pallets=6`; exp20_dense_clutter has clutter 5 + occurrence 5–6 + diversity 5;
+    exp15_very_dark has intensity 15000). Consequence wasn't a crash —
+    `calibration_optuna/optimizer.py` CLAMPS out-of-range seed params with a
+    warning before `add_trial` (verified: raw Optuna 4.8 `create_trial` raises
+    ValueError, the clamp is what saves it) — but clamped seeds register at the
+    boundary value while their MMD score came from frames generated at the TRUE
+    value, feeding TPE mislabeled observations. Fix: widened bounds to cover all
+    seeds — scene: counts 1–8, clutter 0–6, intensity floor 30000→10000;
+    occurrence 0–6; diversity 1–6 (script clamps to asset-pool size, so 6 is
+    safe). Re-scan: 0 violations; all 10 configs load.
+  - **Ultrawide-FOV gap noted (open decision).** Old random-frame
+    `mean_std/base_v2/exp07` was 112°, trajectory `base_v1/exp07` 108°; base_v4
+    deliberately kept only ONE wide seed (exp18 @ 90°, from v1 exp02). So no
+    ultrawide anchor in the pinned seed pool; the intrinsics search reaches 110°
+    but TPE has no seed observation there. Options: import v1 exp07 as a 22nd
+    seed via the generator, or accept unanchored exploration.
+
 ## Readiness Snapshot
 
 ### What already works

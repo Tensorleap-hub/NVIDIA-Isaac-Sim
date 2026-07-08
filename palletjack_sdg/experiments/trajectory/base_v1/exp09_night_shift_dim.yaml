@@ -58,7 +58,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 1.0
   turn_rate_dps: 70.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 
 trajectory:
   mode: occupancy_path
@@ -66,7 +66,7 @@ trajectory:
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 1.6
-    buffer_m: 1.0
+    buffer_m: 0.4
     boundary_margin_m: 2.5
     min_path_m: 4.0
     max_retries: 20
@@ -226,16 +226,16 @@ distractors:
 lighting:
   color_mean: [0.5, 0.5, 0.5]
   color_std: [0.288675, 0.288675, 0.288675]
-  intensity_mean: 40000.0
-  intensity_std: 25000.0
+  intensity_mean: 12000.0
+  intensity_std: 5000.0
   visibility_choices: [true]
 
 materials:
   roughness_mean: 0.35
   roughness_std: 0.15
   metallic_choices: [0, 1]
-  emissive_intensity_mean: 500.0
-  emissive_intensity_std: 288.675135
+  emissive_intensity_mean: 30.0
+  emissive_intensity_std: 15.0
   textures:
     - /Isaac/Materials/Textures/Patterns/nv_concrete_aged_with_lines.jpg
     - /Isaac/Materials/Textures/Patterns/nv_brick_reclaimed.jpg

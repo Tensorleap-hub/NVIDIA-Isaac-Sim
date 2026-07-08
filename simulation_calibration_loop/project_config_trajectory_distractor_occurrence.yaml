@@ -28,28 +28,28 @@ search_space:
     # (subsumes the old `.use` boolean).
     distractors.groups.BarelPlastic.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.BottlePlastic.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.Bucket.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.CardBox.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.CratePlastic.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.PushCart.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.RackPile.occurrence:
     - 0
-    - 4
+    - 6
     distractors.groups.TrafficSigns.occurrence:
     - 0
-    - 4
+    - 6
 embedder_backend: rfdetr
 rfdetr_embedder:
-  checkpoint_path: /home/ubuntu/warehouse3cls_mixedbase_50/output/rfdetr_mixedbase50_base/checkpoint_best_ema.pth
+  checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth

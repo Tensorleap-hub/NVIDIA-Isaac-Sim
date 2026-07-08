@@ -15,7 +15,7 @@ simulation:
   physics_dt: 0.0166667
 
 environment:
-  name: full_warehouse
+  name: warehouse_with_forklifts
 
 environment_urls:
   warehouse: /Isaac/Environments/Simple_Warehouse/warehouse.usd
@@ -58,7 +58,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 3.0
   turn_rate_dps: 110.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 
 trajectory:
   mode: occupancy_path
@@ -69,7 +69,7 @@ trajectory:
     # buffer_m was 1.4 (wide-vehicle clearance); reduced to 1.0 because we're
     # pinned to full_warehouse (denser than warehouse_with_forklifts) and the
     # ghost camera doesn't need vehicle clearance. 1.4 exhausted planner retries.
-    buffer_m: 1.0
+    buffer_m: 0.4
     boundary_margin_m: 2.5
     min_path_m: 4.0
     max_retries: 20

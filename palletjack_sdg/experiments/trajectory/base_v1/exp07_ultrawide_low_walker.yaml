@@ -58,7 +58,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 1.5
   turn_rate_dps: 90.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 
 trajectory:
   mode: occupancy_path
@@ -66,7 +66,7 @@ trajectory:
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 0.75
-    buffer_m: 1.0
+    buffer_m: 0.4
     boundary_margin_m: 2.5
     min_path_m: 4.0
     max_retries: 20
@@ -88,7 +88,7 @@ cameras:
       k2: 0.04
       k3: 0.00
       k4: 0.00
-    height_m: 0.75
+    height_m: 0.4
     pitch_deg: -12.0
     roll_deg: 0.0
     pitch_jitter:

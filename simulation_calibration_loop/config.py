@@ -134,6 +134,8 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "cameras.ego.pitch_jitter.hz",
         "cameras.ego.roll_jitter.amp_deg",
         "cameras.ego.roll_jitter.hz",
+        "cameras.ego.yaw_jitter.amp_deg",
+        "cameras.ego.yaw_jitter.hz",
         "cameras.ego.lateral_jitter.amp_m",
         "cameras.ego.lateral_jitter.hz",
         "cameras.ego.vertical_jitter.amp_m",
@@ -184,6 +186,21 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "distractors.groups.PushCart.diversity",
         "distractors.groups.RackPile.diversity",
         "distractors.groups.TrafficSigns.diversity",
+    ],
+    # Stage 7: exploration-boundary optimization. Searches WHERE the camera is
+    # allowed to roam via a constrained center+extent reparameterization
+    # (fractions of the env envelope), NOT the four raw trajectory.bounds_xy
+    # floats (which admit invalid boxes and confound size with position). The
+    # Isaac script's apply_roam_bounds() derives trajectory.bounds_xy from these
+    # before occupancy planning — clamped inside the envelope, env-relative, with
+    # a min_path_m feasibility floor so a small box can't wedge the planner. Add
+    # AFTER traj-environment has promoted a baseline env (the envelope is that
+    # env's tuned bounds_xy). See optuna_search_trajectory.md Stage 7.
+    "traj-exploration-bounds": [
+        "trajectory.roam.center_x_frac",
+        "trajectory.roam.center_y_frac",
+        "trajectory.roam.width_frac",
+        "trajectory.roam.height_frac",
     ],
 }
 

@@ -26,18 +26,18 @@ search_space:
   bounds:
     palletjacks.count_per_model:
     - 1
-    - 5
+    - 8
     forklifts.count_per_model:
     - 0
     - 4
     pallets.count_per_model:
     - 1
-    - 5
+    - 8
     distractors.clutter_level:
     - 0.0
-    - 3.0
+    - 6.0
     lighting.intensity_mean:
-    - 30000.0
+    - 10000.0
     - 220000.0
     lighting.intensity_std:
     - 0.0
@@ -70,4 +70,4 @@ search_space:
     - '["/Isaac/Materials/Textures/Patterns/nv_tile_hexagonal_various.jpg","/Isaac/Materials/Textures/Patterns/nv_fireplace_wall.jpg","/Isaac/Materials/Textures/Patterns/nv_animalfur_pattern_greys.jpg","/Isaac/Materials/Textures/Patterns/nv_artificialgrass_green.jpg"]'
 embedder_backend: rfdetr
 rfdetr_embedder:
-  checkpoint_path: /home/ubuntu/warehouse3cls_mixedbase_50/output/rfdetr_mixedbase50_base/checkpoint_best_ema.pth
+  checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth

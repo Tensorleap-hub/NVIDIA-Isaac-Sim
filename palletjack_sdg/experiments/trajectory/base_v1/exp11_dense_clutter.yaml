@@ -15,7 +15,7 @@ simulation:
   physics_dt: 0.0166667
 
 environment:
-  name: full_warehouse
+  name: warehouse_multiple_shelves
 
 environment_urls:
   warehouse: /Isaac/Environments/Simple_Warehouse/warehouse.usd
@@ -58,7 +58,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 1.5
   turn_rate_dps: 85.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 
 trajectory:
   mode: occupancy_path
@@ -66,7 +66,7 @@ trajectory:
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 1.55
-    buffer_m: 1.0
+    buffer_m: 0.4
     boundary_margin_m: 2.5
     min_path_m: 4.0
     max_retries: 20
@@ -157,22 +157,28 @@ pallets:
   scale_std: [0.0, 0.0, 0.0]
 
 distractor_randomization:
-  position_mean: [0.0, 3.0, 0.0]
-  position_std: [3.464102, 5.196152, 0.0]
+  # Tighter spread than the wide default so props actually pile up in-frame
+  # (the old [3.46, 5.20] scattered them across ~12 m → visually sparse).
+  position_mean: [0.0, 2.0, 0.0]
+  position_std: [2.2, 3.0, 0.0]
   rotation_mean: [0.0, 0.0, 180.0]
   rotation_std: [0.0, 0.0, 103.923048]
   scale_mean: 1.25
   scale_std: 0.144338
 
 distractors:
-  clutter_level: 2.4
+  # Genuinely cluttered — matches the pre-trajectory base_v2/exp17 reference:
+  # clutter_level 5.0 with diversity/occurrence 5-6 per group.
+  clutter_level: 5.0
   groups:
     CardBox:
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_02.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_A_03.usd
-      diversity: 2
-      occurrence: 2
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_C_02.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_CardBox_D_02.usd
+      diversity: 4
+      occurrence: 6
     BarelPlastic:
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd
@@ -181,16 +187,16 @@ distractors:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_01.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_B_03.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_C_02.usd
-      diversity: 2
-      occurrence: 2
+      diversity: 5
+      occurrence: 5
     BottlePlastic:
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticA_02.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticB_01.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticD_01.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BottlePlasticE_01.usd
-      diversity: 2
-      occurrence: 2
+      diversity: 4
+      occurrence: 6
     CratePlastic:
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_A_04.usd
@@ -198,30 +204,30 @@ distractors:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_B_05.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_C_02.usd
         - /Isaac/Environments/Simple_Warehouse/Props/SM_CratePlastic_E_02.usd
+      diversity: 5
+      occurrence: 5
+    RackPile:
+      assets:
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd
       diversity: 2
-      occurrence: 2
+      occurrence: 4
+    PushCart:
+      assets:
+        - /Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd
+      diversity: 1
+      occurrence: 3
     TrafficSigns:
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/S_TrafficCone.usd
         - /Isaac/Environments/Simple_Warehouse/Props/S_WetFloorSign.usd
       diversity: 2
-      occurrence: 2
+      occurrence: 3
     Bucket:
       assets:
         - /Isaac/Environments/Simple_Warehouse/Props/SM_BucketPlastic_B.usd
       diversity: 1
-      occurrence: 2
-    RackPile:
-      assets:
-        - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_03.usd
-        - /Isaac/Environments/Simple_Warehouse/Props/SM_RackPile_04.usd
-      diversity: 1
-      occurrence: 1
-    PushCart:
-      assets:
-        - /Isaac/Environments/Simple_Warehouse/Props/SM_PushcartA_02.usd
-      diversity: 1
-      occurrence: 1
+      occurrence: 3
 
 lighting:
   color_mean: [0.5, 0.5, 0.5]

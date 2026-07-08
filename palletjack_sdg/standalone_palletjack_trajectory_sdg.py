@@ -1485,12 +1485,17 @@ def run_stage4(args: argparse.Namespace) -> None:
     ego_roll_static = float(ego_cam_cfg.get("roll_deg", 0.0))
     pitch_jit_cfg = ego_cam_cfg.get("pitch_jitter") or {}
     roll_jit_cfg = ego_cam_cfg.get("roll_jitter") or {}
+    yaw_jit_cfg = ego_cam_cfg.get("yaw_jitter") or {}
     lat_jit_cfg = ego_cam_cfg.get("lateral_jitter") or {}
     vert_jit_cfg = ego_cam_cfg.get("vertical_jitter") or {}
     pitch_jit_amp = float(pitch_jit_cfg.get("amp_deg", 0.0))
     pitch_jit_hz = float(pitch_jit_cfg.get("hz", 1.5))
     roll_jit_amp = float(roll_jit_cfg.get("amp_deg", 0.0))
     roll_jit_hz = float(roll_jit_cfg.get("hz", 1.2))
+    # Yaw jitter = gaze wander around the travel heading (head-turning while
+    # walking). Slower default rhythm than the pitch/roll bob.
+    yaw_jit_amp = float(yaw_jit_cfg.get("amp_deg", 0.0))
+    yaw_jit_hz = float(yaw_jit_cfg.get("hz", 0.9))
     lat_jit_amp = float(lat_jit_cfg.get("amp_m", 0.0))
     lat_jit_hz = float(lat_jit_cfg.get("hz", 1.3))
     vert_jit_amp = float(vert_jit_cfg.get("amp_m", 0.0))
@@ -1498,6 +1503,7 @@ def run_stage4(args: argparse.Namespace) -> None:
     # Random per-episode phase so each trajectory has its own rhythm.
     pitch_jit_phase = random.uniform(0.0, 2.0 * math.pi)
     roll_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+    yaw_jit_phase = random.uniform(0.0, 2.0 * math.pi)
     lat_jit_phase = random.uniform(0.0, 2.0 * math.pi)
     vert_jit_phase = random.uniform(0.0, 2.0 * math.pi)
 
@@ -2029,8 +2035,12 @@ def run_stage4(args: argparse.Namespace) -> None:
 
             xo, yo, zo, ro, po_, yro, _ = _ghost_pose_at(t_open_idx)
             xc, yc, zc, rc, pc, yrc, _ = _ghost_pose_at(t_close_idx)
-            yawo = heading_yaw_cam + yro
-            yawc = heading_yaw_cam + yrc
+
+            def _yaw_jit(t_sec: float) -> float:
+                return yaw_jit_amp * math.sin(2.0 * math.pi * yaw_jit_hz * t_sec + yaw_jit_phase)
+
+            yawo = heading_yaw_cam + yro + _yaw_jit(t_open_sec)
+            yawc = heading_yaw_cam + yrc + _yaw_jit(t_close_sec)
             ro_t, po_t = _ghost_rot_with_jitter(ro, po_, t_open_sec)
             rc_t, pc_t = _ghost_rot_with_jitter(rc, pc, t_close_sec)
             xo, yo, zo = _ghost_pos_with_jitter(xo, yo, zo, t_open_sec)

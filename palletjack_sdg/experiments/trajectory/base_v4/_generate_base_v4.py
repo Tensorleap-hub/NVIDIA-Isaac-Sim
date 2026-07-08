@@ -130,6 +130,40 @@ WALL_TEXTURES = {
     },
 }
 
+# Stage 7 exploration-boundary search (traj-exploration-bounds theme): every seed
+# must carry the trajectory.roam block or schema inference (which INTERSECTS
+# across seeds) drops the roam params and the theme resolves to zero knobs. The
+# 2026-07-07 working-tree version of this block was silently wiped when these
+# configs were regenerated for the wall-texture fix, because the generator didn't
+# emit it — hence it lives here now. Full-roam defaults (center 0, size 1.0) make
+# the derived box equal the envelope exactly, so baseline behavior is unchanged;
+# enabled must be true or apply_roam_bounds ignores Optuna's suggested fracs.
+ROAM_DEFAULTS = {
+    "trajectory": {
+        "roam": {
+            "enabled": True,
+            "center_x_frac": 0.0,
+            "center_y_frac": 0.0,
+            "width_frac": 1.0,
+            "height_frac": 1.0,
+        },
+    },
+}
+
+# Yaw jitter (gaze wander around the travel heading) — searchable via the
+# traj-camera-jitter theme, so it must appear in every seed (schema intersects).
+# amp 0.0 keeps the image-reviewed baseline behavior unchanged.
+YAW_JITTER_DEFAULTS = {
+    "cameras": {
+        "ego": {
+            "yaw_jitter": {
+                "amp_deg": 0.0,
+                "hz": 0.9,
+            },
+        },
+    },
+}
+
 FULL_BOUNDS = [-13.0, 13.0, -13.0, 15.0]
 PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
 
@@ -273,6 +307,16 @@ IMPORTS = [
                         "trajectory": {"bounds_xy": PLAIN_BOUNDS}},
                        cam(70.0, 1.6, -5.0), light(100000.0, 20000.0)),
     },
+    {
+        "name": "exp22_ultrawide_low_walker",
+        "src": "exp07_ultrawide_low_walker.yaml",  # ultra-wide near-ground inspector
+        # 110deg: true ultrawide (beyond exp18's kept-wide 90). Near-floor mount
+        # like exp19 but with the wide-angle geometry distortion at the edges;
+        # gentle down-pitch — the source's -12deg at 0.4m stared at the floor.
+        "over": merged({"trajectory": {"bounds_xy": FULL_BOUNDS}},
+                       cam(110.0, 0.55, -6.0), light(100000.0, 30000.0),
+                       {"agent": {"speed_mps": 1.5}}),
+    },
 ]
 
 HEADER = (
@@ -294,6 +338,10 @@ def write_cfg(name: str, cfg: dict) -> None:
         cfg.setdefault("trajectory", {})["bounds_xy"] = list(ENV_BOUNDS[env])
     else:
         print(f"  WARNING: {name} env={env!r} has no ENV_BOUNDS entry — left as-is")
+    # roam derives its box FROM the bounds_xy stamped above (the env envelope),
+    # so applying both here keeps them consistent per env.
+    cfg = deep_merge(cfg, ROAM_DEFAULTS)
+    cfg = deep_merge(cfg, YAW_JITTER_DEFAULTS)
     out = HERE / f"{name}.yaml"
     out.write_text(HEADER + yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
     print(f"wrote {out.relative_to(ROOT.parent.parent)}")

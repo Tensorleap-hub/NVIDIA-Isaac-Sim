@@ -18,7 +18,7 @@ common:
     max_size: 60
     pin_seeds: true
   rfdetr_embedder:
-    checkpoint_path: /home/ubuntu/warehouse3cls_mixedbase_50/output/rfdetr_mixedbase50_base/checkpoint_best_ema.pth
+    checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth
     num_classes: 3
     layer_index: 3
     batch_size: 16
@@ -41,3 +41,11 @@ configs:
 # character spawn), stalling the whole round with endless retries. Optional per
 # the plan; re-enable only after the crash is diagnosed + fixed.
 #- project_config_trajectory_characters.yaml
+# exploration-bounds (Stage 7): searches WHERE the camera roams (roam box as
+# fractions of the env envelope). Add AFTER traj-environment has promoted a
+# baseline env — the envelope is that env's tuned bounds_xy. Staged like the
+# other object themes (don't stack a fresh axis in the same round). The Isaac
+# script derives bounds_xy from trajectory.roam.* with a min_path feasibility
+# floor + reverse-traversal frame fill, so a small box degrades gracefully
+# instead of wedging the planner. Smoke-verified 2026-07-07.
+#- project_config_trajectory_exploration_bounds.yaml

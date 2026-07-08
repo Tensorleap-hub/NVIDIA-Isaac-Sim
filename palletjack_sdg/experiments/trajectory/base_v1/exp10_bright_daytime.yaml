@@ -58,7 +58,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 1.2
   turn_rate_dps: 75.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 
 trajectory:
   mode: occupancy_path
@@ -66,7 +66,7 @@ trajectory:
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 1.6
-    buffer_m: 1.0
+    buffer_m: 0.4
     boundary_margin_m: 2.5
     min_path_m: 4.0
     max_retries: 20
@@ -226,7 +226,7 @@ distractors:
 lighting:
   color_mean: [0.5, 0.5, 0.5]
   color_std: [0.288675, 0.288675, 0.288675]
-  intensity_mean: 180000.0
+  intensity_mean: 220000.0
   intensity_std: 15000.0
   visibility_choices: [true]
 

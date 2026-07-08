@@ -15,7 +15,7 @@ simulation:
   physics_dt: 0.0166667
 
 environment:
-  name: full_warehouse
+  name: warehouse_multiple_shelves
 
 environment_urls:
   warehouse: /Isaac/Environments/Simple_Warehouse/warehouse.usd
@@ -58,7 +58,7 @@ agent:
   usd_path: /Isaac/Robots/NVIDIA/NovaCarter/nova_carter.usd
   speed_mps: 2.0
   turn_rate_dps: 90.0
-  capture_dt: 0.4
+  capture_dt: 2.0
 
 trajectory:
   mode: occupancy_path
@@ -66,7 +66,7 @@ trajectory:
   occupancy:
     cell_size_m: 0.1
     z_slice_m: 1.2
-    buffer_m: 1.0
+    buffer_m: 0.4
     boundary_margin_m: 2.5
     min_path_m: 4.0
     max_retries: 20
