@@ -84,6 +84,16 @@ trajectory:
     min_path_m: 12.0
     max_retries: 20
   min_path_m: 12.0
+  roam:
+    enabled: true
+    center_x_frac: 0.0
+    center_y_frac: 0.0
+    width_frac: 1.0
+    height_frac: 1.0
+  short_path_fill:
+    enabled: true
+    min_spacing_m: 0.05
+    max_passes: 2
 cameras:
   ego:
     enabled: true
@@ -121,6 +131,9 @@ cameras:
     mount:
       forward_m: 0.3
       lateral_m: 0.0
+    yaw_jitter:
+      amp_deg: 0.0
+      hz: 0.9
   chase:
     enabled: false
     resolution:

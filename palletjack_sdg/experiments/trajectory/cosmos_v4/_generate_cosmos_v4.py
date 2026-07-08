@@ -9,12 +9,25 @@ Cosmos-profile deltas:
     run.num_frames  : 10   -> 128       (a real video clip)
     agent.capture_dt: 2.0  -> 0.0333    (30 fps smooth playback)
     capture.video   : false -> true     (MP4 out -> CosmosWriter -> augmentation)
+    trajectory.short_path_fill: {min_spacing_m: 0.05, max_passes: 2}
+                                        (video wants ONE-WAY smooth motion, not
+                                         the OD-set ping-pong; see note below)
     run.data_dir    -> .../cosmos_v4/<name>
 
 Everything else (bounds, buffer_m, uniform scatter, counts, start_mode,
 min_path_m, FOV, height, lighting, characters, distractors, wall materials) is
 inherited verbatim from base_v4 — including the corrected bounds + diverse wall
 textures that cosmos_v3 (derived from the older base_v3) is missing.
+
+Why override short_path_fill: the fill's default min_spacing_m=0.3 is calibrated
+for the OD set (sparse frames captured ~2s apart). At 30fps a natural per-frame
+step is ~0.04m, so with 128 frames the default forces spacing<0.3 on any path
+shorter than 0.3*127=~38m and ping-pongs it (reverses the leg 4-8x) to fill the
+budget. Warehouse occupancy paths (min_path_m=12) are always <38m, so nearly
+EVERY Cosmos clip ended up doing a busy round-trip. For video we want a single
+one-way traversal: min_spacing_m=0.05 => any path >=~6m goes one-way (all our
+12m+ paths do); max_passes=2 caps a genuinely tiny-space scene to a single
+gentle there-and-back instead of a 4-8x oscillation.
 
 Scope: by default only the curated subset in CURATED is emitted (Cosmos video
 clips are heavy). Pass exp tokens on argv to override, e.g.
@@ -78,6 +91,12 @@ def main() -> None:
         cfg.setdefault("run", {})["num_frames"] = COSMOS_NUM_FRAMES
         cfg.setdefault("agent", {})["capture_dt"] = COSMOS_FPS_DT
         cfg.setdefault("capture", {})["video"] = True
+        # One-way smooth motion for video (see docstring): shrink the ping-pong
+        # trigger to a 30fps-appropriate spacing and cap any reverse to 1 round-trip.
+        spf = cfg.setdefault("trajectory", {}).setdefault("short_path_fill", {})
+        spf["enabled"] = True
+        spf["min_spacing_m"] = 0.05
+        spf["max_passes"] = 2
         cfg["run"]["data_dir"] = f"/isaac-sim/palletjack_sdg/palletjack_data/trajectory/cosmos_v4/{src.stem}"
         out = HERE / src.name
         out.write_text(HEADER + yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
