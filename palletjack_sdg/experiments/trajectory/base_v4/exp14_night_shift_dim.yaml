@@ -176,6 +176,14 @@ palletjacks:
   - 0.0
   scatter: uniform
   scatter_inset_m: 1.5
+  color_mean:
+  - 0.5
+  - 0.5
+  - 0.5
+  color_std:
+  - 0.288675
+  - 0.288675
+  - 0.288675
 forklifts:
   count_per_model: 3
   assets:

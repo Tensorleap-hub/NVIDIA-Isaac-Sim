@@ -58,8 +58,16 @@ def main():
                     "shutter_close_fraction": 0.0})
         for k in ("pitch_jitter", "roll_jitter", "lateral_jitter", "vertical_jitter"):
             ego.pop(k, None)
-        cfg.setdefault("lighting", {})["intensity_mean"] = 120000.0
-        cfg["lighting"]["env_light_scale"] = 1.0
+        # Neutral WHITE lighting for clean, judgeable verification frames (the
+        # default color randomization tints frames purple/teal — noise for a
+        # bounds check).
+        lt = cfg.setdefault("lighting", {})
+        lt["intensity_mean"] = 130000.0
+        lt["intensity_std"] = 0.0
+        lt["color_mean"] = [1.0, 1.0, 1.0]
+        lt["color_std"] = [0.0, 0.0, 0.0]
+        lt["env_light_scale"] = 1.0
+        cfg.pop("materials", None)  # no emissive/texture randomization on walls/floor
         for cls in ("palletjacks", "forklifts", "pallets"):
             if cls in cfg:
                 cfg[cls]["count_per_model"] = 1

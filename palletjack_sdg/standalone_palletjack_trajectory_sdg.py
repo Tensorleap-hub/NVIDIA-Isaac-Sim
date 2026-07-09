@@ -1354,6 +1354,21 @@ def run_stage4(args: argparse.Namespace) -> None:
                     rotation=rep_normal(tuple(pj_cfg["rotation_mean"]), tuple(pj_cfg["rotation_std"])),
                     scale=rep_normal(tuple(pj_cfg["scale_mean"]), tuple(pj_cfg["scale_std"])),
                 )
+        if pj_group is not None and pj_cfg.get("color_mean") is not None:
+            # Palletjack body-color randomization (ported back from the
+            # random-frame sampler). color_mean=null disables — the authored
+            # asset materials are kept; color_std=[0,0,0] pins the exact color.
+            _pj_color_pattern = str(pj_cfg.get("color_prim_pattern", "SteerAxles"))
+            print(f"Palletjack color: mean={pj_cfg['color_mean']} "
+                  f"std={pj_cfg.get('color_std', [0.0, 0.0, 0.0])} "
+                  f"(prims matching '{_pj_color_pattern}')")
+            with rep.get.prims(path_pattern=_pj_color_pattern):
+                rep.randomizer.color(
+                    colors=rep_normal(
+                        tuple(pj_cfg["color_mean"]),
+                        tuple(pj_cfg.get("color_std", (0.0, 0.0, 0.0))),
+                    )
+                )
         if fl_group is not None:
             with fl_group:
                 rep.modify.pose(

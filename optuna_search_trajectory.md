@@ -351,6 +351,35 @@ Optuna trials on dead knobs, or fill the disk.
     but TPE has no seed observation there. Options: import v1 exp07 as a 22nd
     seed via the generator, or accept unanchored exploration.
 
+- **mixedbase_50 synth domain-gap study + light-color search axis added
+  (2026-07-09, uncommitted at time of writing).** Diagnosed why `rfdetr_traj_v4b_base`
+  and `rfdetr_mixedbase50_base` fail to transfer, then added the missing knob.
+  - **Cross-eval finding.** Each model on the OTHER dataset's train collapses to
+    ~0.07–0.11 mAP@50:95 while holding ~0.5 on its own. Decomposed by image type:
+    on the shared LOCO **real** jpgs (byte-identical annotations, verified) v4b
+    scores 0.51 — statistically identical to its own real train; on the **synth**
+    pngs it scores 0.004. A controlled same-pipeline test (both models through ONE
+    shared `RFDETRDataModule`, 50 imgs, identical loading+labels) is perfectly
+    symmetric: each ~0.63–0.69 on its own synth, ~0.004 on the other's. So the
+    gap is a pure **synth-render domain gap**, not labeling/loading/harness.
+  - **KS stats (v4b vs mb50 synth).** Dominant: colorfulness D=0.27, contrast
+    D=0.19 (mb50 neon/colored halls, hard shadows, blown-out+dim extremes).
+    Secondary: objects/img D=0.15, aspect D=0.11, and very different per-class
+    composition/scale (mb50 pallet_truck ~9.8/img & ~8× smaller box vs v4b 3.2).
+    NOT gaps: occlusion, overall box size, brightness (near-identical).
+  - **10 hand-authored base_v4 configs (exp23-32)** targeting those axes:
+    4 appearance (neon / high-contrast / overexposed / dim-colored),
+    5 composition (pallet_truck swarm+dense, forklift-heavy, big-hall pullback,
+    low side telephoto), 1 blended reference. Standalone files (NOT generator
+    output — marked hand-managed in-header); exp01-22 + generator untouched.
+  - **New search axis: `lighting.color_mean` / `lighting.color_std`** added to
+    `traj-scene` (`config.py`) — the dominant lever, previously fixed-per-config
+    (only `intensity` was searchable). Bounds in
+    `project_config_trajectory_scene.yaml`: per-channel mean [0,1], std [0,0.7]
+    (generous — Optuna can reach neutral→saturated on its own). Validated: all
+    32 base_v4 seeds' color values within bounds (mean 0.42–0.60, std 0.05–0.45).
+    Round snapshots not touched; a new round picks it up. NOT yet Isaac-smoked.
+
 ## Readiness Snapshot
 
 ### What already works
@@ -693,7 +722,8 @@ Curated trajectory groups (delivered at `config.py:100–142`):
 - `traj-camera-jitter`: all four `*_jitter.*` blocks
 - `traj-agent`: speed_mps, turn_rate_dps
 - `traj-scene`: palletjack / forklift / pallet counts, clutter_level,
-  lighting mean/std, materials roughness mean/std, materials.textures
+  lighting intensity mean/std, **lighting color mean/std (added 2026-07-09)**,
+  palletjack color mean/std, materials roughness mean/std, materials.textures
 - `traj-characters`: count, enabled (optional; can be off for first run)
 
 Grep `SEARCH_SPACE_THEMES` after replacement to confirm no old theme names
@@ -780,7 +810,7 @@ and each group's contribution is legible.
 | `objects` | `distractors.clutter_level` + per-group `.occurrence` | **Partial.** Only `clutter_level` survives (in `traj-scene`). Per-group deferred. |
 | `diversity` | per-group `.diversity` | **Dropped from initial themes.** Deferred. |
 | `scene-objects` | palletjack/forklift/pallet `count_per_model` + `position_std` + `rotation_std` + `pallet_stacks.*` | **Partial.** Only counts survive (in `traj-scene`). Placement variance deferred. |
-| `lighting` | `intensity_mean/std`, `visibility_choices` | **Partial.** `intensity_mean/std` in `traj-scene`. `visibility_choices` dropped. |
+| `lighting` | `intensity_mean/std`, `color_mean/std`, `visibility_choices` | **Partial.** `intensity_mean/std` + `color_mean/std` (added 2026-07-09) in `traj-scene`. `visibility_choices` dropped. |
 | `materials` | `textures`, `roughness_mean/std`, `emissive_intensity_mean/std` | **Partial.** `textures` + `roughness_mean/std` in `traj-scene`. Emissive dropped. |
 | `top20_important` / `top30_important` | cross-cutting shortlists | **Dropped.** No trajectory equivalent yet. |
 

@@ -92,23 +92,31 @@ def infer_parameter_schema(configs: list[dict[str, Any]]) -> list[ParameterSpec]
             same_length = len({len(v) for v in values}) == 1
             if same_length and _all_primitive([item for seq in values for item in seq]):
                 element_kinds = {_value_kind(item) for seq in values for item in seq}
+                # Only NUMERIC vectors are expanded into per-index Optuna
+                # params. String/bool lists (asset pools, texture palettes,
+                # visibility choices) stay serialized so the search space
+                # treats them as one categorical choice among declared sets —
+                # e.g. materials.textures bounds are whole palettes, not 10
+                # independent per-slot picks. (Before this guard, the moment
+                # every seed carried the same-length texture list the schema
+                # silently flipped to textures[0..9] and the bounds check
+                # aborted the traj-scene theme at launch.)
                 if element_kinds <= {"int"}:
                     value_kind = "int"
                 elif element_kinds <= {"int", "float"}:
                     value_kind = "float"
-                elif len(element_kinds) == 1:
-                    value_kind = next(iter(element_kinds))
                 else:
-                    value_kind = "json"
-                specs.append(
-                    ParameterSpec(
-                        path=path,
-                        kind="indexed_list",
-                        value_kind=value_kind,
-                        length=len(sample),
+                    value_kind = None
+                if value_kind is not None:
+                    specs.append(
+                        ParameterSpec(
+                            path=path,
+                            kind="indexed_list",
+                            value_kind=value_kind,
+                            length=len(sample),
+                        )
                     )
-                )
-                continue
+                    continue
 
         specs.append(ParameterSpec(path=path, kind="serialized", value_kind="json"))
 

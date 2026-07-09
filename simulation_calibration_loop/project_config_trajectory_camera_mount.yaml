@@ -9,6 +9,7 @@ isaac:
   script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py
 search_space:
   themes:
+  - traj-environment
   - traj-camera-mount
   exclude:
   - run.data_dir
@@ -22,7 +23,6 @@ search_space:
   - cameras.ego.fisheye.k3
   - cameras.ego.fisheye.k4
   - capture.video
-  - environment.name
   bounds:
     cameras.ego.height_m:
     - 0.5
@@ -33,6 +33,11 @@ search_space:
     cameras.ego.roll_deg:
     - -5.0
     - 5.0
-embedder_backend: rfdetr
+    environment.name:
+    - full_warehouse
+    - warehouse
+    - warehouse_multiple_shelves
+    - warehouse_with_forklifts
+embedder_backend: dinov2
 rfdetr_embedder:
   checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth

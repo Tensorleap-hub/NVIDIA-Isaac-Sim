@@ -1,7 +1,11 @@
-rounds: 2
+# 3 shorter rounds instead of 2 long ones: round-1 evidence showed every theme
+# reached its optimum well before iteration 15 (env by iter 2, mount by 12,
+# intrinsics never improved) — more cycles through the theme chain beats
+# deeper single-theme searches once TPE has plateaued.
+rounds: 3
 common:
-  promoted_baseline_dir: ./promoted_baseline_trajectory_v2
-  max_iterations: 15
+  promoted_baseline_dir: ./promoted_baseline_trajectory_dino
+  max_iterations: 10
   iteration_batch_size: 4
   # Multi-seed evaluation: each candidate is generated once per seed and the
   # RGB frames are POOLED before embedding, so MMD-to-real reflects the config's
@@ -12,7 +16,7 @@ common:
   # single-run 60, but decorrelated across 4 layouts).
   sample_number: 15
   eval_seeds: [1, 2, 3, 4]
-  embedder_backend: rfdetr
+  embedder_backend: dinov2
   base_pool:
     enabled: true
     max_size: 60
@@ -25,11 +29,15 @@ common:
     resize_size: 256
     image_size: 224
 configs:
-# environment FIRST — biggest domain-gap lever, and the promoted baseline it
-# produces becomes the substrate every later theme conditions on.
-- project_config_trajectory_environment.yaml
-- project_config_trajectory_camera_intrinsics.yaml
-- project_config_trajectory_camera_mount.yaml
+# environment.name is NO LONGER a standalone theme: a 4-way categorical
+# optimized alone against the promoted best wastes a full 15-iteration pass
+# (round 1 spent 60 evals re-measuring 4 options). It is cheap but interacts
+# with everything, so every theme below now carries traj-environment in its
+# own search space and TPE explores it jointly with that theme's knobs.
+#- project_config_trajectory_environment.yaml
+# camera = intrinsics + mount merged into ONE joint space (they interact with
+# each other and with env; round 1 searched them separately).
+- project_config_trajectory_camera.yaml
 - project_config_trajectory_camera_jitter.yaml
 - project_config_trajectory_agent.yaml
 - project_config_trajectory_scene.yaml

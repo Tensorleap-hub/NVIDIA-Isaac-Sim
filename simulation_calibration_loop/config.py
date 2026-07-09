@@ -147,11 +147,25 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
     ],
     "traj-scene": [
         "palletjacks.count_per_model",
+        # Body-color repaint (restored random-frame knob): mean = the color,
+        # std = allowed per-episode randomness. Indexed lists — bounds are
+        # declared per component (color_mean[0..2] / color_std[0..2]).
+        "palletjacks.color_mean",
+        "palletjacks.color_std",
         "forklifts.count_per_model",
         "pallets.count_per_model",
         "distractors.clutter_level",
         "lighting.intensity_mean",
         "lighting.intensity_std",
+        # Light COLOR (per-channel RGB, like palletjacks.color_*). This is the
+        # dominant v4b<->mixedbase_50 domain-gap lever (colorfulness KS D=0.27):
+        # mb50's neon/colored halls. mean = the light tint, std = allowed
+        # per-episode color randomness. Indexed lists — bounds declared per
+        # component (color_mean[0..2] / color_std[0..2]). Seeds carry
+        # [0.5,0.5,0.5] / [0.288675 x3] (base_v1) plus the exp23-32 hand-set
+        # colored-lighting configs, all within the declared bounds.
+        "lighting.color_mean",
+        "lighting.color_std",
         "materials.roughness_mean",
         "materials.roughness_std",
         "materials.textures",

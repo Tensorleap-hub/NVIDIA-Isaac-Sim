@@ -198,6 +198,14 @@ palletjacks:
   rotation_std: [0.0, 0.0, 103.923048]
   scale_mean: [0.01, 0.01, 0.01]
   scale_std: [0.0, 0.0, 0.0]
+  # Body-color randomization (restored from the random-frame sampler; targets
+  # the SteerAxles body prims of the pallet-truck assets). Per-experiment YAMLs
+  # override via extends:
+  #   color_mean — the actual color; with color_std [0,0,0] it is pinned exactly
+  #   color_std  — allowed randomness around color_mean
+  #   color_mean: null — disable entirely (keep authored asset materials)
+  color_mean: [0.5, 0.5, 0.5]
+  color_std: [0.288675, 0.288675, 0.288675]
 
 forklifts:
   count_per_model: 2

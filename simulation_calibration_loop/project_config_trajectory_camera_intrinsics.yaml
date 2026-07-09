@@ -9,6 +9,7 @@ isaac:
   script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py
 search_space:
   themes:
+  - traj-environment
   - traj-camera-intrinsics
   exclude:
   - run.data_dir
@@ -22,13 +23,7 @@ search_space:
   - cameras.ego.fisheye.k3
   - cameras.ego.fisheye.k4
   - capture.video
-  - environment.name
   bounds:
-    # ceiling 120 (was 110) so the search covers true ultrawide territory — the
-    # old random-frame ultrawide seed was 112°, trajectory base_v1's was 108°,
-    # but base_v4 keeps only one 90° wide seed, so TPE must be ABLE to reach
-    # past 110 even without a pinned anchor there. Rectilinear 120° was already
-    # render-validated by the full_warehouse perimeter loop (FOV120).
     cameras.ego.fov_mean:
     - 30.0
     - 120.0
@@ -41,6 +36,11 @@ search_space:
     cameras.ego.focus_distance_m:
     - 2.0
     - 10.0
-embedder_backend: rfdetr
+    environment.name:
+    - full_warehouse
+    - warehouse
+    - warehouse_multiple_shelves
+    - warehouse_with_forklifts
+embedder_backend: dinov2
 rfdetr_embedder:
   checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth

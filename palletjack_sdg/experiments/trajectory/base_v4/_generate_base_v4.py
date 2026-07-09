@@ -164,6 +164,19 @@ YAW_JITTER_DEFAULTS = {
     },
 }
 
+# Palletjack body-color randomization (restored 2026-07-08 from the purged
+# random-frame sampler; SDG script repaints the SteerAxles body prims once per
+# episode) — searchable via the traj-scene theme, so it must appear in every
+# seed (schema intersects). Defaults are the old sampler's values: mid-gray
+# mean with near-uniform std over the full color range. color_mean: null would
+# disable the repaint but is NOT schema-compatible (needs a 3-float list here).
+PALLETJACK_COLOR_DEFAULTS = {
+    "palletjacks": {
+        "color_mean": [0.5, 0.5, 0.5],
+        "color_std": [0.288675, 0.288675, 0.288675],
+    },
+}
+
 FULL_BOUNDS = [-13.0, 13.0, -13.0, 15.0]
 PLAIN_BOUNDS = [-12.0, 12.0, -12.0, 14.0]
 
@@ -342,6 +355,7 @@ def write_cfg(name: str, cfg: dict) -> None:
     # so applying both here keeps them consistent per env.
     cfg = deep_merge(cfg, ROAM_DEFAULTS)
     cfg = deep_merge(cfg, YAW_JITTER_DEFAULTS)
+    cfg = deep_merge(cfg, PALLETJACK_COLOR_DEFAULTS)
     out = HERE / f"{name}.yaml"
     out.write_text(HEADER + yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
     print(f"wrote {out.relative_to(ROOT.parent.parent)}")
