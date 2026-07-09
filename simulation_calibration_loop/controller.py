@@ -176,6 +176,7 @@ class SimulationCalibrationController:
         self._replay_completed_iterations(state)
         self._sync_base_pool_from_state(state)
         self._promote_global_baseline(state)
+        self._export_top_trials(state)
         self._export_best_runs_to_s3(state)
         initial_distance = "-"
         if state["iterations"]:
@@ -240,6 +241,7 @@ class SimulationCalibrationController:
                 state["param_importances"] = param_importances
             self.state_store.save(state)
             self._promote_global_baseline(state)
+            self._export_top_trials(state)
             self._export_best_runs_to_s3(state)
             current_rows = next_rows
 
@@ -1160,6 +1162,238 @@ class SimulationCalibrationController:
             f"{best_artifact.run_id} ({best_artifact.objective_value:.6f}) "
             f"to {promoted_yaml_path}"
         )
+
+    def _export_top_trials(self, state: dict[str, Any]) -> None:
+        """Write the top-k and top-k-diverse trial exports next to the promoted best.
+
+        Three YAML files are rewritten from scratch after every iteration:
+        - best_top{k}.yaml: the k best unique trials by objective value.
+        - best_top{k}_diverse.yaml: k trials drawn from the best
+          `diverse_candidate_pool` candidates via greedy max-min selection on
+          normalized parameter distance — the best trial is always included,
+          then each pick maximizes the minimum distance to the already-selected
+          set, so the exported configs share as few parameter values as possible.
+        - best_top{k}_diverse_latent.yaml: same greedy max-min selection, but
+          the distance is the pairwise MMD (RBF, shared pool-level gamma)
+          between the runs' cached embedding sets — configs whose *rendered
+          images* look most different from each other, regardless of how close
+          their parameters are.
+        """
+        if not state["iterations"]:
+            return
+        export_dir = (
+            self.promoted_baseline_dir
+            if self.promoted_baseline_dir is not None
+            else self.workspace_dir / "top_trials"
+        )
+
+        artifacts = [
+            artifact for artifact in self._collect_completed_artifacts(state)
+            if artifact.objective_value is not None
+        ]
+        if not artifacts:
+            return
+
+        # Direct pool replays re-evaluate an identical config across iterations;
+        # keep only the best-scoring run per fingerprint so duplicates don't
+        # occupy multiple export slots.
+        best_by_fingerprint: dict[str, RunArtifact] = {}
+        for artifact in artifacts:
+            existing = best_by_fingerprint.get(artifact.run_fingerprint)
+            if existing is None or artifact.objective_value < existing.objective_value:
+                best_by_fingerprint[artifact.run_fingerprint] = artifact
+        ranked = sorted(best_by_fingerprint.values(), key=lambda item: item.objective_value)
+
+        k = self.config.top_k_export
+        top_artifacts = ranked[:k]
+        pool = ranked[: max(self.config.diverse_candidate_pool, k)]
+        diverse_artifacts, min_distances = self._select_diverse_trials(
+            pool, k, self._param_distance_fn(pool)
+        )
+        latent_pool = [
+            artifact for artifact in pool if artifact.embedding_path.exists()
+        ]
+        if len(latent_pool) < len(pool):
+            self.ui.append_log(
+                f"[baseline] latent-diverse export: {len(pool) - len(latent_pool)} of "
+                f"{len(pool)} pool candidates dropped (embedding cache missing)"
+            )
+        latent_artifacts, latent_distances = self._select_diverse_trials(
+            latent_pool, k, self._latent_distance_fn(latent_pool)
+        )
+
+        export_dir.mkdir(parents=True, exist_ok=True)
+        save_yaml_config(export_dir / f"best_top{k}.yaml", {
+            "project_name": self.config.project_name,
+            "selection": "objective",
+            "trials": [
+                self._top_trial_entry(rank, artifact)
+                for rank, artifact in enumerate(top_artifacts, start=1)
+            ],
+        })
+        save_yaml_config(export_dir / f"best_top{k}_diverse.yaml", {
+            "project_name": self.config.project_name,
+            "selection": "objective+diversity",
+            "diversity_metric": "normalized_param_distance",
+            "candidate_pool_size": len(pool),
+            "trials": [
+                {
+                    **self._top_trial_entry(rank, artifact),
+                    "min_param_distance_to_selected": distance,
+                }
+                for rank, (artifact, distance) in enumerate(
+                    zip(diverse_artifacts, min_distances, strict=True), start=1
+                )
+            ],
+        })
+        save_yaml_config(export_dir / f"best_top{k}_diverse_latent.yaml", {
+            "project_name": self.config.project_name,
+            "selection": "objective+diversity",
+            "diversity_metric": "embedding_mmd_rbf",
+            "candidate_pool_size": len(latent_pool),
+            "trials": [
+                {
+                    **self._top_trial_entry(rank, artifact),
+                    "min_latent_mmd_to_selected": distance,
+                }
+                for rank, (artifact, distance) in enumerate(
+                    zip(latent_artifacts, latent_distances, strict=True), start=1
+                )
+            ],
+        })
+        self.ui.append_log(
+            f"[baseline] exported top{k} ({len(top_artifacts)} trials), "
+            f"top{k}-diverse ({len(diverse_artifacts)} from pool of {len(pool)}), "
+            f"top{k}-diverse-latent ({len(latent_artifacts)} from pool of {len(latent_pool)}) "
+            f"to {export_dir}"
+        )
+
+    def _top_trial_entry(self, rank: int, artifact: RunArtifact) -> dict[str, Any]:
+        """Build one self-contained export record for a top trial."""
+        entry: dict[str, Any] = {
+            "rank": rank,
+            "trial_id": (
+                f"trial_{artifact.optuna_trial_number}"
+                if artifact.optuna_trial_number is not None
+                else artifact.run_id
+            ),
+            "run_id": artifact.run_id,
+            "objective_value": artifact.objective_value,
+            "yaml_path": str(artifact.yaml_path),
+            "embedding_path": str(artifact.embedding_path),
+            "params": artifact.flattened_params,
+        }
+        # Inline the full materialized config so the export stays usable even
+        # if the workspace run directories are cleaned up later.
+        if artifact.yaml_path.exists():
+            entry["config"] = yaml.safe_load(artifact.yaml_path.read_text())
+        return entry
+
+    def _param_distance_fn(self, pool: list[RunArtifact]):
+        """Build a Gower-style distance over the searched flattened params.
+
+        Numeric values are normalized by the range observed across the pool,
+        non-numeric values contribute 0/1 mismatch; the result is the mean over
+        all searched params, so 0 = identical config and 1 = maximally apart.
+        """
+        keys = sorted({key for artifact in pool for key in artifact.flattened_params})
+        ranges: dict[str, float] = {}
+        for key in keys:
+            values = [
+                artifact.flattened_params.get(key)
+                for artifact in pool
+                if isinstance(artifact.flattened_params.get(key), (int, float))
+                and not isinstance(artifact.flattened_params.get(key), bool)
+            ]
+            if values:
+                ranges[key] = float(max(values) - min(values))
+
+        def distance(a: RunArtifact, b: RunArtifact) -> float:
+            total = 0.0
+            for key in keys:
+                left = a.flattened_params.get(key)
+                right = b.flattened_params.get(key)
+                if key in ranges and isinstance(left, (int, float)) and isinstance(right, (int, float)) \
+                        and not isinstance(left, bool) and not isinstance(right, bool):
+                    span = ranges[key]
+                    total += abs(float(left) - float(right)) / span if span > 0 else 0.0
+                else:
+                    total += 0.0 if left == right else 1.0
+            return total / len(keys) if keys else 0.0
+
+        return distance
+
+    def _latent_distance_fn(self, pool: list[RunArtifact]):
+        """Build a latent-space distance: pairwise MMD over cached run embeddings.
+
+        Each run's cached (n_images, D) embedding array is loaded once; pairwise
+        distances use the same RBF-kernel MMD as the optimization objective. The
+        RBF gamma is computed ONCE with the median heuristic over a pooled
+        subsample of all candidates — a shared bandwidth keeps the pairwise
+        values mutually comparable, which per-pair gamma would not.
+        """
+        from calibration_optuna.metrics import DistributionMetrics
+
+        embeddings = {
+            artifact.run_id: np.load(artifact.embedding_path)
+            for artifact in pool
+        }
+        gamma = None
+        if len(pool) >= 2:
+            rng = np.random.default_rng(self.config.random_seed)
+            stacked = np.vstack(list(embeddings.values()))
+            if stacked.shape[0] > 2000:
+                stacked = stacked[rng.choice(stacked.shape[0], 2000, replace=False)]
+            half = stacked.shape[0] // 2
+            gamma = DistributionMetrics._compute_gamma_median_heuristic(
+                stacked[:half], stacked[half:]
+            )
+        cache: dict[tuple[str, str], float] = {}
+
+        def distance(a: RunArtifact, b: RunArtifact) -> float:
+            key = (a.run_id, b.run_id) if a.run_id <= b.run_id else (b.run_id, a.run_id)
+            if key not in cache:
+                cache[key] = DistributionMetrics.mmd(
+                    embeddings[a.run_id], embeddings[b.run_id], kernel="rbf", gamma=gamma
+                )
+            return cache[key]
+
+        return distance
+
+    def _select_diverse_trials(
+        self,
+        pool: list[RunArtifact],
+        k: int,
+        distance,
+    ) -> tuple[list[RunArtifact], list[float | None]]:
+        """Greedy max-min (farthest-point) selection under a pluggable distance.
+
+        Starts from the best trial by objective (pool is objective-sorted), then
+        repeatedly adds the pool candidate whose minimum distance to the
+        already-selected set is largest (ties broken by better objective).
+        Returns the selected artifacts (best first) and, per artifact, its
+        minimum distance to the previously selected set (None for the first).
+        """
+        if not pool:
+            return [], []
+
+        selected = [pool[0]]
+        min_distances: list[float | None] = [None]
+        remaining = list(pool[1:])
+        while remaining and len(selected) < k:
+            scored = [
+                (min(distance(candidate, chosen) for chosen in selected), candidate)
+                for candidate in remaining
+            ]
+            # Farthest first; among equally-far candidates prefer the better
+            # objective (pool order is objective-sorted, so max() with a stable
+            # tie-break on the earliest index achieves this).
+            best_score = max(score for score, _ in scored)
+            picked = next(candidate for score, candidate in scored if score == best_score)
+            selected.append(picked)
+            min_distances.append(best_score)
+            remaining.remove(picked)
+        return selected, min_distances
 
     def _export_best_runs_to_s3(self, state: dict[str, Any]) -> None:
         """Stage and upload the current top trials to a timestamped S3 snapshot."""

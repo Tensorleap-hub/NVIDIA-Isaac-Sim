@@ -235,6 +235,13 @@ class WorkflowConfig:
     iteration_batch_size: int
     random_seed: int = 42
     top_n_best_trials: int = 3
+    # Size of the best_top{k}.yaml / best_top{k}_diverse.yaml exports written
+    # next to the promoted best.yaml after every iteration.
+    top_k_export: int = 10
+    # How many of the best trials are eligible when picking the diverse top-k.
+    # The diverse set trades a little objective quality for parameter spread,
+    # so it draws from a pool larger than k itself.
+    diverse_candidate_pool: int = 30
     mmd_max_samples: int = 1000
     synthetic_rgb_base_dir: str | None = None
     embedder_backend: str = "dinov2"
@@ -297,6 +304,8 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         iteration_batch_size=int(raw["iteration_batch_size"]),
         random_seed=int(raw.get("random_seed", 42)),
         top_n_best_trials=int(raw.get("top_n_best_trials", 3)),
+        top_k_export=int(raw.get("top_k_export", 10)),
+        diverse_candidate_pool=int(raw.get("diverse_candidate_pool", 30)),
         mmd_max_samples=int(raw.get("mmd_max_samples", 1000)),
         embedder_backend=str(raw.get("embedder_backend", "dinov2")),
         dino=_load_section(raw.get("dino"), DINOv2Config),

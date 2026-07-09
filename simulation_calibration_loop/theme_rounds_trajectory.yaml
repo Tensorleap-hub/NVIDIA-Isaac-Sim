@@ -17,6 +17,14 @@ common:
   sample_number: 15
   eval_seeds: [1, 2, 3, 4]
   embedder_backend: dinov2
+  # Top-trial exports written next to best.yaml in promoted_baseline_dir after
+  # every iteration: best_top{k}.yaml (k best by objective),
+  # best_top{k}_diverse.yaml (greedy max-min on normalized param distance) and
+  # best_top{k}_diverse_latent.yaml (greedy max-min on pairwise embedding MMD,
+  # same RBF metric as the objective). Diverse picks draw from the best
+  # `diverse_candidate_pool` trials, always anchored on the overall best.
+  top_k_export: 10
+  diverse_candidate_pool: 30
   base_pool:
     enabled: true
     max_size: 60

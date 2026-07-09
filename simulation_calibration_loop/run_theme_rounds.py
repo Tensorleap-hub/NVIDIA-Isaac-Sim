@@ -227,7 +227,14 @@ def _upload_theme_best_runs(workspace_dir: Path, s3_prefix: str, top_n: int) -> 
 
 def _apply_common_overrides(raw: dict, common: dict) -> None:
     """Merge common section from theme_rounds.yaml into a per-theme config dict."""
-    for key in ("promoted_baseline_dir", "max_iterations", "iteration_batch_size", "embedder_backend"):
+    for key in (
+        "promoted_baseline_dir",
+        "max_iterations",
+        "iteration_batch_size",
+        "embedder_backend",
+        "top_k_export",
+        "diverse_candidate_pool",
+    ):
         if key in common:
             raw[key] = common[key]
     if "base_pool" in common:

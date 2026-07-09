@@ -379,6 +379,39 @@ Optuna trials on dead knobs, or fill the disk.
     (generous — Optuna can reach neutral→saturated on its own). Validated: all
     32 base_v4 seeds' color values within bounds (mean 0.42–0.60, std 0.05–0.45).
     Round snapshots not touched; a new round picks it up. NOT yet Isaac-smoked.
+- **Top-trials exports: top-10 / top-10-diverse / top-10-diverse-latent
+  (2026-07-09).** The loop previously persisted
+  only the single best trial (`promoted_baseline_dir/best.yaml`). It now also
+  rewrites three self-contained files there after every iteration (and on
+  resume), each entry carrying rank, trial/run id, objective, searched params,
+  `yaml_path`/`embedding_path`, and the **full materialized config inlined**
+  (survives workspace cleanup):
+  - `best_top{k}.yaml` — k best unique trials by objective. Duplicate configs
+    (direct pool replays re-scored across iterations) dedup by
+    `run_fingerprint`, keeping the best score.
+  - `best_top{k}_diverse.yaml` — greedy max-min (farthest-point) selection on
+    Gower-style **param distance** (numeric normalized by pool-observed range,
+    categorical 0/1), anchored on the overall best, candidates restricted to
+    the top `diverse_candidate_pool` by objective, ties → better objective.
+  - `best_top{k}_diverse_latent.yaml` — same greedy selection but distance =
+    pairwise **MMD (RBF)** between the runs' cached embedding `.npy` sets (the
+    objective's own metric, applied between synthetic runs). Gamma computed
+    ONCE via median heuristic over a pooled ≤2000-row subsample so pairwise
+    values are comparable (per-pair gamma would not be). Runs with a missing
+    embedding cache are dropped with a log line.
+  - **Wiring:** `controller.py` (`_export_top_trials` + helpers, called next to
+    `_promote_global_baseline`), `config.py` (`top_k_export: 10`,
+    `diverse_candidate_pool: 30`), `run_theme_rounds.py` common-overrides
+    whitelist + `theme_rounds_trajectory.yaml` `common:` block. Verified
+    end-to-end against `rounds_ws_20260708_dino/…_environment_r01` (exp16 seed
+    = rank 2, edged only by trial_24 at obj 0.4085 vs 0.4092) and the smoke
+    intrinsics workspace.
+  - **Gotcha:** on a 1-param categorical theme (e.g. environment) param-diverse
+    saturates after covering the distinct values — remaining slots fill by
+    objective with `min_dist=0.0`. The latent file stays informative there
+    (DINO round: min pairwise MMD 0.19–0.46 across picks). Note these exports
+    are rewritten by whichever theme-round ran last into the shared
+    `promoted_baseline_dir` — check the `project_name` header for provenance.
 
 ## Readiness Snapshot
 
