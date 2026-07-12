@@ -57,9 +57,18 @@ real signal, partly the known bounds confound (see caveats).
 
 - **S3 (consolidated):** `s3://nvidia-isaac-bucket/trajectory-tests/20260712_optuna_dino_results/`
   — `best.yaml` + `best.json`, the three top-k exports
-  (`best_top10{,_diverse,_diverse_latent}.yaml`), `manifest.json`, and
-  `top_performers/rank01..10_*/` with each trial's `config.yaml` and full
-  per-seed data (`Camera/rgb`, `Camera/bounding_box_2d_tight`).
+  (`best_top10{,_diverse,_diverse_latent}.yaml`), `manifest.json`, and three
+  data folders, each trial with `config.yaml` + full per-seed data
+  (`Camera/rgb`, `Camera/bounding_box_2d_tight`):
+  - `top_performers/rank01..10_*/` — global top-10 **by score** across all
+    600 trials.
+  - `diverse_performers/rank01..10_*/` — the param-distance diverse picks
+    (greedy max-min on normalized knob distance; FOV 39–115°, all 4
+    warehouses, clutter 0.1–4.3).
+  - `diverse_performers_latent/rank01..10_*/` — the embedding-MMD diverse
+    picks (diverse where the DINOv2 embedder sees diversity). Both diverse
+    sets come from the final theme study (occurrence_r03) and are anchored
+    on the overall best as rank 1.
 - **S3 (per theme/round):** `s3://nvidia-isaac-bucket/trajectory-tests/20260708_optuna_theme_rounds_dino/<theme>/round_{01..03}/` — top-3 trials per study.
 - **Local:** promoted dir `simulation_calibration_loop/promoted_baseline_trajectory_dino/`
   (best.yaml, pool with 60 scored observations), workspaces under
