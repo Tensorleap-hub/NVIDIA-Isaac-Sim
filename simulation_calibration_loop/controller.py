@@ -115,6 +115,10 @@ class SimulationCalibrationController:
         self.optimizer_config["optimizer"]["multivariate"] = config.tpe_sampler.multivariate
         self.optimizer_config["optimizer"]["group"] = config.tpe_sampler.group
         self.optimizer_config["optimizer"]["constant_liar"] = config.tpe_sampler.constant_liar
+        if config.tpe_sampler.n_startup_trials is not None:
+            self.optimizer_config["optimizer"]["n_startup_trials"] = int(
+                config.tpe_sampler.n_startup_trials
+            )
 
         self.runner = ExperimentRunner(
             config=self.optimizer_config,
@@ -652,17 +656,39 @@ class SimulationCalibrationController:
                     seed_rgb_dir = seed_dir / "Camera" / "rgb"
                     seed_images = discover_generated_images(seed_rgb_dir)
                     if not seed_images:
-                        run_isaac_generation(
-                            isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
-                            script_path=Path(self.config.isaac.script_path),
-                            yaml_path=yaml_path,
-                            output_dir=seed_dir,
-                            log_path=seed_dir / "isaac.log",
-                            headless=self.config.isaac.headless,
-                            num_frames_override=self.config.isaac.num_frames_override,
-                            seed=seed,
-                            log_callback=self.ui.append_log,
-                        )
+                        # Seed-retry (mirrors run_base_v4_train.sh): a run can fail
+                        # because THIS layout draw leaves no navigable freespace
+                        # (UniformPoseSampler "high <= 0" / no occupancy path).
+                        # That is a property of the layout, not the config, and it
+                        # is DETERMINISTIC for (config, seed) — without resampling
+                        # the outer retry wrapper loops on it forever. Re-roll with
+                        # seed + k*1000; the seed_dir keeps the original label.
+                        last_exc: Exception | None = None
+                        for attempt in range(3):
+                            try_seed = seed + attempt * 1000
+                            if attempt:
+                                self.ui.append_log(
+                                    f"[isaac-seed-retry] {run_id} seed {seed}: "
+                                    f"attempt {attempt + 1} with seed {try_seed}"
+                                )
+                            try:
+                                run_isaac_generation(
+                                    isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
+                                    script_path=Path(self.config.isaac.script_path),
+                                    yaml_path=yaml_path,
+                                    output_dir=seed_dir,
+                                    log_path=seed_dir / "isaac.log",
+                                    headless=self.config.isaac.headless,
+                                    num_frames_override=self.config.isaac.num_frames_override,
+                                    seed=try_seed,
+                                    log_callback=self.ui.append_log,
+                                )
+                                last_exc = None
+                                break
+                            except RuntimeError as exc:
+                                last_exc = exc
+                        if last_exc is not None:
+                            raise last_exc
                         seed_images = discover_generated_images(seed_rgb_dir)
                         if seed_images:
                             generated_runs += 1

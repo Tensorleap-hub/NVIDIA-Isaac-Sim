@@ -1,5 +1,9 @@
 # Optuna Search Over Trajectory SDG
 
+> **Results:** the first full theme-rounds run (DINOv2 embedder, 2026-07-09 →
+> 07-11) is summarized in [optuna_dino_results.md](optuna_dino_results.md) —
+> 0.4092 → 0.32604 MMD (~20%), winners + negative findings + artifact paths.
+
 ## Purpose
 
 The `trajectory` branch is dedicated to episode-based trajectory generation

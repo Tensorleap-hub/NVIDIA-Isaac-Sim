@@ -69,6 +69,12 @@ class TPESamplerConfig:
     multivariate: bool = True
     group: bool = False
     constant_liar: bool = True
+    # Trials sampled randomly before TPE activates. The optimizer default is
+    # max(50, 3*params) — with 10-iteration themes (40 trials) that leaves the
+    # whole theme on random search. Pool priming injects seed anchors +
+    # prior-theme trials as completed observations, so a small value is safe.
+    # None keeps the optimizer default.
+    n_startup_trials: int | None = None
 
 
 @dataclass

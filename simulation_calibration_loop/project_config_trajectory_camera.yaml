@@ -54,3 +54,5 @@ search_space:
 embedder_backend: dinov2
 rfdetr_embedder:
   checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth
+tpe_sampler:
+  n_startup_trials: 10
