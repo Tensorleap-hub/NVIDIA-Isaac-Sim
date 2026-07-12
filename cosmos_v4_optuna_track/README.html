@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cosmos v4: Base vs. Optuna-Optimized</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-alt: #1c2029;
+    --border: #262b36;
+    --text: #d8dee9;
+    --muted: #8892a6;
+    --accent: #7cc4ff;
+    --accent-2: #ffb454;
+    --ok: #8fd67f;
+    --warn: #ffb454;
+    --danger: #ff7a7a;
+    --code-bg: #0b0d12;
+    --heading: #f5f7fb;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .wrap {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+  header .eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 32px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  h2 {
+    color: var(--heading);
+    font-size: 22px;
+    margin: 48px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 17px;
+    margin: 28px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  h4 {
+    color: var(--heading);
+    font-size: 15px;
+    margin: 18px 0 6px;
+    font-weight: 600;
+  }
+  p { margin: 8px 0 12px; }
+  ul, ol {
+    margin: 6px 0 14px;
+    padding-left: 22px;
+  }
+  li { margin: 3px 0; }
+  li > ul, li > ol { margin: 4px 0; }
+  strong { color: var(--heading); font-weight: 600; }
+  em { color: var(--muted); }
+  code {
+    background: var(--code-bg);
+    color: #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    border: 0;
+    color: #e2e8f0;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 18px 0;
+  }
+  .card.step-1 { border-left: 3px solid var(--accent); }
+  .card.step-2 { border-left: 3px solid var(--accent-2); }
+  .card.step-3 { border-left: 3px solid var(--ok); }
+  .card.step-4 { border-left: 3px solid var(--danger); }
+  .card h3 { margin-top: 0; }
+  .card .purpose {
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+    margin: 4px 0 14px;
+  }
+  .flow {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin: 12px 0;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .flow .node {
+    color: var(--heading);
+    font-weight: 600;
+  }
+  .flow .accent { color: var(--accent); }
+  .flow .accent2 { color: var(--accent-2); }
+  .flow .ok { color: var(--ok); }
+  .flow .muted { color: var(--muted); }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 24px 0 32px;
+  }
+  .toc-title {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .toc ol {
+    margin: 0;
+    padding-left: 22px;
+  }
+  .toc a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .toc a:hover {
+    color: var(--accent);
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+    margin-left: 8px;
+  }
+  .badge-ok { background: rgba(143, 214, 127, 0.15); color: var(--ok); border: 1px solid rgba(143, 214, 127, 0.3); }
+  .badge-warn { background: rgba(255, 180, 84, 0.15); color: var(--accent-2); border: 1px solid rgba(255, 180, 84, 0.3); }
+  .badge-missing { background: rgba(255, 122, 122, 0.15); color: var(--danger); border: 1px solid rgba(255, 122, 122, 0.3); }
+  .checkbox {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--code-bg);
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  ul.tasks { list-style: none; padding-left: 4px; }
+  ul.tasks li { padding: 4px 0; }
+  .compare {
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 14px 0;
+    font-size: 13px;
+  }
+  .compare .label {
+    color: var(--accent);
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin-right: 8px;
+  }
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Track</div>
+  <h1>Cosmos v4: Base vs. Optuna-Optimized</h1>
+  <div class="subtitle">Pipeline A vs. Pipeline B from optimization-recipe.md, with a DINOv2/MMD check inserted before paying for two fine-tunes.</div>
+</header>
+
+<div class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#fit">How this fits into the bigger picture</a></li>
+    <li><a href="#plan">Plan → code map</a>
+      <ol>
+        <li><a href="#step-1">1. Generate</a></li>
+        <li><a href="#step-2">2. Compare (DINOv2 MMD)</a></li>
+        <li><a href="#step-3">3. Publish (S3)</a></li>
+        <li><a href="#step-4">4. Train</a></li>
+      </ol>
+    </li>
+    <li><a href="#missing">What's missing, in order</a></li>
+    <li><a href="#status">Status</a></li>
+  </ol>
+</div>
+
+<h2 id="goal">Goal</h2>
+<p>Compare Cosmos-augmented results between the trajectory <strong>v4 base</strong> config (<code>palletjack_sdg/experiments/trajectory/base_v4</code> / <code>cosmos_v4</code>) and the <strong>Optuna-optimized</strong> trajectory config (from the search described in <code>optuna_search_trajectory.md</code>), to see whether Cosmos augmentation still leaves a measurable difference between the two.</p>
+
+<h2 id="fit">How this fits into the bigger picture</h2>
+<p>This is <strong>Pipeline A vs. Pipeline B</strong> from <code>optimization-recipe.md</code>, extended with a DINOv2/MMD check as a gate before paying for two fine-tunes:</p>
+<div class="flow"><span class="node">base_v4</span> <span class="muted">(hand-picked)</span>      ──<span class="accent">Isaac</span>──▶ cosmos_v4 clips ──<span class="accent">Cosmos</span>──▶ augmented A
+<span class="node">optuna winner</span> <span class="muted">(searched)</span>   ──<span class="accent2">Isaac</span>──▶ cosmos_*  clips ──<span class="accent2">Cosmos</span>──▶ augmented B
+                                                                     │
+                                              <span class="ok">DINOv2 embed + MMD(A, B)</span>  ◄── this track's new step
+                                                                     │
+                                                          S3 upload, then
+                                                     RT-DETR/RF-DETR fine-tune
+                                                     A vs B, compare mAP</div>
+<p><code>optuna_search_trajectory.md</code> is the search itself (Isaac → DINOv2 → Optuna, no Cosmos, scored against real LOCO frames). This track picks up <strong>after</strong> a winner config exists: put both configs through the Cosmos-profile generator, and instead of jumping straight to two fine-tunes, first check with MMD whether Cosmos augmentation washes out the gap Optuna found.</p>
+
+<h2 id="plan">Plan → code map</h2>
+
+<div class="card step-1" id="step-1">
+  <h3>1. Generate<span class="badge badge-warn">partially wired</span></h3>
+  <ul>
+    <li><strong>Base v4 → Cosmos-profile clips:</strong> already wired. <code>palletjack_sdg/run_cosmos_v4_train.sh</code> → <code>standalone_palletjack_trajectory_sdg.py</code> (<code>CosmosWriter</code>, Stage 4) → <code>palletjack_sdg/palletjack_data/trajectory/cosmos_v4_*/</code>. Only a curated 6-of-32 <code>base_v4</code> configs are materialized as <code>cosmos_v4/expNN...yaml</code> today (see <code>CURATED</code> in <code>_generate_cosmos_v4.py</code>).</li>
+    <li><strong>Optuna winner → Cosmos-profile clips:</strong> <em>no config exists yet.</em> <code>_generate_cosmos_v4.py</code> is the pattern to copy (it takes a base config and applies only the Cosmos-profile deltas — <code>num_frames</code>, <code>capture_dt</code>, <code>capture.video</code>, <code>short_path_fill</code> — verbatim style otherwise). Once a winner YAML exists, the same script (or a copy pointed at the winner) plus a <code>run_cosmos_optuna_train.sh</code> twin of <code>run_cosmos_v4_train.sh</code> produces the matching clip set.</li>
+    <li><strong>Same prompt data:</strong> the actual Cosmos text-prompt / stylize step is <strong>external to this repo</strong> — <code>optimization-recipe.md</code>'s "Cosmos post-process" is marked TBD there, and there's no prompt config anywhere in <code>standalone_palletjack_trajectory_sdg.py</code> or <code>experiments/trajectory/cosmos_v4/*</code>. This has to be pinned down (one fixed prompt/command invoked identically for both clip sets) before step 1 can be called done.</li>
+  </ul>
+</div>
+
+<div class="card step-2" id="step-2">
+  <h3>2. Compare (DINOv2 MMD)<span class="badge badge-missing">script missing</span></h3>
+  <ul>
+    <li>The MMD building block already exists and is generic: <code>DistributionMetrics.mmd(X, Y)</code> in <code>calibration_optuna/metrics.py</code> (RBF kernel, median-heuristic gamma — same math the Optuna loop uses to score against real data).</li>
+    <li>Embedding two directories of images already exists too: <code>DINOv2Embedder</code> / <code>RFDETREmbedder</code> in <code>simulation_calibration_loop/data.py</code> (<code>embed_paths</code>). Per <code>optuna_search_trajectory.md</code> ("Embedder: use the trained RF-DETR backbone, not stock DINOv2"), prefer <code>RFDETREmbedder</code> for consistency with the search itself.</li>
+    <li><strong>Missing piece:</strong> there is no standalone script that just embeds two arbitrary directories and prints their MMD — today these two pieces are only wired together <em>inside</em> the Optuna loop (<code>controller.py</code>), scored against a fixed real-image reference pool, not against each other. Need a small script (e.g. <code>compare_cosmos_mmd.py</code> in this folder) that: embeds the base_v4-Cosmos set, embeds the optuna-Cosmos set, embeds the real LOCO reference set, and reports MMD(base, real), MMD(optuna, real), and MMD(base, optuna).</li>
+  </ul>
+</div>
+
+<div class="card step-3" id="step-3">
+  <h3>3. Publish (S3)<span class="badge badge-warn">tools exist, not wired for this</span></h3>
+  <ul>
+    <li><code>simulation_calibration_loop/upload_top_runs_to_s3.py</code> — uploads the top-N <em>search trials</em> (rgb + embedding + yaml) from a workspace root.</li>
+    <li><code>SimulationCalibrationController._export_best_runs_to_s3</code> / <code>_sync_directory_to_s3</code> in <code>controller.py</code> — the loop's own end-of-run S3 export.</li>
+    <li>Neither uploads a finished Cosmos clip set + comparison report — that's a new, small sync step (<code>aws s3 sync</code> of the two output dirs + the MMD numbers), not a new mechanism.</li>
+  </ul>
+</div>
+
+<div class="card step-4" id="step-4">
+  <h3>4. Train<span class="badge badge-missing">recipe doc is stale</span></h3>
+  <ul>
+    <li><code>optimization-recipe.md</code> Pipeline A/B point at <code>/home/ubuntu/RT-DETR/train.py</code>, which <strong>does not exist on this machine</strong>. The real, working trainer is <code>od_scripts/train_warehouse_real.py</code> (<code>RFDETRBase</code>/<code>RFDETRLarge</code> from <code>models/rf-detr</code>), documented end-to-end in <code>od_scripts/TRAINING_PROTOCOL.md</code>. Use that instead — it already expects Roboflow-COCO layout and has a documented path from Isaac's nested <code>Camera/</code> output to a training-ready dataset (<code>/tmp/convert_trajectory_synth.py</code> wrapping <code>od_scripts/prepare_synth_dataset.py</code>, see <code>TRAINING_PROTOCOL.md</code>).</li>
+    <li>Two datasets to build (base-v4-Cosmos, optuna-Cosmos), each merged with the same real LOCO train/valid split so the eval set stays constant — mirrors how <code>warehouse3cls_traj_v1</code> was built.</li>
+  </ul>
+</div>
+
+<h2 id="missing">What's missing, in order</h2>
+<ul class="tasks">
+  <li><span class="checkbox"></span> <strong>An actual Optuna winner config.</strong> Per <code>optuna_search_trajectory.md</code>, the search is mid-flight (Stage 8, 2026-07-07); no <code>state.json</code>/<code>workspace_*</code> exists on this machine yet, so there is no <code>best_config.yaml</code> to feed Cosmos. Either finish/resume the loop (<code>simulation_calibration_loop/run_main_loop.sh</code>) or pull the current best via <code>simulation_calibration_loop/collect_top_runs.py</code> against whatever workspace root the search has been running in.</li>
+  <li><span class="checkbox"></span> <strong>A Cosmos-profile config generator for the winner</strong> (copy of <code>_generate_cosmos_v4.py</code>) + a run script (copy of <code>run_cosmos_v4_train.sh</code>).</li>
+  <li><span class="checkbox"></span> <strong>The actual Cosmos post-process command</strong> (prompt + version), fixed and applied identically to both clip sets — currently undocumented anywhere in this repo.</li>
+  <li><span class="checkbox"></span> <strong>The MMD comparison script</strong> described above (embed both sets + real reference, report pairwise MMD).</li>
+  <li><span class="checkbox"></span> <strong>An S3 sync step</strong> for the two finished Cosmos datasets + the MMD report.</li>
+  <li><span class="checkbox"></span> <strong>Two <code>od_scripts/train_warehouse_real.py</code> runs</strong> (base-v4-Cosmos vs. optuna-Cosmos, same real-data split, same hyperparams) + an mAP comparison, per the "Reporting" section of <code>optimization-recipe.md</code>.</li>
+</ul>
+
+<h2 id="status">Status</h2>
+<p><span class="badge badge-missing" style="margin-left:0">not started</span> — this folder tracks the work as it progresses.</p>
+
+<footer>cosmos_v4_optuna_track/README.md — trajectory branch</footer>
+
+</div>
+</body>
+</html>
