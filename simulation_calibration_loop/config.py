@@ -222,6 +222,42 @@ SEARCH_SPACE_THEMES: dict[str, list[str]] = {
         "trajectory.roam.width_frac",
         "trajectory.roam.height_frac",
     ],
+    # Cross-cutting shortlist of the highest-fANOVA-importance knobs distilled
+    # from the first full theme-rounds run (DINOv2, 2026-07-09→11; per-study
+    # `param_importances` in each workspace state.json). Recreates the old
+    # `top20_important` idea for the trajectory pipeline: instead of cycling
+    # single-axis themes, search the ~18 knobs that actually moved MMD across
+    # camera / scene / occurrence / agent in ONE joint space, seeded from the
+    # weekend run's promoted best (0.32604) + reused 60-obs pool. Selection =
+    # "broad union": the params that both ranked high in importance AND drove
+    # the three promotions, plus the next tier (2nd agent knob, roll/fov_std,
+    # roughness_std, two more distractor groups). `environment.name` is NOT
+    # here — it is added via the `traj-environment` theme in the project config
+    # so it is searched jointly (it dominates fANOVA in every study).
+    "traj-top-important": [
+        # camera (drove the round-1 promotion)
+        "cameras.ego.fov_mean",
+        "cameras.ego.fov_std",
+        "cameras.ego.f_stop",
+        "cameras.ego.focus_distance_m",
+        "cameras.ego.height_m",
+        "cameras.ego.pitch_deg",
+        "cameras.ego.roll_deg",
+        # scene (drove the round-1 scene promotion)
+        "lighting.intensity_mean",
+        "materials.roughness_mean",
+        "materials.roughness_std",
+        "distractors.clutter_level",
+        # distractor occurrence / composition (drove the round-3 promotion)
+        "distractors.groups.BottlePlastic.occurrence",
+        "distractors.groups.TrafficSigns.occurrence",
+        "distractors.groups.RackPile.occurrence",
+        "distractors.groups.CratePlastic.occurrence",
+        "distractors.groups.BarelPlastic.occurrence",
+        # agent (top fANOVA sensitivity; never promoted, kept per broad-union)
+        "agent.turn_rate_dps",
+        "agent.speed_mps",
+    ],
 }
 
 

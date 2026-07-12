@@ -66,13 +66,28 @@ def load_existing_coco(ann_path: Path):
 
 
 def collect_frames(input_dir: Path):
-    """Return sorted list of frame numbers that have all required files present."""
-    rgb_files = {int(f.stem.split("_")[1]): f for f in input_dir.glob("rgb_*.png")}
-    bbox_files = {int(f.stem.split("_")[-1]): f for f in input_dir.glob("bounding_box_2d_tight_[0-9]*.npy")}
+    """Return sorted list of frame numbers that have all required files present.
+
+    Supports two on-disk layouts:
+      * Flat (BasicWriter):  ``<input_dir>/rgb_XXXX.png`` alongside
+        ``bounding_box_2d_tight_XXXX.{npy,json}``.
+      * Nested (trajectory SDG): RGB under ``<input_dir>/Camera/rgb/`` and boxes
+        under ``<input_dir>/Camera/bounding_box_2d_tight/``. Only the plain
+        ``Camera/rgb/`` stream is used; sibling streams such as
+        ``Camera/rgb_fisheye/`` are intentionally ignored.
+    """
+    rgb_dir = bbox_dir = input_dir
+    nested_rgb = input_dir / "Camera" / "rgb"
+    if not any(input_dir.glob("rgb_*.png")) and nested_rgb.is_dir():
+        rgb_dir = nested_rgb
+        bbox_dir = input_dir / "Camera" / "bounding_box_2d_tight"
+
+    rgb_files = {int(f.stem.split("_")[1]): f for f in rgb_dir.glob("rgb_*.png")}
+    bbox_files = {int(f.stem.split("_")[-1]): f for f in bbox_dir.glob("bounding_box_2d_tight_[0-9]*.npy")}
     label_files = {int(f.stem.split("_")[-1]): f
-                   for f in input_dir.glob("bounding_box_2d_tight_labels_[0-9]*.json")}
+                   for f in bbox_dir.glob("bounding_box_2d_tight_labels_[0-9]*.json")}
     prim_path_files = {int(f.stem.split("_")[-1]): f
-                       for f in input_dir.glob("bounding_box_2d_tight_prim_paths_[0-9]*.json")}
+                       for f in bbox_dir.glob("bounding_box_2d_tight_prim_paths_[0-9]*.json")}
     if prim_path_files:
         complete = sorted(set(rgb_files) & set(bbox_files) & set(label_files) & set(prim_path_files))
         return [(rgb_files[n], bbox_files[n], label_files[n], prim_path_files[n]) for n in complete]
@@ -87,6 +102,11 @@ def frames_to_coco(
     run_prefix: str,
 ) -> dict:
     coco = existing_coco
+    # Resolve category ids from THIS file's own category table, not the module-level
+    # CAT_NAME_TO_ID. When merging synth into an existing dataset (e.g. LOCO real),
+    # that dataset may number the same class names in a different order; using the
+    # constant would silently permute every synth label.
+    name_to_id = {c["name"]: c["id"] for c in coco["categories"]}
     next_img_id = max((img["id"] for img in coco["images"]), default=0) + 1
     next_ann_id = max((ann["id"] for ann in coco["annotations"]), default=0) + 1
 
@@ -103,7 +123,7 @@ def frames_to_coco(
         for sem_str, info in label_map.items():
             raw = info.get("class", "")
             mapped = CLASS_MAP.get(raw, raw)
-            if mapped in CAT_NAME_TO_ID:
+            if mapped in name_to_id:
                 sem_to_class[int(sem_str)] = mapped
 
         # Deduplicate rows using prim paths: keep only root-level entries (no "/Ref/" in path).
@@ -132,7 +152,7 @@ def frames_to_coco(
             if w <= 0 or h <= 0:
                 continue
             frame_anns.append({
-                "category_id": CAT_NAME_TO_ID[sem_to_class[sem_id]],
+                "category_id": name_to_id[sem_to_class[sem_id]],
                 "bbox": [x_min, y_min, w, h],
                 "area": float(w * h),
                 "iscrowd": 0,
@@ -219,7 +239,9 @@ def main():
             continue
 
         random.shuffle(frames)
-        n_val = max(1, int(len(frames) * args.val_fraction))
+        # val_fraction == 0.0 -> everything into train (keeps a real-only valid split
+        # clean when merging synth into an existing dataset).
+        n_val = int(len(frames) * args.val_fraction)
         val_frames = frames[:n_val]
         train_frames = frames[n_val:]
 

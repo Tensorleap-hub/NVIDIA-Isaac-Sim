@@ -1,5 +1,24 @@
 import argparse
+import json
+import os
+
 from rfdetr import RFDETRBase, RFDETRLarge
+
+
+def load_class_names(dataset_dir: str) -> list[str]:
+    """Return class names ordered to match RF-DETR's label indices.
+
+    RF-DETR's roboflow COCO loader builds ``cat2label`` as
+    ``{cat_id: i for i, cat_id in enumerate(sorted(cat_ids))}`` — i.e. label
+    index = position of the category_id in ascending order. ``class_names`` must
+    therefore be ordered by ascending category_id, or every per-class metric and
+    the deployed model's label map will be silently permuted. Deriving the names
+    from the dataset itself makes that impossible to get wrong.
+    """
+    ann = os.path.join(dataset_dir, "train", "_annotations.coco.json")
+    with open(ann) as f:
+        cats = json.load(f)["categories"]
+    return [c["name"] for c in sorted(cats, key=lambda c: c["id"])]
 
 
 def main():
@@ -27,6 +46,10 @@ def main():
     model_kwargs = {"num_classes": 3, "freeze_encoder": args.freeze_encoder}
     if args.pretrain_weights is not None:
         model_kwargs["pretrain_weights"] = args.pretrain_weights
+    class_names = load_class_names(args.dataset_dir)
+    print(f"class_names (ordered by category_id): {class_names}")
+    assert len(class_names) == 3, f"expected 3 classes, got {class_names}"
+
     model = model_cls(**model_kwargs)
     model.train(
         dataset_dir=args.dataset_dir,
@@ -40,7 +63,7 @@ def main():
         grad_accum_steps=args.grad_accum_steps,
         num_workers=args.num_workers,
         tensorboard=not args.no_tensorboard,
-        class_names=["pallet_truck", "forklift", "pallet"],
+        class_names=class_names,
         resume=args.resume,
     )
 
