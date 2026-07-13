@@ -101,12 +101,27 @@ def find_samples(cosmos_output_dirs: list[str]) -> list[Path]:
     return samples
 
 
-def resolve_source_exp_dir(sample_json: dict) -> Path | None:
-    """The output sidecar's video_path points at <exp_dir>/video/clip_XXXX/rgb.mp4."""
+def resolve_source_exp_dir(sample_json: dict, source_roots: list[str] | None) -> Path | None:
+    """Resolve the source Isaac experiment dir for one Cosmos output sample.
+
+    The sidecar's ``video_path`` points at ``<exp_dir>/video/clip_XXXX/rgb.mp4``, but
+    that path is the *generation machine's* path (``/mnt/cosmos/input/...``) and will
+    not exist when the outputs are analyzed elsewhere. So: use the recorded path if it
+    exists, otherwise re-home the experiment dir under one of ``source_roots`` by its
+    basename (the trajectory-SDG run dirs keep the same name across machines).
+    """
     video_path = sample_json.get("video_path")
     if not video_path:
         return None
-    return Path(video_path).parents[2]
+    recorded = Path(video_path).parents[2]
+    if recorded.is_dir():
+        return recorded
+    exp_name = recorded.name
+    for root in source_roots or []:
+        candidate = Path(root) / exp_name
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 def load_frame_annotations(bbox_dir: Path, frame_idx: int):
@@ -144,10 +159,11 @@ def load_frame_annotations(bbox_dir: Path, frame_idx: int):
     return anns
 
 
-def process_sample(mp4_path: Path, coco: dict, output_img_dir: Path, frame_stride: int) -> int:
+def process_sample(mp4_path: Path, coco: dict, output_img_dir: Path, frame_stride: int,
+                   source_roots: list[str] | None) -> int:
     """Decode mp4_path, pair each frame with its source annotations, append to coco. Returns frames added."""
     sample_json = json.loads(mp4_path.with_suffix(".json").read_text())
-    exp_dir = resolve_source_exp_dir(sample_json)
+    exp_dir = resolve_source_exp_dir(sample_json, source_roots)
     if exp_dir is None or not exp_dir.is_dir():
         print(f"  SKIP (can't resolve source experiment dir): {mp4_path.name}")
         return 0
@@ -209,6 +225,11 @@ def main():
                         help="Fraction of samples (whole videos) to put in the valid split (default: 0.1)")
     parser.add_argument("--frame-stride", type=int, default=1,
                         help="Only keep every Nth frame of each video (default: 1, i.e. keep all frames)")
+    parser.add_argument("--source-roots", nargs="+", default=None,
+                        help="Local dirs to search for source Isaac experiment dirs by name when the "
+                             "sidecar's video_path (a generation-machine path like /mnt/cosmos/input/...) "
+                             "doesn't exist here. Each source-root holds per-experiment subdirs "
+                             "(e.g. .../trajectory/cosmos_v4_20260712_194849, .../cosmos_optuna_20260713_025849).")
     parser.add_argument("--merge", action="store_true",
                         help="Append to existing _annotations.coco.json files instead of overwriting")
     parser.add_argument("--seed", type=int, default=42)
@@ -240,10 +261,10 @@ def main():
     print(f"Found {len(samples)} samples: {len(train_samples)} train, {len(val_samples)} valid")
 
     for mp4_path in train_samples:
-        n = process_sample(mp4_path, train_coco, train_dir, args.frame_stride)
+        n = process_sample(mp4_path, train_coco, train_dir, args.frame_stride, args.source_roots)
         print(f"  [train] {mp4_path.name}: {n} frames")
     for mp4_path in val_samples:
-        n = process_sample(mp4_path, valid_coco, valid_dir, args.frame_stride)
+        n = process_sample(mp4_path, valid_coco, valid_dir, args.frame_stride, args.source_roots)
         print(f"  [valid] {mp4_path.name}: {n} frames")
 
     with open(train_ann_path, "w") as f:
