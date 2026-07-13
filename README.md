@@ -30,22 +30,6 @@ There is an instance ready to use called `nvidia`. Start it, connect, and enjoy.
 
 Codex is installed there for my user, so have fun with it. Use it in `screen` so it will not disconnect when you do.
 
-### Trajectory / Cosmos Test Data
-
-Trajectory-SDG clips used for Cosmos-Transfer stylization live under:
-
-- `s3://nvidia-isaac-bucket/trajectory-tests/20260708_cosmos_v4/`
-- `s3://nvidia-isaac-bucket/trajectory-tests/20260712_cosmos_optuna/`
-
-Download with:
-
-```bash
-aws s3 sync s3://nvidia-isaac-bucket/trajectory-tests/20260708_cosmos_v4/ ./20260708_cosmos_v4/
-aws s3 sync s3://nvidia-isaac-bucket/trajectory-tests/20260712_cosmos_optuna/ ./20260712_cosmos_optuna/
-```
-
-Both prefixes are still being updated (as of 2026-07-12) — re-run the sync later today to pick up the latest clips before relying on them.
-
 ## Important Files
 
 - `leap_integration.py`: Tensorleap integration entrypoint
