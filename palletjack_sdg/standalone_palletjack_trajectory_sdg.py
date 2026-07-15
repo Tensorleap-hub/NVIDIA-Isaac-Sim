@@ -48,6 +48,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--environment", type=str, default=None)
     parser.add_argument("--data_dir", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--seeds", type=str, default=None,
+                        help="Space-separated seed list rendered in ONE Isaac session "
+                             "(episode mode). Requires --out_root; each episode writes "
+                             "<out_root>/<config-stem>_seed<S>/ like the per-process wrapper.")
+    parser.add_argument("--out_root", type=str, default=None,
+                        help="Output root for --seeds episode mode")
+    parser.add_argument("--max_seed_retries", type=int, default=4,
+                        help="Episode mode: retries per seed (seed+k*1000) on layout failure")
+    parser.add_argument("--capture_mode", type=str, default=None,
+                        choices=["trajectory", "random"],
+                        help="random = every frame an independent freespace pose "
+                             "(disconnected snapshots, no path traversal)")
     parser.add_argument("--capture_dt", type=float, default=None,
                         help="Override agent.capture_dt (sim seconds per frame)")
     parser.add_argument("--no_video", action="store_true",
@@ -107,6 +119,8 @@ def apply_cli_overrides(cfg: dict[str, Any], args: argparse.Namespace) -> None:
     if args.capture_dt is not None:
         cfg.setdefault("agent", {})
         cfg["agent"]["capture_dt"] = args.capture_dt
+    if args.capture_mode is not None:
+        cfg["run"]["capture_mode"] = args.capture_mode
     if args.no_video:
         cfg.setdefault("capture", {})
         cfg["capture"]["video"] = False
@@ -553,6 +567,7 @@ def _build_occupancy_waypoints(
     nav_dir: Path,
     camera_z: float,
     seed: int,
+    sample_poses_n: int | None = None,
 ) -> list[list[float]]:
     """Generate random free-space waypoints via a PhysX occupancy map.
 
@@ -682,6 +697,23 @@ def _build_occupancy_waypoints(
     omap.save_ros(str(nav_dir))
 
     freespace = omap_buffered.freespace_mask()
+
+    if sample_poses_n is not None:
+        # Random-frame mode: N INDEPENDENT camera poses in buffered freespace
+        # with uniform yaw — disconnected snapshots instead of a connected path.
+        sampler = UniformPoseSampler()
+        pts = []
+        for _ in range(int(sample_poses_n)):
+            p = sampler.sample(omap_buffered)
+            pts.append([float(p.x), float(p.y), camera_z, 90.0, 0.0,
+                        float(np.random.uniform(0.0, 360.0))])
+        (nav_dir / "sampled_poses.json").write_text(json.dumps({
+            "mode": "random_frames",
+            "poses_x_y_yawdeg": [[round(q[0], 3), round(q[1], 3), round(q[5], 1)] for q in pts],
+        }, indent=2))
+        _omap.release_omap_interface(om_iface)
+        print(f"  Random poses: sampled {len(pts)} independent freespace poses")
+        return pts
 
     def _finalize(path_world, path_ij, start_pose, start_ij, end_ij, attempt, path_length, relaxed):
         waypoints = [[float(p[0]), float(p[1]), camera_z, 90.0, 0.0, 0.0] for p in path_world]
@@ -847,6 +879,15 @@ def run_stage4(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     cfg = load_cfg(config_path)
     apply_cli_overrides(cfg, args)
+
+    # Episode mode (--seeds): per-episode dirs live under --out_root; the legacy
+    # per-run data_dir is unused, so session-level artifacts (warmup events,
+    # resolved config) go to <out_root>/_session_<config-stem>/ instead of the
+    # config's relative default (which may not be writable from Isaac's CWD).
+    if getattr(args, "seeds", None) is not None and getattr(args, "out_root", None):
+        cfg.setdefault("run", {})["data_dir"] = str(
+            Path(args.out_root).resolve() / f"_session_{Path(args.config).stem}"
+        )
 
     seed = int(cfg.get("simulation", {}).get("seed", 0))
     random.seed(seed)
@@ -1346,7 +1387,10 @@ def run_stage4(args: argparse.Namespace) -> None:
             )
         return rep_normal(tuple(obj_cfg["position_mean"]), tuple(obj_cfg["position_std"]))
 
-    with rep.trigger.on_frame(num_frames=1):
+    # Re-fireable via custom event so episode mode can re-roll the scene per
+    # seed without restarting Isaac. The warmup below fires it once, matching
+    # the old on_frame(num_frames=1) one-shot semantics for single-seed runs.
+    with rep.trigger.on_custom_event(event_name="randomize_scene"):
         if pj_group is not None:
             with pj_group:
                 rep.modify.pose(
@@ -1723,581 +1767,725 @@ def run_stage4(args: argparse.Namespace) -> None:
 
     rp_ego = rep.create.render_product(camera_prim_path, (width, height))
 
-    # Warmup: fires the on_frame(num_frames=1) trigger before writer is attached
+    # Warmup: fire the randomize_scene trigger before writer is attached
     # so the scene settles (objects placed, textures loaded) before capture.
     rep.orchestrator.preview()
+    simulation_app.update()
+    rep.utils.send_og_event(event_name="randomize_scene")
     simulation_app.update()
     rep.orchestrator.step(rt_subframes=4, delta_time=0.0, pause_timeline=True)
     simulation_app.update()
     simulation_app.update()
 
-    ego_root = paths["ego"]
-    if bool(capture_cfg.get("rgb", True)):
-        w = rep.WriterRegistry.get("BasicWriter")
-        w.initialize(output_dir=str(ego_root / "rgb"), rgb=True)
-        w.attach(rp_ego)
-    if bool(capture_cfg.get("bounding_box_2d_tight", False)):
-        w = rep.WriterRegistry.get("BasicWriter")
-        w.initialize(output_dir=str(ego_root / "bounding_box_2d_tight"), bounding_box_2d_tight=True)
-        w.attach(rp_ego)
-    if bool(capture_cfg.get("semantic_segmentation", False)):
-        w = rep.WriterRegistry.get("BasicWriter")
-        w.initialize(output_dir=str(ego_root / "semantic_segmentation"), semantic_segmentation=True)
-        w.attach(rp_ego)
-    if bool(capture_cfg.get("depth", False)):
-        w = rep.WriterRegistry.get("BasicWriter")
-        w.initialize(output_dir=str(ego_root / "depth"), distance_to_camera=True)
-        w.attach(rp_ego)
+    # ── Episode plan: one Isaac session, many (seed → scene → capture) episodes ──
+    # --seeds "s1 s2 ..." renders every seed in THIS process: per episode the
+    # randomize_scene graph re-rolls the scene, the occupancy map + path are
+    # rebuilt, and writers point at <out_root>/<config-stem>_seed<S>/ — the
+    # same dir layout the one-process-per-seed wrapper produced. Legacy
+    # single-seed invocations run exactly one episode into --data_dir.
+    seeds_mode = getattr(args, "seeds", None) is not None
+    capture_mode = str(cfg.get("run", {}).get("capture_mode", "trajectory")).lower()
+    if seeds_mode:
+        ep_seed_list = [int(t) for t in str(args.seeds).split()]
+        if not ep_seed_list:
+            raise ValueError("--seeds given but empty")
+        if getattr(args, "out_root", None) is None:
+            raise ValueError("--seeds episode mode requires --out_root")
+        ep_out_root = Path(args.out_root).resolve()
+        cfg_stem = Path(args.config).stem
+        if agent_type != "camera_rig":
+            raise ValueError("--seeds episode mode supports agent.type=camera_rig only")
+        if bool(capture_cfg.get("video", False)):
+            raise ValueError("--seeds episode mode does not support capture.video")
+    else:
+        ep_seed_list = [seed]
+    if capture_mode == "random" and traj_mode != "occupancy_path":
+        raise ValueError("capture_mode=random requires trajectory.mode=occupancy_path")
 
-    # ── CosmosWriter (optional video) ─────────────────────────────────────────
-    # Runs alongside BasicWriter on the same render product. One trajectory =
-    # one clip. Produces clip_0000/{rgb,depth,segmentation,shaded_seg,edges}.mp4
-    # under video/ after on_final_frame() is called.
-    cosmos_writer = None
-    if bool(capture_cfg.get("video", False)):
-        video_dir = output_dir / "video"
-        video_dir.mkdir(parents=True, exist_ok=True)
-        cosmos_writer = rep.WriterRegistry.get("CosmosWriter")
-        cosmos_writer.initialize(output_dir=str(video_dir), use_instance_id=True)
-        cosmos_writer.attach(rp_ego)
-        print(f"CosmosWriter attached: video → {video_dir}")
+    # waypoint_list-mode poses were precomputed above; episodes restore them.
+    _wl_waypoints, _wl_poses = waypoints, poses
 
-    rp_chase = None
-    if chase_enabled:
-        chase_res = chase_cfg.get("resolution", [width, height])
-        rp_chase = rep.create.render_product(
-            chase_camera_prim_path, (int(chase_res[0]), int(chase_res[1]))
-        )
-        chase_writer = rep.WriterRegistry.get("BasicWriter")
-        chase_writer.initialize(output_dir=str(paths["chase"]), rgb=True)
-        chase_writer.attach(rp_chase)
+    def _run_episode(
+        try_seed: int, label_seed: int, ep_dir: Path, ep_paths: dict, ep_events: Path
+    ) -> int:
+        """One dataset episode (seed → scene re-roll → plan → capture → manifest)."""
+        waypoints, poses = _wl_waypoints, _wl_poses
+        random.seed(try_seed)
+        if hasattr(rep, "set_global_seed"):
+            rep.set_global_seed(try_seed)
 
-    append_event(events_path, "stage5_capture_start", {
-        "num_frames": num_frames,
-        "modalities": {
-            "rgb": bool(capture_cfg.get("rgb", True)),
-            "bounding_box_2d_tight": bool(capture_cfg.get("bounding_box_2d_tight", False)),
-            "semantic_segmentation": bool(capture_cfg.get("semantic_segmentation", False)),
-            "depth": bool(capture_cfg.get("depth", False)),
-            "video": bool(capture_cfg.get("video", False)),
-        },
-        "chase_enabled": chase_enabled,
-    })
-
-    poses_path = paths["trajectory"] / "poses.jsonl"
-    poses_path.write_text("")
-
-    # ── Distractor props dynamic (cones, barrels, trash) ─────────────────────
-    # Path planner can't see things below z=1.6m (cones ~0.7m, barrels ~0.9m),
-    # so Carter may run into them. Authored defaults for these USDs are
-    # visual-only (no rigid body), which would make Carter stop dead. Give
-    # them a light rigid body with gravity ON so they sit on the floor as
-    # placed, but get shoved aside when the heavier robot bumps into them.
-    # Actor classes (palletjack, forklift, pallet) keep their authored physics.
-    if agent_type == "carter":
-        from pxr import UsdPhysics
-        actor_classes = {"palletjack", "forklift", "pallet"}
-        distractor_count = 0
-        for prim in stage.Traverse():
-            path_str = str(prim.GetPath())
-            if not path_str.startswith("/Replicator"):
-                continue
-            if not prim.HasAuthoredReferences():
-                continue
-            is_actor = False
-            for prop in prim.GetProperties():
-                if not Semantics.SemanticsAPI.IsSemanticsAPIPath(prop.GetPath()):
-                    continue
-                inst = prop.SplitName()[1]
-                sem = Semantics.SemanticsAPI.Get(prim, inst)
-                if sem.GetSemanticDataAttr().Get() in actor_classes:
-                    is_actor = True
-                    break
-            if is_actor:
-                continue
-            if prim.HasAPI(UsdPhysics.RigidBodyAPI):
-                continue  # respect authored physics
-            rb = UsdPhysics.RigidBodyAPI.Apply(prim)
-            rb.CreateRigidBodyEnabledAttr(True, False)
-            mass = UsdPhysics.MassAPI.Apply(prim)
-            mass.CreateMassAttr(0.3)  # light enough that Carter shoves it
-            distractor_count += 1
-        print(f"Distractors made dynamic: {distractor_count} (mass=0.3kg)")
-
-    # CosmosWriter requires the timeline to be playing and pause_timeline=False.
-    # The ghost camera is driven by explicit USD ops, so physics running is harmless.
-    timeline = omni.timeline.get_timeline_interface()
-    if not timeline.is_playing():
-        timeline.play()
-    # Let BehaviorScripts activate (on_play fires on timeline.play) so their
-    # command lists are populated before we start capturing frames.
-    if spawned_characters and movement_enabled:
-        for _ in range(10):
-            simulation_app.update()
-
-    # ── Occupancy path (computed here so the settled scene is in collision) ──
-    if traj_mode == "occupancy_path":
-        nav_dir = output_dir / "nav"
-        waypoints = _build_occupancy_waypoints(cfg, simulation_app, nav_dir, camera_z, seed)
-        # DEBUG sanity knob: rigidly translate the planned path in world XY before
-        # rendering (occupancy map/overlay are unshifted). Used to test whether the
-        # nav map is offset from the rendered warehouse geometry — if shifting the
-        # camera moves it from "outside the building" to a proper interior view,
-        # the map<->world frames are misaligned. Set env DEBUG_WAYPOINT_SHIFT="dx,dy".
-        _dbg_shift = os.environ.get("DEBUG_WAYPOINT_SHIFT")
-        if _dbg_shift:
-            _sx, _sy = (float(v) for v in _dbg_shift.split(","))
-            for _wp in waypoints:
-                _wp[0] += _sx
-                _wp[1] += _sy
-            print(f"[DEBUG] shifted {len(waypoints)} waypoints by ({_sx:+.1f},{_sy:+.1f}) m")
-        # Spread frames along the path; ping-pong (forward+reverse) a short path so
-        # a small roam box / relaxed path fills the frame budget with new views
-        # instead of near-duplicate frames, rotating smoothly in place at each
-        # turnaround (no 180° heading snap). Reassign waypoints to the effective
-        # (reflected) route so per-frame heading stays aligned.
-        poses, waypoints = _plan_traversal(waypoints, num_frames, traj_cfg)
-        append_event(events_path, "stage5_occupancy_path_sampled", {
-            "num_waypoints": len(waypoints),
-            "nav_dir": str(nav_dir),
-        })
-        # Belt-and-suspenders: clear any debug draw that may have been redrawn since
-        # _build_occupancy_waypoints() cleared it.  Must happen before first frame.
-        try:
-            from isaacsim.util.debug_draw import _debug_draw
-            _debug_draw.acquire_debug_draw_interface().clear_lines()
-            _debug_draw.acquire_debug_draw_interface().clear_points()
-        except Exception:
-            pass
-
-    # ── Physics-driven Carter setup ──────────────────────────────────────────
-    # Reset the parent Xform to identity so we can teleport Carter purely via
-    # the physics Articulation API. Then drive with wheel velocity targets —
-    # PhysX handles collisions naturally: walls stop the robot, light props
-    # get pushed, heavy authored assets resist.
-    carter_art = None
-    carter_left_idx = None
-    carter_right_idx = None
-    carter_target_idx = 1
-    carter_finished = False
-    if agent_type == "carter":
-        import numpy as np
-        from omni.isaac.core.articulations import Articulation
-        from omni.isaac.core.utils.types import ArticulationAction
-
-        # Park /World/Carter parent at identity; Articulation owns the pose now.
-        robot_translate_op.Set((0.0, 0.0, 0.0))
-        robot_rotate_op.Set((0.0, 0.0, 0.0))
-        for _ in range(3):
-            simulation_app.update()
-
-        art_path = f"{robot_prim_path}/{robot_body_subpath}"
-        carter_art = Articulation(prim_path=art_path, name="carter")
-        carter_art.initialize()
-
-        # Diagnose DOFs so we can pick the right wheel joints.
-        dof_names = list(carter_art.dof_names) if hasattr(carter_art, "dof_names") else []
-        print(f"Carter DOFs ({len(dof_names)}): {dof_names}")
-        carter_left_idx = carter_art.get_dof_index("joint_wheel_left")
-        carter_right_idx = carter_art.get_dof_index("joint_wheel_right")
-        print(f"Carter articulation initialized: wheel_left={carter_left_idx} wheel_right={carter_right_idx}")
-
-        # Teleport Carter to the first waypoint facing the next one.
-        wp0 = waypoints[0]
-        wp1 = waypoints[1]
-        init_yaw_rad = math.atan2(wp1[1] - wp0[1], wp1[0] - wp0[0])
-        half = init_yaw_rad / 2.0
-        init_orient = np.array([math.cos(half), 0.0, 0.0, math.sin(half)], dtype=np.float64)
-        carter_art.set_world_pose(
-            position=np.array([wp0[0], wp0[1], 0.05], dtype=np.float64),
-            orientation=init_orient,
-        )
-        carter_art.set_linear_velocity(np.array([0.0, 0.0, 0.0], dtype=np.float32))
-        carter_art.set_angular_velocity(np.array([0.0, 0.0, 0.0], dtype=np.float32))
-
-        # Control gains
-        carter_max_speed = float(agent_cfg.get("speed_mps", 1.0))
-        carter_max_omega = math.radians(float(agent_cfg.get("turn_rate_dps", 60.0)))
-        carter_wheel_radius = 0.14
-        carter_wheel_base = 0.413
-        carter_end_threshold_m = 0.5
-        # capture_dt set earlier (right after stage_tcps). Each captured frame
-        # advances ~capture_dt seconds of sim time.
-        print(
-            f"Carter physics-driven: max_speed={carter_max_speed:.2f} m/s "
-            f"max_omega={math.degrees(carter_max_omega):.0f} dps "
-            f"capture_dt={capture_dt:.2f}s"
-        )
-
-    for frame_index in range(num_frames):
-        x_path, y_path, z_path, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
-        seg = int(seg_idx)
-        dx_seg = waypoints[seg + 1][0] - waypoints[seg][0]
-        dy_seg = waypoints[seg + 1][1] - waypoints[seg][1]
-        heading_yaw_cam = math.degrees(math.atan2(-dx_seg, dy_seg))
-        yaw = heading_yaw_cam + yaw_rel
-
-        if agent_type == "carter":
-            # Read Carter's actual world pose
-            pos_arr, orient_arr = carter_art.get_world_pose()
-            cx = float(pos_arr[0])
-            cy = float(pos_arr[1])
-            cz = float(pos_arr[2])
-            wq, xq, yq, zq = (
-                float(orient_arr[0]),
-                float(orient_arr[1]),
-                float(orient_arr[2]),
-                float(orient_arr[3]),
-            )
-            cyaw = math.atan2(2.0 * (wq * zq + xq * yq), 1.0 - 2.0 * (yq * yq + zq * zq))
-
-            # Advance target waypoint when close enough to the current one.
-            while carter_target_idx < len(waypoints):
-                tx, ty = waypoints[carter_target_idx][0], waypoints[carter_target_idx][1]
-                if math.hypot(tx - cx, ty - cy) > carter_end_threshold_m:
-                    break
-                carter_target_idx += 1
-
-            # Pure-pursuit-lite: head toward current target, turn in place
-            # when off-heading, full speed when roughly aligned.
-            if carter_target_idx >= len(waypoints):
-                v_lin = 0.0
-                v_ang = 0.0
-                carter_finished = True
-            else:
-                tx, ty = waypoints[carter_target_idx][0], waypoints[carter_target_idx][1]
-                target_heading = math.atan2(ty - cy, tx - cx)
-                heading_err = (target_heading - cyaw + math.pi) % (2.0 * math.pi) - math.pi
-                if abs(heading_err) > math.radians(45):
-                    v_lin = 0.0
-                else:
-                    v_lin = carter_max_speed
-                v_ang = max(-carter_max_omega, min(carter_max_omega, 2.0 * heading_err))
-
-            # Differential drive → wheel angular velocities (rad/s)
-            v_left = (v_lin - v_ang * carter_wheel_base / 2.0) / carter_wheel_radius
-            v_right = (v_lin + v_ang * carter_wheel_base / 2.0) / carter_wheel_radius
-            carter_art.apply_action(
-                ArticulationAction(
-                    joint_velocities=np.array([v_left, v_right], dtype=np.float32),
-                    joint_indices=np.array([carter_left_idx, carter_right_idx]),
-                )
-            )
-
-            # Carter's actual pose drives logging and chase camera.
-            x, y, z = cx, cy, cz
-            robot_yaw = math.degrees(cyaw)
-            heading_yaw_cam = robot_yaw - 90.0  # camera convention for chase
-        else:
-            # Ghost camera: write pose as two time samples per frame —
-            # shutterOpen (t = frame_index) and shutterClose (t = frame_index +
-            # shutter_close_fraction). The renderer integrates between them
-            # to produce motion blur from the camera sweep. Both samples
-            # carry their own jitter computed from sim-time so frequency
-            # stays consistent regardless of capture_dt.
-
-            def _ghost_pose_at(frac_idx: float):
-                # Linear interpolation along the precomputed waypoint poses.
-                # Falls back to endpoints outside [0, num_frames-1].
-                if frac_idx <= 0.0:
-                    return poses[0]
-                if frac_idx >= num_frames - 1:
-                    return poses[num_frames - 1]
-                i0 = int(frac_idx)
-                a = frac_idx - i0
-                p0 = poses[i0]
-                p1 = poses[i0 + 1]
-                return tuple(p0[k] + a * (p1[k] - p0[k]) for k in range(len(p0)))
-
-            def _ghost_rot_with_jitter(roll_in: float, pitch_in: float, t_sec: float):
-                pj = pitch_jit_amp * math.sin(2.0 * math.pi * pitch_jit_hz * t_sec + pitch_jit_phase)
-                rj = roll_jit_amp * math.sin(2.0 * math.pi * roll_jit_hz * t_sec + roll_jit_phase)
-                # Pose index-3 ("roll_in") carries the base 90° X-rotation that tilts the
-                # camera from looking-down to looking-horizontal, so the X-rotation channel
-                # is the one that physically pitches the view up/down — the camera PITCH
-                # knob + pitch-jitter belong there (negative = look down, matching the
-                # chase cam's (90 + tilt_down, 0, yaw) and configs like exp12 pitch=-18).
-                # Index-4 ("pitch_in", base 0) feeds the Y-rotation channel, which banks/
-                # ROLLs the image. Previously pitch_deg was fed to Y and rendered as roll
-                # (exp12 "steep downward" showed a horizontal tilt) — see IMAGE_REVIEW #5.
-                x_rot = roll_in + ego_pitch_static + pj    # base horizontal + look up/down
-                y_rot = pitch_in + ego_roll_static + rj    # bank / roll
-                return (x_rot, y_rot)
-
-            def _ghost_pos_with_jitter(x_in: float, y_in: float, z_in: float, t_sec: float):
-                # Lateral jitter is perpendicular to the camera's heading
-                # direction so a leftward "sway" stays leftward regardless
-                # of which way the camera is travelling.
-                lat = lat_jit_amp * math.sin(2.0 * math.pi * lat_jit_hz * t_sec + lat_jit_phase)
-                vert = vert_jit_amp * math.sin(2.0 * math.pi * vert_jit_hz * t_sec + vert_jit_phase)
-                heading_rad = math.atan2(dy_seg, dx_seg)
-                # Perpendicular to heading (left = +90°)
-                left_x = -math.sin(heading_rad)
-                left_y = math.cos(heading_rad)
-                return (x_in + lat * left_x, y_in + lat * left_y, z_in + vert)
-
-            frame_dt = capture_dt if capture_dt > 0 else physics_dt
-            t_open_idx = float(frame_index)
-            t_close_idx = float(frame_index) + (
-                shutter_close_fraction if motion_blur_enabled else 0.0
-            )
-            t_open_sec = t_open_idx * frame_dt
-            t_close_sec = t_close_idx * frame_dt
-            # Time codes (used as USD time-sample keys) — must match the
-            # renderer's currentTime = sim_time_seconds * stage_tcps.
-            t_open_tc = t_open_sec * stage_tcps
-            t_close_tc = t_close_sec * stage_tcps
-
-            xo, yo, zo, ro, po_, yro, _ = _ghost_pose_at(t_open_idx)
-            xc, yc, zc, rc, pc, yrc, _ = _ghost_pose_at(t_close_idx)
-
-            def _yaw_jit(t_sec: float) -> float:
-                return yaw_jit_amp * math.sin(2.0 * math.pi * yaw_jit_hz * t_sec + yaw_jit_phase)
-
-            yawo = heading_yaw_cam + yro + _yaw_jit(t_open_sec)
-            yawc = heading_yaw_cam + yrc + _yaw_jit(t_close_sec)
-            ro_t, po_t = _ghost_rot_with_jitter(ro, po_, t_open_sec)
-            rc_t, pc_t = _ghost_rot_with_jitter(rc, pc, t_close_sec)
-            xo, yo, zo = _ghost_pos_with_jitter(xo, yo, zo, t_open_sec)
-            xc, yc, zc = _ghost_pos_with_jitter(xc, yc, zc, t_close_sec)
-
-            if motion_blur_enabled:
-                translate_op.Set((xo, yo, zo), time=Usd.TimeCode(t_open_tc))
-                translate_op.Set((xc, yc, zc), time=Usd.TimeCode(t_close_tc))
-                rotate_op.Set((ro_t, po_t, yawo), time=Usd.TimeCode(t_open_tc))
-                rotate_op.Set((rc_t, pc_t, yawc), time=Usd.TimeCode(t_close_tc))
-            else:
-                translate_op.Set((xo, yo, zo))
-                rotate_op.Set((ro_t, po_t, yawo))
-
-            # Logged "current" pose is the shutter-open sample.
-            roll = ro_t
-            pitch = po_t
-            yaw = yawo
-            x, y, z = xo, yo, zo
-
-        if chase_enabled and chase_translate_op is not None:
-            if agent_type == "carter":
-                chx = x - math.cos(cyaw) * chase_dist_m
-                chy = y - math.sin(cyaw) * chase_dist_m
-                chz = chase_height_m
-            else:
-                seg_len = math.sqrt(dx_seg * dx_seg + dy_seg * dy_seg)
-                ux, uy = (dx_seg / seg_len, dy_seg / seg_len) if seg_len > 1e-9 else (0.0, 1.0)
-                chx = x - ux * chase_dist_m
-                chy = y - uy * chase_dist_m
-                chz = z + chase_height_m
-            chase_translate_op.Set((chx, chy, chz))
-            chase_rotate_op.Set((90.0 + tilt_down_deg, 0.0, heading_yaw_cam))
-
+        # Re-roll the scene: fire the randomize_scene trigger and settle. Writers
+        # from the previous episode are already detached, so nothing is captured.
+        rep.utils.send_og_event(event_name="randomize_scene")
         simulation_app.update()
-        # Advance time each capture step. Carter uses capture_dt for control
-        # integration; ghost uses the frame interval so the renderer sees
-        # timeline motion (needed to consume time-sampled xforms for blur).
-        step_dt = capture_dt
-        rep.orchestrator.step(rt_subframes=4, delta_time=step_dt, pause_timeline=False)
+        rep.orchestrator.step(rt_subframes=4, delta_time=0.0, pause_timeline=True)
+        simulation_app.update()
+        simulation_app.update()
 
-        pose_record = {
-            "agent_type": agent_type,
-            "camera_prim": camera_prim_path,
-            "camera_pos": [x, y, z],
-            "camera_rot_euler_deg": [roll, pitch, yaw],
-            "heading_yaw_deg": round(heading_yaw_cam, 4),
-            "relative_yaw_deg": round(yaw_rel, 4),
-            "fov_deg": round(fov_deg, 3),
-            "frame": frame_index,
-            "sim_time": round(frame_index * (capture_dt if agent_type == "carter" else physics_dt), 6),
-            "waypoint_segment": seg,
-        }
-        if agent_type == "carter":
-            pose_record["agent_prim"] = robot_prim_path
-            pose_record["agent_pos"] = [x, y, z]
-            pose_record["agent_yaw_deg"] = round(robot_yaw, 4)
-            pose_record["target_idx"] = carter_target_idx
-            pose_record["finished"] = carter_finished
-        # Character world positions — for Stage 7b-2 movement validation.
-        # Query via ag.get_character() world transform (the source of truth
-        # the anim graph writes; USD xformOp is untouched by the anim system).
-        if spawned_characters:
-            char_pos = []
-            try:
-                import omni.anim.graph.core as _ag
-                import carb as _carb
-                for entry in spawned_characters:
-                    skel_root_path = None
-                    cprim = stage.GetPrimAtPath(entry["prim"])
-                    for _p in Usd.PrimRange(cprim):
-                        if _p.GetTypeName() == "SkelRoot":
-                            skel_root_path = str(_p.GetPrimPath())
-                            break
-                    if skel_root_path is None:
-                        continue
-                    ch = _ag.get_character(skel_root_path)
-                    if ch is None:
-                        continue
-                    pos = _carb.Float3(0, 0, 0)
-                    rot = _carb.Float4(0, 0, 0, 0)
-                    ch.get_world_transform(pos, rot)
-                    char_pos.append({
-                        "name": entry["prim"].rsplit("/", 1)[-1],
-                        "pos": [round(float(pos.x), 3), round(float(pos.y), 3), round(float(pos.z), 3)],
-                    })
-            except Exception:
-                pass
-            pose_record["characters"] = char_pos
-        with poses_path.open("a") as f:
-            f.write(json.dumps(pose_record) + "\n")
-
-        if frame_index % 10 == 0:
-            print(f"Frame {frame_index + 1}/{num_frames}")
-
-    rep.orchestrator.wait_until_complete()
-
-    # Finalise CosmosWriter: stitches per-frame PNGs into MP4s for each modality.
-    video_files: list[str] = []
-    if cosmos_writer is not None:
-        cosmos_writer.on_final_frame()
-        cosmos_writer.detach()
-        video_files = sorted(str(p.relative_to(output_dir)) for p in (output_dir / "video").rglob("*.mp4"))
-        print(f"Video files written: {video_files}")
-
-    image_count = len(list((paths["ego"] / "rgb").glob("*.png")))
-
-    # Motion-blur diagnostic: dump the camera's authored attrs + a couple of
-    # time samples to a file so we can verify the renderer was given what
-    # we think we were giving it.
-    if agent_type == "camera_rig":
-        try:
-            diag_path = output_dir / "trajectory" / "blur_diag.txt"
-            cam = UsdGeom.Camera(stage.GetPrimAtPath(camera_prim_path))
-            t_attr = cam.GetPrim().GetAttribute("xformOp:translate")
-            samples = t_attr.GetTimeSamples() if t_attr.HasAuthoredValue() else []
-            with diag_path.open("w") as f:
-                f.write(f"camera_prim: {camera_prim_path}\n")
-                f.write(f"shutter_open: {cam.GetShutterOpenAttr().Get()}\n")
-                f.write(f"shutter_close: {cam.GetShutterCloseAttr().Get()}\n")
-                f.write(f"projection: {cam.GetProjectionAttr().Get()}\n")
-                f.write(f"focal_length: {cam.GetFocalLengthAttr().Get()}\n")
-                f.write(f"fstop: {cam.GetFStopAttr().Get()}\n")
-                f.write(f"focus_distance: {cam.GetFocusDistanceAttr().Get()}\n")
-                f.write(f"stage_tcps: {stage_tcps}\n")
-                f.write(f"translate time samples ({len(samples)}):\n")
-                for s in samples[:8]:
-                    f.write(f"  tc={s} val={t_attr.Get(s)}\n")
-                if len(samples) > 8:
-                    f.write(f"  ...({len(samples)-8} more)\n")
-        except Exception as exc:
-            print(f"blur_diag write failed: {exc}")
-
-    # ── Fisheye post-render ──────────────────────────────────────────────────
-    # USD has no spherical projection, so we render perspective and remap to
-    # fisheye via OpenCV. Output sits next to the original perspective frames
-    # in Camera/rgb_fisheye/. Bbox labels for OD apply to the perspective
-    # frames; if the downstream task needs fisheye labels, they'd be projected
-    # through the same remap.
-    fisheye_cfg = ego_cam_cfg.get("fisheye") or {}
-    if fisheye_cfg.get("enabled", False) and image_count > 0:
-        import cv2
-        import numpy as np
-
-        rgb_dir = paths["ego"] / "rgb"
-        fish_dir = paths["ego"] / "rgb_fisheye"
-        fish_dir.mkdir(parents=True, exist_ok=True)
-
-        # Perspective camera intrinsics (pixels)
-        fx_p = focal_length * width / horizontal_aperture
-        fy_p = fx_p  # assume square pixels
-        cx_p = width / 2.0
-        cy_p = height / 2.0
-        K_persp = np.array([[fx_p, 0, cx_p], [0, fy_p, cy_p], [0, 0, 1]], dtype=np.float64)
-
-        # Fisheye output uses the same focal length and image size; only the
-        # distortion differs. Distortion coeffs in OpenCV fisheye order.
-        D = np.array([
-            float(fisheye_cfg.get("k1", 0.0)),
-            float(fisheye_cfg.get("k2", 0.0)),
-            float(fisheye_cfg.get("k3", 0.0)),
-            float(fisheye_cfg.get("k4", 0.0)),
-        ], dtype=np.float64)
-
-        # Build the remap once: for every output (fisheye) pixel, undistort
-        # to a 3D ray, then project that ray through the perspective camera.
-        gx, gy = np.meshgrid(np.arange(width), np.arange(height))
-        pts_fish = np.stack([gx, gy], axis=-1).reshape(-1, 1, 2).astype(np.float64)
-        pts_undist = cv2.fisheye.undistortPoints(pts_fish, K_persp, D)
-        x_norm = pts_undist[..., 0].reshape(-1)
-        y_norm = pts_undist[..., 1].reshape(-1)
-        u_persp = K_persp[0, 0] * x_norm + K_persp[0, 2]
-        v_persp = K_persp[1, 1] * y_norm + K_persp[1, 2]
-        map_x = u_persp.reshape(height, width).astype(np.float32)
-        map_y = v_persp.reshape(height, width).astype(np.float32)
-
-        rgb_files = sorted(rgb_dir.glob("*.png"))
-        for rgb_path in rgb_files:
-            img = cv2.imread(str(rgb_path))
-            if img is None:
-                continue
-            warped = cv2.remap(
-                img, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
-            )
-            cv2.imwrite(str(fish_dir / rgb_path.name), warped)
-        print(f"Fisheye post-render: wrote {len(rgb_files)} frames to {fish_dir}")
-
-    # ── Sensor-noise + image-augmentation post-render ─────────────────────────
-    # USD/RTX renders are clean; real deployment cameras have shot/read noise,
-    # JPEG compression, and exposure/colour drift. Reuse the pre-trajectory
-    # (mean_std) implementation in palletjack_sdg.utils.image_effects verbatim
-    # so noise semantics match the historical datasets exactly:
-    #   cameras.ego.dataset_noise.mode: no-noise|gaussian|shot|jpeg|
-    #                                    gaussian_jpeg|shot_jpeg
-    # Params sampled per-frame (each frame an independent sensor draw, as before
-    # — physically correct for shot/read noise). Applied in place to Camera/rgb;
-    # bounding boxes are pixel-position invariant so labels stay valid.
-    from palletjack_sdg.utils.image_effects import (
-        apply_post_write_effects_to_saved_rgb,
-        get_dataset_noise_cfg,
-        resolve_image_augmentation_cfg,
-    )
-
-    noise_cfg = get_dataset_noise_cfg(ego_cam_cfg)
-    aug_cfg = resolve_image_augmentation_cfg(
-        ego_cam_cfg.get("image_augmentation"), ego_cam_cfg
-    )
-    noise_active = str(noise_cfg.get("mode", "no-noise")) != "no-noise"
-    if (noise_active or aug_cfg.get("enabled", False)) and image_count > 0:
-        # Seed noise deterministically off the episode seed unless overridden,
-        # so seed42 / seed123 reruns differ but are each reproducible.
-        if not int(noise_cfg.get("seed", 0) or 0):
-            noise_cfg["seed"] = seed
-        apply_post_write_effects_to_saved_rgb(str(output_dir), noise_cfg, aug_cfg)
-        append_event(events_path, "stage5_dataset_noise_applied", {
-            "mode": noise_cfg.get("mode"),
-            "image_augmentation": bool(aug_cfg.get("enabled", False)),
-            "frames": image_count,
-        })
-
-    write_manifest(
-        output_dir=output_dir,
-        cfg=cfg,
-        config_path=config_path,
-        environment_url=environment_url,
-        stage_loaded=True,
-        image_count=image_count,
-        pose_count=num_frames,
-        episode_camera={
+        # Per-episode camera intrinsics + jitter phases (same sampling as launch).
+        if focal_length_override is not None:
+            focal_length = float(focal_length_override)
+            fov_deg = 2.0 * math.degrees(math.atan2(horizontal_aperture / 2.0, focal_length))
+        else:
+            fov_deg = random.gauss(fov_mean, fov_std) if fov_std > 0 else fov_mean
+            fov_deg = max(10.0, min(170.0, fov_deg))
+            focal_length = horizontal_aperture / (2.0 * math.tan(math.radians(fov_deg) / 2.0))
+        UsdGeom.Camera(stage.GetPrimAtPath(camera_prim_path)).GetFocalLengthAttr().Set(focal_length)
+        pitch_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+        roll_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+        yaw_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+        lat_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+        vert_jit_phase = random.uniform(0.0, 2.0 * math.pi)
+        append_event(ep_events, "stage5_camera_sampled", {
             "fov_deg": round(fov_deg, 3),
             "focal_length_mm": round(focal_length, 4),
             "resolution": [width, height],
-            "chase_enabled": chase_enabled,
-            "video_files": video_files,
-        },
-    )
-    append_event(
-        events_path,
-        "stage5_complete",
-        {"image_count": image_count, "num_frames": num_frames, "video_files": video_files},
-    )
+        })
+
+        ep_motion_blur = motion_blur_enabled and capture_mode != "random"
+        _ep_writers: list = []
+        try:
+            ego_root = ep_paths["ego"]
+            if bool(capture_cfg.get("rgb", True)):
+                w = rep.WriterRegistry.get("BasicWriter")
+                w.initialize(output_dir=str(ego_root / "rgb"), rgb=True)
+                w.attach(rp_ego)
+                _ep_writers.append(w)
+            if bool(capture_cfg.get("bounding_box_2d_tight", False)):
+                w = rep.WriterRegistry.get("BasicWriter")
+                w.initialize(output_dir=str(ego_root / "bounding_box_2d_tight"), bounding_box_2d_tight=True)
+                w.attach(rp_ego)
+                _ep_writers.append(w)
+            if bool(capture_cfg.get("semantic_segmentation", False)):
+                w = rep.WriterRegistry.get("BasicWriter")
+                w.initialize(output_dir=str(ego_root / "semantic_segmentation"), semantic_segmentation=True)
+                w.attach(rp_ego)
+                _ep_writers.append(w)
+            if bool(capture_cfg.get("depth", False)):
+                w = rep.WriterRegistry.get("BasicWriter")
+                w.initialize(output_dir=str(ego_root / "depth"), distance_to_camera=True)
+                w.attach(rp_ego)
+                _ep_writers.append(w)
+
+            # ── CosmosWriter (optional video) ─────────────────────────────────────────
+            # Runs alongside BasicWriter on the same render product. One trajectory =
+            # one clip. Produces clip_0000/{rgb,depth,segmentation,shaded_seg,edges}.mp4
+            # under video/ after on_final_frame() is called.
+            cosmos_writer = None
+            if bool(capture_cfg.get("video", False)):
+                video_dir = ep_dir / "video"
+                video_dir.mkdir(parents=True, exist_ok=True)
+                cosmos_writer = rep.WriterRegistry.get("CosmosWriter")
+                cosmos_writer.initialize(output_dir=str(video_dir), use_instance_id=True)
+                cosmos_writer.attach(rp_ego)
+                print(f"CosmosWriter attached: video → {video_dir}")
+
+            rp_chase = None
+            if chase_enabled:
+                chase_res = chase_cfg.get("resolution", [width, height])
+                rp_chase = rep.create.render_product(
+                    chase_camera_prim_path, (int(chase_res[0]), int(chase_res[1]))
+                )
+                chase_writer = rep.WriterRegistry.get("BasicWriter")
+                chase_writer.initialize(output_dir=str(ep_paths["chase"]), rgb=True)
+                chase_writer.attach(rp_chase)
+                _ep_writers.append(chase_writer)
+
+            append_event(ep_events, "stage5_capture_start", {
+                "num_frames": num_frames,
+                "modalities": {
+                    "rgb": bool(capture_cfg.get("rgb", True)),
+                    "bounding_box_2d_tight": bool(capture_cfg.get("bounding_box_2d_tight", False)),
+                    "semantic_segmentation": bool(capture_cfg.get("semantic_segmentation", False)),
+                    "depth": bool(capture_cfg.get("depth", False)),
+                    "video": bool(capture_cfg.get("video", False)),
+                },
+                "chase_enabled": chase_enabled,
+            })
+
+            poses_path = ep_paths["trajectory"] / "poses.jsonl"
+            poses_path.write_text("")
+
+            # ── Distractor props dynamic (cones, barrels, trash) ─────────────────────
+            # Path planner can't see things below z=1.6m (cones ~0.7m, barrels ~0.9m),
+            # so Carter may run into them. Authored defaults for these USDs are
+            # visual-only (no rigid body), which would make Carter stop dead. Give
+            # them a light rigid body with gravity ON so they sit on the floor as
+            # placed, but get shoved aside when the heavier robot bumps into them.
+            # Actor classes (palletjack, forklift, pallet) keep their authored physics.
+            if agent_type == "carter":
+                from pxr import UsdPhysics
+                actor_classes = {"palletjack", "forklift", "pallet"}
+                distractor_count = 0
+                for prim in stage.Traverse():
+                    path_str = str(prim.GetPath())
+                    if not path_str.startswith("/Replicator"):
+                        continue
+                    if not prim.HasAuthoredReferences():
+                        continue
+                    is_actor = False
+                    for prop in prim.GetProperties():
+                        if not Semantics.SemanticsAPI.IsSemanticsAPIPath(prop.GetPath()):
+                            continue
+                        inst = prop.SplitName()[1]
+                        sem = Semantics.SemanticsAPI.Get(prim, inst)
+                        if sem.GetSemanticDataAttr().Get() in actor_classes:
+                            is_actor = True
+                            break
+                    if is_actor:
+                        continue
+                    if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+                        continue  # respect authored physics
+                    rb = UsdPhysics.RigidBodyAPI.Apply(prim)
+                    rb.CreateRigidBodyEnabledAttr(True, False)
+                    mass = UsdPhysics.MassAPI.Apply(prim)
+                    mass.CreateMassAttr(0.3)  # light enough that Carter shoves it
+                    distractor_count += 1
+                print(f"Distractors made dynamic: {distractor_count} (mass=0.3kg)")
+
+            # CosmosWriter requires the timeline to be playing and pause_timeline=False.
+            # The ghost camera is driven by explicit USD ops, so physics running is harmless.
+            timeline = omni.timeline.get_timeline_interface()
+            if not timeline.is_playing():
+                timeline.play()
+            # Let BehaviorScripts activate (on_play fires on timeline.play) so their
+            # command lists are populated before we start capturing frames.
+            if spawned_characters and movement_enabled:
+                for _ in range(10):
+                    simulation_app.update()
+
+            # Motion-blur time samples must straddle the renderer's CURRENT timeline
+            # time, which keeps advancing across in-process episodes.
+            ep_t0_sec = float(timeline.get_current_time()) if seeds_mode else 0.0
+
+            # ── Occupancy path (computed here so the settled scene is in collision) ──
+            if traj_mode == "occupancy_path":
+                nav_dir = ep_dir / "nav"
+                if capture_mode == "random":
+                    # Random-frame mode: num_frames INDEPENDENT freespace poses (each
+                    # frame its own viewpoint); pseudo 2-pt waypoints give the capture
+                    # loop a zero heading so yaw_rel carries the absolute sampled yaw.
+                    _rand_pts = _build_occupancy_waypoints(
+                        cfg, simulation_app, nav_dir, camera_z, try_seed,
+                        sample_poses_n=num_frames,
+                    )
+                    waypoints = [[0.0, 0.0, camera_z, 90.0, 0.0, 0.0],
+                                 [0.0, 1.0, camera_z, 90.0, 0.0, 0.0]]
+                else:
+                    waypoints = _build_occupancy_waypoints(cfg, simulation_app, nav_dir, camera_z, try_seed)
+                # DEBUG sanity knob: rigidly translate the planned path in world XY before
+                # rendering (occupancy map/overlay are unshifted). Used to test whether the
+                # nav map is offset from the rendered warehouse geometry — if shifting the
+                # camera moves it from "outside the building" to a proper interior view,
+                # the map<->world frames are misaligned. Set env DEBUG_WAYPOINT_SHIFT="dx,dy".
+                _dbg_shift = os.environ.get("DEBUG_WAYPOINT_SHIFT")
+                if _dbg_shift:
+                    _sx, _sy = (float(v) for v in _dbg_shift.split(","))
+                    for _wp in waypoints:
+                        _wp[0] += _sx
+                        _wp[1] += _sy
+                    print(f"[DEBUG] shifted {len(waypoints)} waypoints by ({_sx:+.1f},{_sy:+.1f}) m")
+                # Spread frames along the path; ping-pong (forward+reverse) a short path so
+                # a small roam box / relaxed path fills the frame budget with new views
+                # instead of near-duplicate frames, rotating smoothly in place at each
+                # turnaround (no 180° heading snap). Reassign waypoints to the effective
+                # (reflected) route so per-frame heading stays aligned.
+                if capture_mode == "random":
+                    poses = [(q[0], q[1], q[2], 90.0, 0.0, q[5], 0) for q in _rand_pts]
+                else:
+                    poses, waypoints = _plan_traversal(waypoints, num_frames, traj_cfg)
+                append_event(ep_events, "stage5_occupancy_path_sampled", {
+                    "num_waypoints": len(waypoints),
+                    "nav_dir": str(nav_dir),
+                })
+                # Belt-and-suspenders: clear any debug draw that may have been redrawn since
+                # _build_occupancy_waypoints() cleared it.  Must happen before first frame.
+                try:
+                    from isaacsim.util.debug_draw import _debug_draw
+                    _debug_draw.acquire_debug_draw_interface().clear_lines()
+                    _debug_draw.acquire_debug_draw_interface().clear_points()
+                except Exception:
+                    pass
+
+            # ── Physics-driven Carter setup ──────────────────────────────────────────
+            # Reset the parent Xform to identity so we can teleport Carter purely via
+            # the physics Articulation API. Then drive with wheel velocity targets —
+            # PhysX handles collisions naturally: walls stop the robot, light props
+            # get pushed, heavy authored assets resist.
+            carter_art = None
+            carter_left_idx = None
+            carter_right_idx = None
+            carter_target_idx = 1
+            carter_finished = False
+            if agent_type == "carter":
+                import numpy as np
+                from omni.isaac.core.articulations import Articulation
+                from omni.isaac.core.utils.types import ArticulationAction
+
+                # Park /World/Carter parent at identity; Articulation owns the pose now.
+                robot_translate_op.Set((0.0, 0.0, 0.0))
+                robot_rotate_op.Set((0.0, 0.0, 0.0))
+                for _ in range(3):
+                    simulation_app.update()
+
+                art_path = f"{robot_prim_path}/{robot_body_subpath}"
+                carter_art = Articulation(prim_path=art_path, name="carter")
+                carter_art.initialize()
+
+                # Diagnose DOFs so we can pick the right wheel joints.
+                dof_names = list(carter_art.dof_names) if hasattr(carter_art, "dof_names") else []
+                print(f"Carter DOFs ({len(dof_names)}): {dof_names}")
+                carter_left_idx = carter_art.get_dof_index("joint_wheel_left")
+                carter_right_idx = carter_art.get_dof_index("joint_wheel_right")
+                print(f"Carter articulation initialized: wheel_left={carter_left_idx} wheel_right={carter_right_idx}")
+
+                # Teleport Carter to the first waypoint facing the next one.
+                wp0 = waypoints[0]
+                wp1 = waypoints[1]
+                init_yaw_rad = math.atan2(wp1[1] - wp0[1], wp1[0] - wp0[0])
+                half = init_yaw_rad / 2.0
+                init_orient = np.array([math.cos(half), 0.0, 0.0, math.sin(half)], dtype=np.float64)
+                carter_art.set_world_pose(
+                    position=np.array([wp0[0], wp0[1], 0.05], dtype=np.float64),
+                    orientation=init_orient,
+                )
+                carter_art.set_linear_velocity(np.array([0.0, 0.0, 0.0], dtype=np.float32))
+                carter_art.set_angular_velocity(np.array([0.0, 0.0, 0.0], dtype=np.float32))
+
+                # Control gains
+                carter_max_speed = float(agent_cfg.get("speed_mps", 1.0))
+                carter_max_omega = math.radians(float(agent_cfg.get("turn_rate_dps", 60.0)))
+                carter_wheel_radius = 0.14
+                carter_wheel_base = 0.413
+                carter_end_threshold_m = 0.5
+                # capture_dt set earlier (right after stage_tcps). Each captured frame
+                # advances ~capture_dt seconds of sim time.
+                print(
+                    f"Carter physics-driven: max_speed={carter_max_speed:.2f} m/s "
+                    f"max_omega={math.degrees(carter_max_omega):.0f} dps "
+                    f"capture_dt={capture_dt:.2f}s"
+                )
+
+            for frame_index in range(num_frames):
+                x_path, y_path, z_path, roll, pitch, yaw_rel, seg_idx = poses[frame_index]
+                seg = int(seg_idx)
+                dx_seg = waypoints[seg + 1][0] - waypoints[seg][0]
+                dy_seg = waypoints[seg + 1][1] - waypoints[seg][1]
+                heading_yaw_cam = math.degrees(math.atan2(-dx_seg, dy_seg))
+                yaw = heading_yaw_cam + yaw_rel
+
+                if agent_type == "carter":
+                    # Read Carter's actual world pose
+                    pos_arr, orient_arr = carter_art.get_world_pose()
+                    cx = float(pos_arr[0])
+                    cy = float(pos_arr[1])
+                    cz = float(pos_arr[2])
+                    wq, xq, yq, zq = (
+                        float(orient_arr[0]),
+                        float(orient_arr[1]),
+                        float(orient_arr[2]),
+                        float(orient_arr[3]),
+                    )
+                    cyaw = math.atan2(2.0 * (wq * zq + xq * yq), 1.0 - 2.0 * (yq * yq + zq * zq))
+
+                    # Advance target waypoint when close enough to the current one.
+                    while carter_target_idx < len(waypoints):
+                        tx, ty = waypoints[carter_target_idx][0], waypoints[carter_target_idx][1]
+                        if math.hypot(tx - cx, ty - cy) > carter_end_threshold_m:
+                            break
+                        carter_target_idx += 1
+
+                    # Pure-pursuit-lite: head toward current target, turn in place
+                    # when off-heading, full speed when roughly aligned.
+                    if carter_target_idx >= len(waypoints):
+                        v_lin = 0.0
+                        v_ang = 0.0
+                        carter_finished = True
+                    else:
+                        tx, ty = waypoints[carter_target_idx][0], waypoints[carter_target_idx][1]
+                        target_heading = math.atan2(ty - cy, tx - cx)
+                        heading_err = (target_heading - cyaw + math.pi) % (2.0 * math.pi) - math.pi
+                        if abs(heading_err) > math.radians(45):
+                            v_lin = 0.0
+                        else:
+                            v_lin = carter_max_speed
+                        v_ang = max(-carter_max_omega, min(carter_max_omega, 2.0 * heading_err))
+
+                    # Differential drive → wheel angular velocities (rad/s)
+                    v_left = (v_lin - v_ang * carter_wheel_base / 2.0) / carter_wheel_radius
+                    v_right = (v_lin + v_ang * carter_wheel_base / 2.0) / carter_wheel_radius
+                    carter_art.apply_action(
+                        ArticulationAction(
+                            joint_velocities=np.array([v_left, v_right], dtype=np.float32),
+                            joint_indices=np.array([carter_left_idx, carter_right_idx]),
+                        )
+                    )
+
+                    # Carter's actual pose drives logging and chase camera.
+                    x, y, z = cx, cy, cz
+                    robot_yaw = math.degrees(cyaw)
+                    heading_yaw_cam = robot_yaw - 90.0  # camera convention for chase
+                else:
+                    # Ghost camera: write pose as two time samples per frame —
+                    # shutterOpen (t = frame_index) and shutterClose (t = frame_index +
+                    # shutter_close_fraction). The renderer integrates between them
+                    # to produce motion blur from the camera sweep. Both samples
+                    # carry their own jitter computed from sim-time so frequency
+                    # stays consistent regardless of capture_dt.
+
+                    def _ghost_pose_at(frac_idx: float):
+                        # Linear interpolation along the precomputed waypoint poses.
+                        # Falls back to endpoints outside [0, num_frames-1].
+                        if frac_idx <= 0.0:
+                            return poses[0]
+                        if frac_idx >= num_frames - 1:
+                            return poses[num_frames - 1]
+                        i0 = int(frac_idx)
+                        a = frac_idx - i0
+                        p0 = poses[i0]
+                        p1 = poses[i0 + 1]
+                        return tuple(p0[k] + a * (p1[k] - p0[k]) for k in range(len(p0)))
+
+                    def _ghost_rot_with_jitter(roll_in: float, pitch_in: float, t_sec: float):
+                        pj = pitch_jit_amp * math.sin(2.0 * math.pi * pitch_jit_hz * t_sec + pitch_jit_phase)
+                        rj = roll_jit_amp * math.sin(2.0 * math.pi * roll_jit_hz * t_sec + roll_jit_phase)
+                        # Pose index-3 ("roll_in") carries the base 90° X-rotation that tilts the
+                        # camera from looking-down to looking-horizontal, so the X-rotation channel
+                        # is the one that physically pitches the view up/down — the camera PITCH
+                        # knob + pitch-jitter belong there (negative = look down, matching the
+                        # chase cam's (90 + tilt_down, 0, yaw) and configs like exp12 pitch=-18).
+                        # Index-4 ("pitch_in", base 0) feeds the Y-rotation channel, which banks/
+                        # ROLLs the image. Previously pitch_deg was fed to Y and rendered as roll
+                        # (exp12 "steep downward" showed a horizontal tilt) — see IMAGE_REVIEW #5.
+                        x_rot = roll_in + ego_pitch_static + pj    # base horizontal + look up/down
+                        y_rot = pitch_in + ego_roll_static + rj    # bank / roll
+                        return (x_rot, y_rot)
+
+                    def _ghost_pos_with_jitter(x_in: float, y_in: float, z_in: float, t_sec: float):
+                        # Lateral jitter is perpendicular to the camera's heading
+                        # direction so a leftward "sway" stays leftward regardless
+                        # of which way the camera is travelling.
+                        lat = lat_jit_amp * math.sin(2.0 * math.pi * lat_jit_hz * t_sec + lat_jit_phase)
+                        vert = vert_jit_amp * math.sin(2.0 * math.pi * vert_jit_hz * t_sec + vert_jit_phase)
+                        heading_rad = math.atan2(dy_seg, dx_seg)
+                        # Perpendicular to heading (left = +90°)
+                        left_x = -math.sin(heading_rad)
+                        left_y = math.cos(heading_rad)
+                        return (x_in + lat * left_x, y_in + lat * left_y, z_in + vert)
+
+                    frame_dt = capture_dt if capture_dt > 0 else physics_dt
+                    t_open_idx = float(frame_index)
+                    t_close_idx = float(frame_index) + (
+                        shutter_close_fraction if ep_motion_blur else 0.0
+                    )
+                    t_open_sec = t_open_idx * frame_dt
+                    t_close_sec = t_close_idx * frame_dt
+                    # Time codes (used as USD time-sample keys) — must match the
+                    # renderer's currentTime = sim_time_seconds * stage_tcps.
+                    t_open_tc = (ep_t0_sec + t_open_sec) * stage_tcps
+                    t_close_tc = (ep_t0_sec + t_close_sec) * stage_tcps
+
+                    xo, yo, zo, ro, po_, yro, _ = _ghost_pose_at(t_open_idx)
+                    xc, yc, zc, rc, pc, yrc, _ = _ghost_pose_at(t_close_idx)
+
+                    def _yaw_jit(t_sec: float) -> float:
+                        return yaw_jit_amp * math.sin(2.0 * math.pi * yaw_jit_hz * t_sec + yaw_jit_phase)
+
+                    yawo = heading_yaw_cam + yro + _yaw_jit(t_open_sec)
+                    yawc = heading_yaw_cam + yrc + _yaw_jit(t_close_sec)
+                    ro_t, po_t = _ghost_rot_with_jitter(ro, po_, t_open_sec)
+                    rc_t, pc_t = _ghost_rot_with_jitter(rc, pc, t_close_sec)
+                    xo, yo, zo = _ghost_pos_with_jitter(xo, yo, zo, t_open_sec)
+                    xc, yc, zc = _ghost_pos_with_jitter(xc, yc, zc, t_close_sec)
+
+                    if ep_motion_blur:
+                        translate_op.Set((xo, yo, zo), time=Usd.TimeCode(t_open_tc))
+                        translate_op.Set((xc, yc, zc), time=Usd.TimeCode(t_close_tc))
+                        rotate_op.Set((ro_t, po_t, yawo), time=Usd.TimeCode(t_open_tc))
+                        rotate_op.Set((rc_t, pc_t, yawc), time=Usd.TimeCode(t_close_tc))
+                    else:
+                        translate_op.Set((xo, yo, zo))
+                        rotate_op.Set((ro_t, po_t, yawo))
+
+                    # Logged "current" pose is the shutter-open sample.
+                    roll = ro_t
+                    pitch = po_t
+                    yaw = yawo
+                    x, y, z = xo, yo, zo
+
+                if chase_enabled and chase_translate_op is not None:
+                    if agent_type == "carter":
+                        chx = x - math.cos(cyaw) * chase_dist_m
+                        chy = y - math.sin(cyaw) * chase_dist_m
+                        chz = chase_height_m
+                    else:
+                        seg_len = math.sqrt(dx_seg * dx_seg + dy_seg * dy_seg)
+                        ux, uy = (dx_seg / seg_len, dy_seg / seg_len) if seg_len > 1e-9 else (0.0, 1.0)
+                        chx = x - ux * chase_dist_m
+                        chy = y - uy * chase_dist_m
+                        chz = z + chase_height_m
+                    chase_translate_op.Set((chx, chy, chz))
+                    chase_rotate_op.Set((90.0 + tilt_down_deg, 0.0, heading_yaw_cam))
+
+                simulation_app.update()
+                # Advance time each capture step. Carter uses capture_dt for control
+                # integration; ghost uses the frame interval so the renderer sees
+                # timeline motion (needed to consume time-sampled xforms for blur).
+                step_dt = capture_dt
+                rep.orchestrator.step(rt_subframes=4, delta_time=step_dt, pause_timeline=False)
+
+                pose_record = {
+                    "agent_type": agent_type,
+                    "camera_prim": camera_prim_path,
+                    "camera_pos": [x, y, z],
+                    "camera_rot_euler_deg": [roll, pitch, yaw],
+                    "heading_yaw_deg": round(heading_yaw_cam, 4),
+                    "relative_yaw_deg": round(yaw_rel, 4),
+                    "fov_deg": round(fov_deg, 3),
+                    "frame": frame_index,
+                    "sim_time": round(frame_index * (capture_dt if agent_type == "carter" else physics_dt), 6),
+                    "waypoint_segment": seg,
+                }
+                if agent_type == "carter":
+                    pose_record["agent_prim"] = robot_prim_path
+                    pose_record["agent_pos"] = [x, y, z]
+                    pose_record["agent_yaw_deg"] = round(robot_yaw, 4)
+                    pose_record["target_idx"] = carter_target_idx
+                    pose_record["finished"] = carter_finished
+                # Character world positions — for Stage 7b-2 movement validation.
+                # Query via ag.get_character() world transform (the source of truth
+                # the anim graph writes; USD xformOp is untouched by the anim system).
+                if spawned_characters:
+                    char_pos = []
+                    try:
+                        import omni.anim.graph.core as _ag
+                        import carb as _carb
+                        for entry in spawned_characters:
+                            skel_root_path = None
+                            cprim = stage.GetPrimAtPath(entry["prim"])
+                            for _p in Usd.PrimRange(cprim):
+                                if _p.GetTypeName() == "SkelRoot":
+                                    skel_root_path = str(_p.GetPrimPath())
+                                    break
+                            if skel_root_path is None:
+                                continue
+                            ch = _ag.get_character(skel_root_path)
+                            if ch is None:
+                                continue
+                            pos = _carb.Float3(0, 0, 0)
+                            rot = _carb.Float4(0, 0, 0, 0)
+                            ch.get_world_transform(pos, rot)
+                            char_pos.append({
+                                "name": entry["prim"].rsplit("/", 1)[-1],
+                                "pos": [round(float(pos.x), 3), round(float(pos.y), 3), round(float(pos.z), 3)],
+                            })
+                    except Exception:
+                        pass
+                    pose_record["characters"] = char_pos
+                with poses_path.open("a") as f:
+                    f.write(json.dumps(pose_record) + "\n")
+
+                if frame_index % 10 == 0:
+                    print(f"Frame {frame_index + 1}/{num_frames}")
+
+            rep.orchestrator.wait_until_complete()
+
+            # Finalise CosmosWriter: stitches per-frame PNGs into MP4s for each modality.
+            video_files: list[str] = []
+            if cosmos_writer is not None:
+                cosmos_writer.on_final_frame()
+                cosmos_writer.detach()
+                video_files = sorted(str(p.relative_to(ep_dir)) for p in (ep_dir / "video").rglob("*.mp4"))
+                print(f"Video files written: {video_files}")
+
+            image_count = len(list((ep_paths["ego"] / "rgb").glob("*.png")))
+
+            # Motion-blur diagnostic: dump the camera's authored attrs + a couple of
+            # time samples to a file so we can verify the renderer was given what
+            # we think we were giving it.
+            if agent_type == "camera_rig":
+                try:
+                    diag_path = ep_dir / "trajectory" / "blur_diag.txt"
+                    cam = UsdGeom.Camera(stage.GetPrimAtPath(camera_prim_path))
+                    t_attr = cam.GetPrim().GetAttribute("xformOp:translate")
+                    samples = t_attr.GetTimeSamples() if t_attr.HasAuthoredValue() else []
+                    with diag_path.open("w") as f:
+                        f.write(f"camera_prim: {camera_prim_path}\n")
+                        f.write(f"shutter_open: {cam.GetShutterOpenAttr().Get()}\n")
+                        f.write(f"shutter_close: {cam.GetShutterCloseAttr().Get()}\n")
+                        f.write(f"projection: {cam.GetProjectionAttr().Get()}\n")
+                        f.write(f"focal_length: {cam.GetFocalLengthAttr().Get()}\n")
+                        f.write(f"fstop: {cam.GetFStopAttr().Get()}\n")
+                        f.write(f"focus_distance: {cam.GetFocusDistanceAttr().Get()}\n")
+                        f.write(f"stage_tcps: {stage_tcps}\n")
+                        f.write(f"translate time samples ({len(samples)}):\n")
+                        for s in samples[:8]:
+                            f.write(f"  tc={s} val={t_attr.Get(s)}\n")
+                        if len(samples) > 8:
+                            f.write(f"  ...({len(samples)-8} more)\n")
+                except Exception as exc:
+                    print(f"blur_diag write failed: {exc}")
+
+            # ── Fisheye post-render ──────────────────────────────────────────────────
+            # USD has no spherical projection, so we render perspective and remap to
+            # fisheye via OpenCV. Output sits next to the original perspective frames
+            # in Camera/rgb_fisheye/. Bbox labels for OD apply to the perspective
+            # frames; if the downstream task needs fisheye labels, they'd be projected
+            # through the same remap.
+            fisheye_cfg = ego_cam_cfg.get("fisheye") or {}
+            if fisheye_cfg.get("enabled", False) and image_count > 0:
+                import cv2
+                import numpy as np
+
+                rgb_dir = ep_paths["ego"] / "rgb"
+                fish_dir = ep_paths["ego"] / "rgb_fisheye"
+                fish_dir.mkdir(parents=True, exist_ok=True)
+
+                # Perspective camera intrinsics (pixels)
+                fx_p = focal_length * width / horizontal_aperture
+                fy_p = fx_p  # assume square pixels
+                cx_p = width / 2.0
+                cy_p = height / 2.0
+                K_persp = np.array([[fx_p, 0, cx_p], [0, fy_p, cy_p], [0, 0, 1]], dtype=np.float64)
+
+                # Fisheye output uses the same focal length and image size; only the
+                # distortion differs. Distortion coeffs in OpenCV fisheye order.
+                D = np.array([
+                    float(fisheye_cfg.get("k1", 0.0)),
+                    float(fisheye_cfg.get("k2", 0.0)),
+                    float(fisheye_cfg.get("k3", 0.0)),
+                    float(fisheye_cfg.get("k4", 0.0)),
+                ], dtype=np.float64)
+
+                # Build the remap once: for every output (fisheye) pixel, undistort
+                # to a 3D ray, then project that ray through the perspective camera.
+                gx, gy = np.meshgrid(np.arange(width), np.arange(height))
+                pts_fish = np.stack([gx, gy], axis=-1).reshape(-1, 1, 2).astype(np.float64)
+                pts_undist = cv2.fisheye.undistortPoints(pts_fish, K_persp, D)
+                x_norm = pts_undist[..., 0].reshape(-1)
+                y_norm = pts_undist[..., 1].reshape(-1)
+                u_persp = K_persp[0, 0] * x_norm + K_persp[0, 2]
+                v_persp = K_persp[1, 1] * y_norm + K_persp[1, 2]
+                map_x = u_persp.reshape(height, width).astype(np.float32)
+                map_y = v_persp.reshape(height, width).astype(np.float32)
+
+                rgb_files = sorted(rgb_dir.glob("*.png"))
+                for rgb_path in rgb_files:
+                    img = cv2.imread(str(rgb_path))
+                    if img is None:
+                        continue
+                    warped = cv2.remap(
+                        img, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
+                    )
+                    cv2.imwrite(str(fish_dir / rgb_path.name), warped)
+                print(f"Fisheye post-render: wrote {len(rgb_files)} frames to {fish_dir}")
+
+            # ── Sensor-noise + image-augmentation post-render ─────────────────────────
+            # USD/RTX renders are clean; real deployment cameras have shot/read noise,
+            # JPEG compression, and exposure/colour drift. Reuse the pre-trajectory
+            # (mean_std) implementation in palletjack_sdg.utils.image_effects verbatim
+            # so noise semantics match the historical datasets exactly:
+            #   cameras.ego.dataset_noise.mode: no-noise|gaussian|shot|jpeg|
+            #                                    gaussian_jpeg|shot_jpeg
+            # Params sampled per-frame (each frame an independent sensor draw, as before
+            # — physically correct for shot/read noise). Applied in place to Camera/rgb;
+            # bounding boxes are pixel-position invariant so labels stay valid.
+            from palletjack_sdg.utils.image_effects import (
+                apply_post_write_effects_to_saved_rgb,
+                get_dataset_noise_cfg,
+                resolve_image_augmentation_cfg,
+            )
+
+            noise_cfg = get_dataset_noise_cfg(ego_cam_cfg)
+            aug_cfg = resolve_image_augmentation_cfg(
+                ego_cam_cfg.get("image_augmentation"), ego_cam_cfg
+            )
+            noise_active = str(noise_cfg.get("mode", "no-noise")) != "no-noise"
+            if (noise_active or aug_cfg.get("enabled", False)) and image_count > 0:
+                # Seed noise deterministically off the episode seed unless overridden,
+                # so seed42 / seed123 reruns differ but are each reproducible.
+                if not int(noise_cfg.get("seed", 0) or 0):
+                    noise_cfg["seed"] = try_seed
+                apply_post_write_effects_to_saved_rgb(str(ep_dir), noise_cfg, aug_cfg)
+                append_event(ep_events, "stage5_dataset_noise_applied", {
+                    "mode": noise_cfg.get("mode"),
+                    "image_augmentation": bool(aug_cfg.get("enabled", False)),
+                    "frames": image_count,
+                })
+
+            write_manifest(
+                output_dir=ep_dir,
+                cfg=cfg,
+                config_path=config_path,
+                environment_url=environment_url,
+                stage_loaded=True,
+                image_count=image_count,
+                pose_count=num_frames,
+                episode_camera={
+                    "fov_deg": round(fov_deg, 3),
+                    "focal_length_mm": round(focal_length, 4),
+                    "resolution": [width, height],
+                    "chase_enabled": chase_enabled,
+                    "video_files": video_files,
+                },
+            )
+            append_event(
+                ep_events,
+                "stage5_complete",
+                {"image_count": image_count, "num_frames": num_frames, "video_files": video_files},
+            )
+            return image_count
+        finally:
+            for _w in _ep_writers:
+                try:
+                    _w.detach()
+                except Exception:
+                    pass
+
+    # ── Episode driver ────────────────────────────────────────────────────────
+    max_ep_retries = int(getattr(args, "max_seed_retries", 4) or 0) if seeds_mode else 0
+    ep_ok: list = []
+    ep_failed: list = []
+    for label_seed in ep_seed_list:
+        if seeds_mode:
+            ep_dir = ep_out_root / f"{cfg_stem}_seed{label_seed}"
+            ep_paths = prepare_output_tree(ep_dir, chase_enabled=chase_enabled)
+            ep_events = ep_paths["trajectory"] / "events.jsonl"
+            ep_events.write_text("")
+        else:
+            ep_dir, ep_paths, ep_events = output_dir, paths, events_path
+        last_exc = None
+        n_img = -1
+        for attempt in range(max_ep_retries + 1):
+            try_seed = label_seed + attempt * 1000
+            if attempt:
+                print(f"[episode seed {label_seed}] retry {attempt}/{max_ep_retries} "
+                      f"with seed {try_seed}", flush=True)
+            cfg.setdefault("simulation", {})["seed"] = try_seed
+            if seeds_mode:
+                write_run_config(ep_dir, cfg, config_path)
+            try:
+                n_img = _run_episode(try_seed, label_seed, ep_dir, ep_paths, ep_events)
+                break
+            except Exception as exc:
+                # Layout failures (no navigable freespace / no valid path) are a
+                # property of this random layout — resample with a fresh seed,
+                # keeping the original seed label for the output dir.
+                last_exc = exc
+                print(f"[episode seed {label_seed}] attempt {attempt + 1} failed: {exc}", flush=True)
+        if n_img >= 0:
+            ep_ok.append((label_seed, n_img))
+            print(f"[episode seed {label_seed}] OK ({n_img} images)", flush=True)
+        else:
+            ep_failed.append(label_seed)
+            if not seeds_mode:
+                raise last_exc if last_exc is not None else RuntimeError("episode failed")
+    if seeds_mode:
+        print(f"Episodes: {len(ep_ok)}/{len(ep_seed_list)} ok"
+              + (f", FAILED seeds: {ep_failed}" if ep_failed else ""), flush=True)
     simulation_app.close()
+    if ep_failed:
+        sys.exit(1)
 
 
 def main(argv: list[str] | None = None) -> None:

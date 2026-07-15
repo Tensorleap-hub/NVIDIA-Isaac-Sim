@@ -416,6 +416,22 @@ Optuna trials on dead knobs, or fill the disk.
     (DINO round: min pairwise MMD 0.19–0.46 across picks). Note these exports
     are rewritten by whichever theme-round ran last into the shared
     `promoted_baseline_dir` — check the `project_name` header for provenance.
+- **TODO — switch Optuna trial rendering to SDG episode/random mode.** Landed
+  2026-07-15 in `standalone_palletjack_trajectory_sdg.py` (uncommitted at time
+  of writing, see `trajectory_plan.md` Stage 11): `--seeds "s1 s2 …"
+  --out_root X` renders all seeds of a config in ONE Isaac session
+  (re-fireable scene randomization, per-episode omap + writers, in-process
+  `seed+k*1000` retries), and `--capture_mode random --num_frames 1` makes
+  every image an independent scene re-roll + freespace pose. Measured ~7–11
+  s/image vs ~65–120 s/image for the current one-process-per-run flow the
+  loop's `isaac_runner` uses — roughly a 10× cut in per-trial render cost,
+  i.e. more trials (or more frames per trial) per wall-clock budget. To adopt:
+  point the loop's render step at episode mode (one invocation per trial
+  config instead of per seed), decide trajectory vs random capture per
+  objective (random = decorrelated stills, matches the OD objective; keep
+  trajectory mode for Cosmos-clip trials), and re-baseline the objective
+  before comparing scores across the switch (frame statistics change:
+  1 layout per image vs 5 frames per layout).
 
 ## Readiness Snapshot
 
