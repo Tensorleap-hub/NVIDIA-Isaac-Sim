@@ -18,7 +18,7 @@ NUM_FRAMES="${NUM_FRAMES:-1}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SCRIPT="$SCRIPT_DIR/standalone_palletjack_trajectory_sdg.py"
-EXP_DIR="$SCRIPT_DIR/experiments/trajectory/base_v4"
+EXP_DIR="${EXP_DIR:-$SCRIPT_DIR/experiments/trajectory/base_v4}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 OUT_ROOT="${OUT_ROOT:-$SCRIPT_DIR/palletjack_data/trajectory/train_v4_128rand_$STAMP}"
 
