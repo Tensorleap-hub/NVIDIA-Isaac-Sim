@@ -246,6 +246,12 @@ def _apply_common_overrides(raw: dict, common: dict) -> None:
         existing = raw.get("rfdetr_embedder") or {}
         existing.update(common["rfdetr_embedder"])
         raw["rfdetr_embedder"] = existing
+    if "isaac" in common:
+        # Shallow-merge isaac knobs (e.g. episode_mode/capture_mode) so a
+        # rounds file can switch the render pipeline for every theme at once.
+        existing = raw.get("isaac") or {}
+        existing.update(common["isaac"])
+        raw["isaac"] = existing
     if "sample_number" in common:
         isaac_cfg = raw.setdefault("isaac", {})
         isaac_cfg["num_frames_override"] = int(common["sample_number"])
