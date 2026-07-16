@@ -644,6 +644,47 @@ class SimulationCalibrationController:
                 if image_paths:
                     reused_seed_runs += 1
 
+            if not image_paths and self.config.isaac.episode_mode:
+                # Episode mode: ONE Isaac session renders every eval seed (the
+                # SDG re-rolls the scene per seed in-process and does its own
+                # seed+k*1000 layout retries; capture_mode=random makes every
+                # frame an independent freespace pose). Per-seed dirs are named
+                # <yaml-stem>_seed<S> by the SDG. A nonzero exit only means SOME
+                # episodes exhausted retries — keep whatever rendered and fail
+                # the trial only if nothing did, so one impossible layout can't
+                # kill a multi-hour optimization.
+                try:
+                    run_isaac_generation(
+                        isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
+                        script_path=Path(self.config.isaac.script_path),
+                        yaml_path=yaml_path,
+                        output_dir=output_dir,
+                        log_path=output_dir / "isaac.log",
+                        headless=self.config.isaac.headless,
+                        num_frames_override=self.config.isaac.num_frames_override,
+                        seeds=eval_seeds,
+                        capture_mode=self.config.isaac.capture_mode,
+                        log_callback=self.ui.append_log,
+                    )
+                except RuntimeError as exc:
+                    self.ui.append_log(f"[isaac-episode] {run_id}: nonzero exit ({exc}); keeping completed episodes")
+                missing_seeds: list[int] = []
+                for seed in eval_seeds:
+                    seed_rgb_dir = output_dir / f"{yaml_path.stem}_seed{seed}" / "Camera" / "rgb"
+                    seed_images = discover_generated_images(seed_rgb_dir)
+                    if seed_images:
+                        image_paths.extend(seed_images)
+                    else:
+                        missing_seeds.append(seed)
+                if missing_seeds:
+                    self.ui.append_log(
+                        f"[isaac-episode] {run_id}: {len(missing_seeds)}/{len(eval_seeds)} "
+                        f"episodes missing (seeds {missing_seeds})"
+                    )
+                if not image_paths:
+                    raise ValueError(f"No generated images discovered under {output_dir} (episode mode)")
+                generated_runs += 1
+
             if not image_paths:
                 # Multi-seed evaluation: generate the SAME candidate YAML once per
                 # seed (each into its own subdir), then POOL every seed's RGB
@@ -1041,6 +1082,11 @@ class SimulationCalibrationController:
                 str(self.config.isaac.headless),
                 str(self.config.isaac.num_frames_override),
                 str(list(self.config.isaac.eval_seeds)),
+                # Render-mode knobs change the image distribution — cached
+                # embeddings from trajectory-mode runs must not be reused for
+                # episode/random-mode runs of the same config.
+                str(self.config.isaac.episode_mode),
+                str(self.config.isaac.capture_mode),
             ]
         )
 

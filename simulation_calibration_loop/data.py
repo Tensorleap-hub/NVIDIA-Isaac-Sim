@@ -301,6 +301,8 @@ def run_isaac_generation(
     num_frames_override: int | None,
     log_callback,
     seed: int | None = None,
+    seeds: list[int] | None = None,
+    capture_mode: str | None = None,
 ) -> None:
     """Launch one Isaac SDG job and stream its logs into the workflow."""
     nvjitlink_lib_dir = isaac_sim_path / "exts" / "omni.isaac.ml_archive" / "pip_prebundle" / "nvidia" / "nvjitlink" / "lib"
@@ -320,9 +322,16 @@ def run_isaac_generation(
         str(yaml_path),
         "--headless",
         "True" if headless else "False",
-        "--data_dir",
-        str(output_dir),
     ]
+    if seeds is not None:
+        # Episode mode: one Isaac session renders every seed; the SDG writes
+        # <output_dir>/<yaml-stem>_seed<S>/ per episode and retries bad layouts
+        # in-process (seed + k*1000).
+        command.extend(["--seeds", " ".join(str(s) for s in seeds), "--out_root", str(output_dir)])
+    else:
+        command.extend(["--data_dir", str(output_dir)])
+    if capture_mode is not None:
+        command.extend(["--capture_mode", str(capture_mode)])
     if num_frames_override is not None:
         command.extend(["--num_frames", str(num_frames_override)])
     if seed is not None:

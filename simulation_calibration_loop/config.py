@@ -60,6 +60,17 @@ class IsaacConfig:
     # trials makes trial-to-trial MMD differences reflect the config, not seed
     # luck. Default [0] reproduces the historical single-run behavior.
     eval_seeds: list[int] = field(default_factory=lambda: [0])
+    # Episode mode: render ALL eval_seeds in ONE Isaac session via the SDG's
+    # --seeds/--out_root flags (the scene re-rolls in-process per seed and the
+    # SDG does its own seed+k*1000 layout retries). Cuts a trial's render cost
+    # from len(eval_seeds) Isaac boots to one. Per-seed outputs land at
+    # <output_dir>/<yaml-stem>_seed<S>/ instead of <output_dir>/seed_<S>/.
+    episode_mode: bool = False
+    # Capture mode forwarded to the SDG (episode mode only). None keeps the
+    # trial config's own default (trajectory); "random" gives every frame an
+    # independent freespace pose — with num_frames_override=1 each image is a
+    # fresh scene re-roll (maximally decorrelated stills for the MMD objective).
+    capture_mode: str | None = None
 
 
 @dataclass

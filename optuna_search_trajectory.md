@@ -416,22 +416,28 @@ Optuna trials on dead knobs, or fill the disk.
     (DINO round: min pairwise MMD 0.19–0.46 across picks). Note these exports
     are rewritten by whichever theme-round ran last into the shared
     `promoted_baseline_dir` — check the `project_name` header for provenance.
-- **TODO — switch Optuna trial rendering to SDG episode/random mode.** Landed
-  2026-07-15 in `standalone_palletjack_trajectory_sdg.py` (uncommitted at time
-  of writing, see `trajectory_plan.md` Stage 11): `--seeds "s1 s2 …"
-  --out_root X` renders all seeds of a config in ONE Isaac session
-  (re-fireable scene randomization, per-episode omap + writers, in-process
-  `seed+k*1000` retries), and `--capture_mode random --num_frames 1` makes
-  every image an independent scene re-roll + freespace pose. Measured ~7–11
-  s/image vs ~65–120 s/image for the current one-process-per-run flow the
-  loop's `isaac_runner` uses — roughly a 10× cut in per-trial render cost,
-  i.e. more trials (or more frames per trial) per wall-clock budget. To adopt:
-  point the loop's render step at episode mode (one invocation per trial
-  config instead of per seed), decide trajectory vs random capture per
-  objective (random = decorrelated stills, matches the OD objective; keep
-  trajectory mode for Cosmos-clip trials), and re-baseline the objective
-  before comparing scores across the switch (frame statistics change:
-  1 layout per image vs 5 frames per layout).
+- **Loop adopts SDG episode/random rendering (TODO resolved).** Landed
+  2026-07-16. `IsaacConfig` gained `episode_mode` + `capture_mode`
+  (`config.py`); `run_isaac_generation` passes `--seeds/--out_root/
+  --capture_mode` (`data.py`); the controller's eval step renders ALL
+  `eval_seeds` of a trial in ONE Isaac session and discovers per-seed images
+  under the SDG's `<yaml-stem>_seed<S>/` episode dirs. Layout retries moved
+  in-process (SDG `seed+k*1000`); a partial episode failure keeps the
+  completed seeds and only fails the trial when NOTHING rendered, so one
+  impossible layout can't kill a multi-hour run. Run fingerprints include the
+  new knobs so trajectory-mode embedding caches are never reused for
+  random-mode trials. Smoke-tested end-to-end (2 configs × 6 one-frame
+  episodes → MMD → suggestion → iter 2 → complete).
+- **Random-mode re-baseline run of `traj-top-important`.** Configs:
+  `project_config_trajectory_top_important_rand.yaml` +
+  `theme_rounds_trajectory_top_important_rand.yaml`. Same 18-knob joint
+  search space + environment; per trial: `eval_seeds` 1–32 × 1 RANDOM frame
+  = 32 independent layouts (vs 4 layouts × 15 frames before), one Isaac boot.
+  Because the image distribution changed, objective values are NOT comparable
+  to the weekend/top-important trajectory runs: base_pool priming is
+  DISABLED, `promoted_baseline_trajectory_top_important_rand/` carries only
+  the weekend `best.yaml` as materialization substrate (params, no scores),
+  and iteration 0 re-anchors on the 32 base_v4 seeds under the new objective.
 
 ## Readiness Snapshot
 
