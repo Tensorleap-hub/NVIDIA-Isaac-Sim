@@ -20,6 +20,7 @@ import yaml
 from calibration_optuna import DEFAULT_CONFIG
 from calibration_optuna.experiment_runner import ExperimentRunner
 
+from . import diversity
 from .base_pool import BasePoolManager, PoolEntry
 from .config import WorkflowConfig
 from .data import (
@@ -1232,7 +1233,19 @@ class SimulationCalibrationController:
 
         k = self.config.top_k_export
         top_artifacts = ranked[:k]
-        pool = ranked[: max(self.config.diverse_candidate_pool, k)]
+        threshold = self.config.diverse_objective_threshold
+        if threshold is not None:
+            pool = [
+                artifact for artifact in ranked
+                if artifact.objective_value <= threshold
+            ]
+            if len(pool) < k:
+                self.ui.append_log(
+                    f"[baseline] diverse export: only {len(pool)} trials pass "
+                    f"objective <= {threshold}; lists will be short"
+                )
+        else:
+            pool = ranked[: max(self.config.diverse_candidate_pool, k)]
         diverse_artifacts, min_distances = self._select_diverse_trials(
             pool, k, self._param_distance_fn(pool)
         )
@@ -1260,7 +1273,8 @@ class SimulationCalibrationController:
         save_yaml_config(export_dir / f"best_top{k}_diverse.yaml", {
             "project_name": self.config.project_name,
             "selection": "objective+diversity",
-            "diversity_metric": "normalized_param_distance",
+            "diversity_metric": "normalized_param_distance_full_config",
+            "objective_threshold": threshold,
             "candidate_pool_size": len(pool),
             "trials": [
                 {
@@ -1276,6 +1290,7 @@ class SimulationCalibrationController:
             "project_name": self.config.project_name,
             "selection": "objective+diversity",
             "diversity_metric": "embedding_mmd_rbf",
+            "objective_threshold": threshold,
             "candidate_pool_size": len(latent_pool),
             "trials": [
                 {
@@ -1316,36 +1331,23 @@ class SimulationCalibrationController:
         return entry
 
     def _param_distance_fn(self, pool: list[RunArtifact]):
-        """Build a Gower-style distance over the searched flattened params.
+        """Build a Gower-style distance over the full materialized configs.
 
-        Numeric values are normalized by the range observed across the pool,
-        non-numeric values contribute 0/1 mismatch; the result is the mean over
-        all searched params, so 0 = identical config and 1 = maximally apart.
+        See diversity.build_gower_distance: numeric values normalize by the
+        pool range, other values contribute 0/1 mismatch, constant keys are
+        dropped, and comparing full configs (not just the searched params)
+        keeps cross-study comparisons fair.
         """
-        keys = sorted({key for artifact in pool for key in artifact.flattened_params})
-        ranges: dict[str, float] = {}
-        for key in keys:
-            values = [
-                artifact.flattened_params.get(key)
-                for artifact in pool
-                if isinstance(artifact.flattened_params.get(key), (int, float))
-                and not isinstance(artifact.flattened_params.get(key), bool)
-            ]
-            if values:
-                ranges[key] = float(max(values) - min(values))
+        params_by_id = {
+            artifact.run_id: diversity.full_config_flat(
+                artifact.yaml_path, artifact.flattened_params, log=self.ui.append_log
+            )
+            for artifact in pool
+        }
+        id_distance = diversity.build_gower_distance(params_by_id, log=self.ui.append_log)
 
         def distance(a: RunArtifact, b: RunArtifact) -> float:
-            total = 0.0
-            for key in keys:
-                left = a.flattened_params.get(key)
-                right = b.flattened_params.get(key)
-                if key in ranges and isinstance(left, (int, float)) and isinstance(right, (int, float)) \
-                        and not isinstance(left, bool) and not isinstance(right, bool):
-                    span = ranges[key]
-                    total += abs(float(left) - float(right)) / span if span > 0 else 0.0
-                else:
-                    total += 0.0 if left == right else 1.0
-            return total / len(keys) if keys else 0.0
+            return id_distance(a.run_id, b.run_id)
 
         return distance
 

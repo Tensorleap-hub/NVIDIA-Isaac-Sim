@@ -9,3 +9,4 @@ venv/
 .sim_loop_venv/
 .claude/
 palletjack_sdg/palletjack_data/
+od_scripts/data/

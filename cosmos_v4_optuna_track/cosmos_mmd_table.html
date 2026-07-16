@@ -1,0 +1,220 @@
+<div id="app"></div>
+<style>
+  :root{
+    --ground:#f5f6f8; --surface:#ffffff; --ink:#182230; --muted:#63707f;
+    --hair:#e5e8ee; --hair-strong:#d3d8e1;
+    --isaac:#5b6b8c; --cosmos:#7c5cff;
+    --toward:#1f9d57; --away:#d1495b;
+    --chip-base:#3f6bd4; --chip-optuna:#0f9b8e;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0}
+  #app{
+    font-family:var(--sans); color:var(--ink); background:var(--ground);
+    padding:40px 28px 72px; max-width:1160px; margin:0 auto;
+    -webkit-font-smoothing:antialiased;
+  }
+  .eyebrow{font-size:11.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); font-weight:600}
+  h1{font-size:29px; line-height:1.12; margin:8px 0 6px; letter-spacing:-.02em; text-wrap:balance; font-weight:680}
+  .lede{color:var(--muted); font-size:14.5px; line-height:1.55; max-width:74ch; margin:0}
+  .lede code{font-family:var(--mono); font-size:12.5px; background:#eceff4; padding:1px 5px; border-radius:4px; color:#38445a}
+
+  .tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:26px 0 10px}
+  @media(max-width:720px){.tiles{grid-template-columns:repeat(2,1fr)}}
+  .tile{background:var(--surface); border:1px solid var(--hair); border-radius:12px; padding:15px 16px}
+  .tile .k{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600}
+  .tile .v{font-family:var(--mono); font-size:25px; font-variant-numeric:tabular-nums; margin-top:7px; letter-spacing:-.01em}
+  .tile .sub{font-size:12px; color:var(--muted); margin-top:3px}
+  .tile.accent .v{color:var(--cosmos)}
+
+  .pool{display:flex; gap:26px; flex-wrap:wrap; align-items:center; background:var(--surface);
+    border:1px solid var(--hair); border-radius:12px; padding:14px 18px; margin:12px 0 4px}
+  .pool .item{display:flex; flex-direction:column; gap:2px}
+  .pool .item .k{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600}
+  .pool .item .v{font-family:var(--mono); font-size:17px; font-variant-numeric:tabular-nums}
+  .pool .note{font-size:12.5px; color:var(--muted); line-height:1.5; flex:1; min-width:220px}
+  .win{color:var(--toward); font-weight:600}
+
+  .controls{display:flex; gap:8px; align-items:center; margin:26px 0 10px; flex-wrap:wrap}
+  .controls .label{font-size:12px; color:var(--muted); margin-right:2px}
+  .chip{font-family:var(--sans); font-size:12.5px; border:1px solid var(--hair-strong); background:var(--surface);
+    color:var(--muted); padding:5px 12px; border-radius:999px; cursor:pointer; transition:.14s}
+  .chip:hover{border-color:#b9c0cc; color:var(--ink)}
+  .chip[aria-pressed="true"]{background:var(--ink); color:#fff; border-color:var(--ink)}
+  .chip:focus-visible{outline:2px solid var(--cosmos); outline-offset:2px}
+
+  .tablewrap{overflow-x:auto; border:1px solid var(--hair); border-radius:14px; background:var(--surface)}
+  table{border-collapse:collapse; width:100%; min-width:760px; font-size:13.5px}
+  thead th{position:sticky; top:0; background:#fbfbfd; z-index:1}
+  th{text-align:left; font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted);
+    font-weight:600; padding:13px 14px; border-bottom:1px solid var(--hair-strong); white-space:nowrap; cursor:pointer; user-select:none}
+  th.num{text-align:right}
+  th .arrow{opacity:.35; font-size:10px; margin-left:3px}
+  th[aria-sort="ascending"] .arrow,th[aria-sort="descending"] .arrow{opacity:1; color:var(--ink)}
+  td{padding:11px 14px; border-bottom:1px solid var(--hair); vertical-align:middle}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#f8f9fc}
+  .run{font-family:var(--mono); font-size:12.5px; color:var(--ink); white-space:nowrap}
+  .parenttag{display:block; font-family:var(--mono); font-size:10.5px; color:#9aa4b2; margin-top:2px}
+  .parenttag.shared{color:var(--cosmos)}
+  .setchip{font-size:11px; padding:3px 9px; border-radius:6px; white-space:nowrap; font-weight:600; letter-spacing:.01em}
+  .setchip.optuna{background:#e2f5f2; color:#0b7a70}
+  .setchip.base2p{background:#e7edfb; color:#2f55b8}
+  .setchip.basenew{background:#eee9fb; color:#5b41c7}
+
+  td.num{text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .mcell{display:inline-flex; align-items:center; gap:9px; justify-content:flex-end; width:100%}
+  .bar{height:6px; border-radius:3px; width:66px; background:#eef0f4; overflow:hidden; flex:none}
+  .bar > i{display:block; height:100%; border-radius:3px}
+  .val{min-width:52px; text-align:right}
+
+  .dcell{display:inline-flex; align-items:center; gap:9px; justify-content:flex-end; width:100%}
+  .diverge{position:relative; width:88px; height:16px; flex:none}
+  .diverge .mid{position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--hair-strong)}
+  .diverge i{position:absolute; top:4px; height:8px; border-radius:2px}
+  .dval{min-width:58px; text-align:right; font-weight:600}
+  .dval.pos{color:var(--toward)} .dval.neg{color:var(--away)}
+
+  footer{margin-top:22px; font-size:12px; color:var(--muted); line-height:1.6}
+  footer code{font-family:var(--mono); font-size:11.5px; background:#eceff4; padding:1px 5px; border-radius:4px; color:#38445a}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:8px}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:11px; height:11px; border-radius:3px; display:inline-block}
+</style>
+<script>
+const DATA = {"rows": [{"run": "dl09_cam_r01_iter006_run001_seed1024", "parent": "dl09_cam_r01_iter006_run001_seed1024", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.389774, "cosmos": 0.387917, "delta": 0.001857, "n": 128}, {"run": "r4_top4_full_warehouse_seed1024", "parent": "r4_top4_full_warehouse_seed1024", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.366516, "cosmos": 0.432153, "delta": -0.065637, "n": 128}, {"run": "dp05_camjit_r01_iter002_run001_seed42", "parent": "dp05_camjit_r01_iter002_run001_seed42", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.404657, "cosmos": 0.433226, "delta": -0.028569, "n": 128}, {"run": "exp19_patrol_robot_low_seed42_clean", "parent": "exp19_patrol_robot_low_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.767465, "cosmos": 0.441451, "delta": 0.326014, "n": 128}, {"run": "dl08_occ_r02_iter007_run001_seed789", "parent": "dl08_occ_r02_iter007_run001_seed789", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.393528, "cosmos": 0.444118, "delta": -0.05059, "n": 128}, {"run": "dp10_occ_r02_iter006_run002_seed42", "parent": "dp10_occ_r02_iter006_run002_seed42", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.411209, "cosmos": 0.447979, "delta": -0.036769, "n": 128}, {"run": "exp19_patrol_robot_low_seed42_gritty", "parent": "exp19_patrol_robot_low_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.767465, "cosmos": 0.45492, "delta": 0.312545, "n": 128}, {"run": "exp24_high_contrast_hard_shadow_seed1024", "parent": "exp24_high_contrast_hard_shadow_seed1024", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.468165, "cosmos": 0.478746, "delta": -0.01058, "n": 128}, {"run": "exp23_neon_colored_lighting_seed1024", "parent": "exp23_neon_colored_lighting_seed1024", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.49378, "cosmos": 0.496044, "delta": -0.002264, "n": 128}, {"run": "dp04_agent_r03_iter009_run001_seed123", "parent": "dp04_agent_r03_iter009_run001_seed123", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.436243, "cosmos": 0.499912, "delta": -0.063669, "n": 128}, {"run": "r3_top3_full_warehouse_seed456", "parent": "r3_top3_full_warehouse_seed456", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.522371, "cosmos": 0.502471, "delta": 0.0199, "n": 128}, {"run": "dp07_occ_r01_iter001_run001_seed456", "parent": "dp07_occ_r01_iter001_run001_seed456", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.491073, "cosmos": 0.50306, "delta": -0.011987, "n": 128}, {"run": "dl04_scene_r02_iter008_run001_seed456", "parent": "dl04_scene_r02_iter008_run001_seed456", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.527218, "cosmos": 0.524799, "delta": 0.002419, "n": 128}, {"run": "exp20_dense_clutter_seed42", "parent": "exp20_dense_clutter_seed42", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.596418, "cosmos": 0.530204, "delta": 0.066214, "n": 128}, {"run": "r2_top2_full_warehouse_seed1024", "parent": "r2_top2_full_warehouse_seed1024", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.557984, "cosmos": 0.538466, "delta": 0.019518, "n": 128}, {"run": "exp25_overexposed_blownout_seed42", "parent": "exp25_overexposed_blownout_seed42", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.549469, "cosmos": 0.553868, "delta": -0.004399, "n": 128}, {"run": "dl02_occ_r01_iter004_run000_seed789", "parent": "dl02_occ_r01_iter004_run000_seed789", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.56682, "cosmos": 0.554032, "delta": 0.012788, "n": 128}, {"run": "dp02_occ_r02_iter003_run002_seed42", "parent": "dp02_occ_r02_iter003_run002_seed42", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.528272, "cosmos": 0.558083, "delta": -0.029811, "n": 128}, {"run": "exp11_overhead_survey_seed42_clean", "parent": "exp11_overhead_survey_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.470042, "cosmos": 0.558616, "delta": -0.088574, "n": 128}, {"run": "dp09_scene_r01_iter003_run002_seed42", "parent": "dp09_scene_r01_iter003_run002_seed42", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.445205, "cosmos": 0.560422, "delta": -0.115217, "n": 128}, {"run": "dp08_scene_r03_iter008_run001_seed1024", "parent": "dp08_scene_r03_iter008_run001_seed1024", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.557597, "cosmos": 0.565511, "delta": -0.007914, "n": 128}, {"run": "exp03_forklift_yard_tight_seed42_clean", "parent": "exp03_forklift_yard_tight_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.636109, "cosmos": 0.566297, "delta": 0.069812, "n": 128}, {"run": "exp23_neon_colored_lighting_seed42", "parent": "exp23_neon_colored_lighting_seed42", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.58006, "cosmos": 0.574099, "delta": 0.00596, "n": 128}, {"run": "exp24_high_contrast_hard_shadow_seed42", "parent": "exp24_high_contrast_hard_shadow_seed42", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.561429, "cosmos": 0.581262, "delta": -0.019833, "n": 128}, {"run": "exp14_night_shift_dim_seed42_clean", "parent": "exp14_night_shift_dim_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.563757, "cosmos": 0.584715, "delta": -0.020958, "n": 128}, {"run": "exp01_tight_eye_level_bright_seed42_gritty", "parent": "exp01_tight_eye_level_bright_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.543904, "cosmos": 0.591817, "delta": -0.047913, "n": 128}, {"run": "exp11_overhead_survey_seed42_gritty", "parent": "exp11_overhead_survey_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.470042, "cosmos": 0.598331, "delta": -0.128288, "n": 128}, {"run": "exp03_forklift_yard_tight_seed42_gritty", "parent": "exp03_forklift_yard_tight_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.636109, "cosmos": 0.601074, "delta": 0.035035, "n": 128}, {"run": "exp01_tight_eye_level_bright_seed42_clean", "parent": "exp01_tight_eye_level_bright_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.543904, "cosmos": 0.604012, "delta": -0.060108, "n": 128}, {"run": "exp22_ultrawide_low_walker_seed1024", "parent": "exp22_ultrawide_low_walker_seed1024", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.577809, "cosmos": 0.60517, "delta": -0.027361, "n": 128}, {"run": "exp14_night_shift_dim_seed42_gritty", "parent": "exp14_night_shift_dim_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.563757, "cosmos": 0.629671, "delta": -0.065914, "n": 128}, {"run": "exp21_sparse_minimal_seed1024", "parent": "exp21_sparse_minimal_seed1024", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.665262, "cosmos": 0.633915, "delta": 0.031347, "n": 128}, {"run": "exp06_bright_dense_mixed_seed42_gritty", "parent": "exp06_bright_dense_mixed_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.587164, "cosmos": 0.664522, "delta": -0.077358, "n": 128}, {"run": "exp20_dense_clutter_seed1024", "parent": "exp20_dense_clutter_seed1024", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.764987, "cosmos": 0.672714, "delta": 0.092273, "n": 128}, {"run": "dp06_cam_r03_iter005_run000_seed789", "parent": "dp06_cam_r03_iter005_run000_seed789", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.704536, "cosmos": 0.674607, "delta": 0.02993, "n": 128}, {"run": "exp06_bright_dense_mixed_seed42_clean", "parent": "exp06_bright_dense_mixed_seed42", "setLabel": "base_v4 \u00b7 2-prompt", "setKey": "base2p", "isaac": 0.587164, "cosmos": 0.676382, "delta": -0.089218, "n": 128}, {"run": "r1_top1_full_warehouse_seed123", "parent": "r1_top1_full_warehouse_seed123", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.689634, "cosmos": 0.693633, "delta": -0.003999, "n": 128}, {"run": "dp03_agent_r03_iter001_run003_seed456", "parent": "dp03_agent_r03_iter001_run003_seed456", "setLabel": "optuna", "setKey": "optuna", "isaac": 0.791763, "cosmos": 0.712269, "delta": 0.079494, "n": 128}, {"run": "exp21_sparse_minimal_seed42", "parent": "exp21_sparse_minimal_seed42", "setLabel": "base_v4 \u00b7 new-themes", "setKey": "basenew", "isaac": 0.869136, "cosmos": 0.86367, "delta": 0.005466, "n": 128}], "summary": {"nRuns": 39, "meanIsaac": 0.5653, "meanCosmos": 0.564, "moved": 16, "poolBase": 0.48417757994826705, "poolOptuna": 0.42031721091200736, "poolGap": 0.1869866974428913, "gamma": 0.0012028565203850065, "realN": 858, "stride": 1, "model": "dinov2_vitb14_reg"}};
+const {rows, summary} = DATA;
+
+// mark Isaac parents shared by more than one cosmos run (e.g. clean/gritty)
+const pcount = {};
+rows.forEach(r => pcount[r.parent] = (pcount[r.parent]||0)+1);
+
+const MMIN=0.35, MMAX=0.90;                     // MMD bar domain
+const DMAX=Math.max(...rows.map(r=>Math.abs(r.delta)));  // diverging domain
+const fmt = v => v.toFixed(4);
+const mmdColor = v => { // closer to real (low) = teal-green, far = crimson-ish
+  const t = Math.max(0,Math.min(1,(v-MMIN)/(MMAX-MMIN)));
+  return `hsl(${(1-t)*150+5} 62% 46%)`;
+};
+
+let state = {sort:'cosmos', dir:'asc', filter:'all'};
+
+function render(){
+  const app = document.getElementById('app');
+  const S = summary;
+  const poolBetter = S.poolOptuna < S.poolBase;
+  app.innerHTML = `
+  <div class="eyebrow">Cosmos-Transfer · Sim-to-Real Distance</div>
+  <h1>Per-run MMD: each Cosmos clip against its Isaac parent</h1>
+  <p class="lede">Every Cosmos-Transfer clip is scored against the real LOCO reference (${S.realN} frames)
+  with <strong>MMD</strong> on DINOv2 features (<code>${S.model}</code>, one shared RBF gamma).
+  Its <strong>Isaac parent</strong> — the raw render Cosmos re-styled — is scored the same way, so the pair is
+  directly comparable. <strong>Lower = closer to real.</strong> Δ = isaac − cosmos; positive means Cosmos pulled
+  that run toward real.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Runs</div><div class="v">${S.nRuns}</div><div class="sub">39 clips · ${pCountUnique()} Isaac parents</div></div>
+    <div class="tile"><div class="k">Mean MMD → real</div><div class="v">${fmt(S.meanIsaac)}<span style="font-size:14px;color:var(--muted)"> → </span>${fmt(S.meanCosmos)}</div><div class="sub">isaac → cosmos (per-run, n=${rows[0]?rows[0].n:''} frames/clip)</div></div>
+    <div class="tile"><div class="k">Cosmos moved toward real</div><div class="v">${S.moved}<span style="font-size:15px;color:var(--muted)">/${S.nRuns}</span></div><div class="sub">${(100*S.moved/S.nRuns).toFixed(0)}% of runs improved</div></div>
+    <div class="tile accent"><div class="k">Pooled gap base↔optuna</div><div class="v">${fmt(S.poolGap)}</div><div class="sub">Cosmos did not erase it</div></div>
+  </div>
+
+  <div class="pool">
+    <div class="item"><span class="k">Pooled · base_v4 → real</span><span class="v">${fmt(S.poolBase)}</span></div>
+    <div class="item"><span class="k">Pooled · optuna → real</span><span class="v">${fmt(S.poolOptuna)}</span></div>
+    <div class="note">Pooled across all frames per family, the <span class="win">optuna</span> set sits
+    ${poolBetter?'closer':'farther'} to real than base_v4. Per-run rows below run higher because each pools a single
+    clip — one narrow camera path — against ${S.realN} diverse real frames, which MMD reads as distance
+    (32→128 frames/clip barely moved them, so it isn't sample-size bias). Read the per-run table for
+    <em>ranking and the isaac→cosmos Δ</em>, the pooled figures for absolute distance-to-real.</div>
+  </div>
+
+  <div class="controls">
+    <span class="label">Filter:</span>
+    ${chip('all','All runs')}${chip('optuna','optuna')}${chip('base2p','base · 2-prompt')}${chip('basenew','base · new-themes')}
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        ${th('run','Run / Isaac parent',false)}
+        ${th('setKey','Set',false)}
+        ${th('isaac','Isaac → real',true)}
+        ${th('cosmos','Cosmos → real',true)}
+        ${th('delta','Δ (isaac − cosmos)',true)}
+      </tr></thead>
+      <tbody>${body()}</tbody>
+    </table>
+  </div>
+
+  <footer>
+    <div class="legend">
+      <span><span class="sw" style="background:${mmdColor(0.40)}"></span>closer to real</span>
+      <span><span class="sw" style="background:${mmdColor(0.85)}"></span>farther from real</span>
+      <span><span class="sw" style="background:var(--toward)"></span>Cosmos pulled toward real (Δ&gt;0)</span>
+      <span><span class="sw" style="background:var(--away)"></span>Cosmos pushed away (Δ&lt;0)</span>
+      <span><span class="sw" style="background:var(--cosmos)"></span>Isaac parent shared by 2 clips</span>
+    </div>
+    <p>Embedder DINOv2 <code>${S.model}</code> · RBF gamma ${S.gamma.toExponential(3)} (median heuristic on real) ·
+    real = <code>loco_dataset</code> + <code>warehouse3cls_traj_v2/valid</code>. Source:
+    <code>cosmos_v4_optuna_track/cosmos_mmd_per_run.py</code>.</p>
+  </footer>`;
+  wire();
+}
+
+function pCountUnique(){ return new Set(rows.map(r=>r.parent)).size; }
+function chip(key,label){
+  return `<button class="chip" data-filter="${key}" aria-pressed="${state.filter===key}">${label}</button>`;
+}
+function th(key,label,num){
+  const active = state.sort===key;
+  const sort = active ? (state.dir==='asc'?'ascending':'descending') : 'none';
+  const arrow = active ? (state.dir==='asc'?'▲':'▼') : '';
+  return `<th class="${num?'num':''}" data-sort="${key}" aria-sort="${sort}">${label}<span class="arrow">${arrow}</span></th>`;
+}
+function sortedRows(){
+  let rs = rows.filter(r => state.filter==='all' || r.setKey===state.filter);
+  const k = state.sort, dir = state.dir==='asc'?1:-1;
+  rs.sort((a,b)=>{
+    let va=a[k], vb=b[k];
+    if(typeof va==='string') return dir*va.localeCompare(vb);
+    return dir*(va-vb);
+  });
+  return rs;
+}
+function body(){
+  return sortedRows().map(r=>{
+    const iw = Math.max(2,Math.min(100,100*(r.isaac-MMIN)/(MMAX-MMIN)));
+    const cw = Math.max(2,Math.min(100,100*(r.cosmos-MMIN)/(MMAX-MMIN)));
+    const shared = pcount[r.parent] > 1;
+    const parentLine = r.parent!==r.run
+      ? `<span class="parenttag ${shared?'shared':''}">↳ ${r.parent}</span>` : (shared?`<span class="parenttag shared">↳ shared parent</span>`:'');
+    const dw = 44*(Math.abs(r.delta)/DMAX);
+    const dpos = r.delta>=0;
+    const dbar = dpos
+      ? `<i style="left:50%;width:${dw}px;background:var(--toward)"></i>`
+      : `<i style="right:50%;width:${dw}px;background:var(--away)"></i>`;
+    return `<tr>
+      <td><span class="run">${r.run}</span>${parentLine}</td>
+      <td><span class="setchip ${r.setKey}">${r.setLabel}</span></td>
+      <td class="num"><span class="mcell"><span class="bar"><i style="width:${iw}%;background:${mmdColor(r.isaac)}"></i></span><span class="val">${fmt(r.isaac)}</span></span></td>
+      <td class="num"><span class="mcell"><span class="bar"><i style="width:${cw}%;background:${mmdColor(r.cosmos)}"></i></span><span class="val">${fmt(r.cosmos)}</span></span></td>
+      <td class="num"><span class="dcell"><span class="diverge"><span class="mid"></span>${dbar}</span><span class="dval ${dpos?'pos':'neg'}">${dpos?'+':''}${fmt(r.delta)}</span></span></td>
+    </tr>`;
+  }).join('');
+}
+function wire(){
+  document.querySelectorAll('th[data-sort]').forEach(el=>el.onclick=()=>{
+    const k=el.dataset.sort;
+    if(state.sort===k){ state.dir = state.dir==='asc'?'desc':'asc'; }
+    else { state.sort=k; state.dir = (k==='run'||k==='setKey')?'asc':'asc'; }
+    render();
+  });
+  document.querySelectorAll('.chip[data-filter]').forEach(el=>el.onclick=()=>{
+    state.filter=el.dataset.filter; render();
+  });
+}
+render();
+</script>

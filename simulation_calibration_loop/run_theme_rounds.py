@@ -234,6 +234,7 @@ def _apply_common_overrides(raw: dict, common: dict) -> None:
         "embedder_backend",
         "top_k_export",
         "diverse_candidate_pool",
+        "diverse_objective_threshold",
     ):
         if key in common:
             raw[key] = common[key]

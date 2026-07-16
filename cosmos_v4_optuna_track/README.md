@@ -64,14 +64,17 @@ whether Cosmos augmentation washes out the gap Optuna found.
   (`embed_paths`). Per `optuna_search_trajectory.md` ("Embedder: use the
   trained RF-DETR backbone, not stock DINOv2"), prefer `RFDETREmbedder` for
   consistency with the search itself.
-- **Missing piece:** there is no standalone script that just embeds two
-  arbitrary directories and prints their MMD — today these two pieces are
-  only wired together *inside* the Optuna loop (`controller.py`), scored
-  against a fixed real-image reference pool, not against each other. Need a
-  small script (e.g. `compare_cosmos_mmd.py` in this folder) that: embeds the
-  base_v4-Cosmos set, embeds the optuna-Cosmos set, embeds the real LOCO
-  reference set, and reports MMD(base, real), MMD(optuna, real), and
-  MMD(base, optuna).
+- **Done (2026-07-13):** two standalone scripts now wire these pieces
+  together against the real LOCO pool (embedder = **stock DINOv2
+  `dinov2_vitb14_reg`**, one shared median-heuristic RBF gamma from real):
+  - `compare_cosmos_mmd.py` — pooled comparison: embeds each named clip set +
+    real, reports MMD(set, real) and pairwise MMD(set_i, set_j).
+  - `cosmos_mmd_per_run.py` — per-run table: each Cosmos clip vs its **Isaac
+    parent** (raw render, resolved via the sidecar `video_path` basename),
+    both scored vs real, with the isaac→cosmos delta.
+
+  See **Results** below. Run with `.sim_loop_venv/bin/python` (has cv2 + the
+  DINOv2 hub weights cached).
 
 ### 3. Publish (S3)
 
@@ -98,6 +101,44 @@ whether Cosmos augmentation washes out the gap Optuna found.
   same real LOCO train/valid split so the eval set stays constant — mirrors
   how `warehouse3cls_traj_v1` was built.
 
+## Results (2026-07-13, DINOv2 MMD vs real LOCO)
+
+Real reference: `loco_dataset` + `warehouse3cls_traj_v2/valid` (858 frames).
+Embedder: stock DINOv2 `dinov2_vitb14_reg`. Clip sets analyzed (as generated so
+far — folders are incomplete vs. their names): `optuna` = 17 clips, `base_v4` =
+22 clips (12 `all_seeds_2prompts` seed42 + 10 `new_themes`); 39 clips / 33 Isaac
+parents total. Each clip is 128 frames @ 960×544.
+
+**Pooled** (`compare_cosmos_mmd.py`, all frames per family, lower = closer to real):
+
+| set | MMD vs real |
+|---|---|
+| optuna-Cosmos | **0.420** |
+| base_v4-Cosmos | **0.484** |
+| pairwise base_v4 ↔ optuna | **0.187** |
+
+→ Cosmos augmentation did **not** wash out the gap Optuna found: the optimized
+set stays measurably closer to real, and the two sets remain 0.187 apart. This
+is the gate result — a real difference survives Cosmos, so the two fine-tunes
+(step 4) are worth paying for.
+
+**Per-run** (`cosmos_mmd_per_run.py`, all 128 frames/clip): mean MMD→real
+isaac **0.565** → cosmos **0.564**; Cosmos moved **16/39** runs toward real.
+Per-run values (~0.56) sit above the pooled figures because each row measures a
+single clip (one narrow camera path) against 858 diverse real frames — a
+coverage effect, not sample-size bias (32→128 frames/clip barely moved them).
+Use the per-run table for **ranking + the isaac→cosmos delta** (biggest gain:
+`exp19_patrol_robot_low`, Δ ≈ +0.33), the pooled figures for absolute distance.
+
+Artifacts: `cosmos_mmd_report.json` (pooled), `cosmos_mmd_per_run.{csv,json}`,
+`cosmos_mmd_table.html` (sortable per-run view).
+
+> Branch note: the video→COCO extractor `od_scripts/prepare_cosmos_dataset.py`
+> (needed for step 4) first landed on `main` by mistake (commit `2ce705f`);
+> it's been cherry-picked to `trajectory` (+`--source-roots` for local re-homing
+> of the `/mnt/cosmos/input/...` source paths) and a revert of `main` is staged
+> on branch `revert-cosmos-from-main`.
+
 ## What's missing, in order
 
 1. **An actual Optuna winner config.** Per `optuna_search_trajectory.md`, the
@@ -111,8 +152,9 @@ whether Cosmos augmentation washes out the gap Optuna found.
 3. **The actual Cosmos post-process command** (prompt + version), fixed and
    applied identically to both clip sets — currently undocumented anywhere in
    this repo.
-4. **The MMD comparison script** described above (embed both sets + real
-   reference, report pairwise MMD).
+4. ~~The MMD comparison script~~ **DONE** — `compare_cosmos_mmd.py` +
+   `cosmos_mmd_per_run.py` (see Results). The video→COCO extractor
+   `od_scripts/prepare_cosmos_dataset.py` is also in place for step 6.
 5. **An S3 sync step** for the two finished Cosmos datasets + the MMD report.
 6. **Two `od_scripts/train_warehouse_real.py` runs** (base-v4-Cosmos vs.
    optuna-Cosmos, same real-data split, same hyperparams) + an mAP comparison,
@@ -120,4 +162,9 @@ whether Cosmos augmentation washes out the gap Optuna found.
 
 ## Status
 
-Not started — this folder tracks the work as it progresses.
+**MMD gate passed (2026-07-13).** Cosmos clips generated (partial), synced to
+`palletjack_sdg/palletjack_data/trajectory/cosmos_transfer/`, and compared:
+optuna-Cosmos 0.420 < base_v4-Cosmos 0.484 vs real, 0.187 apart — the gap
+survives Cosmos, so proceed to the two fine-tunes. Remaining: finish generating
+the missing clips (optuna 17/23, seeds/themes partial), build the two labeled
+COCO datasets (`prepare_cosmos_dataset.py`), and run the A/B fine-tunes (step 6).

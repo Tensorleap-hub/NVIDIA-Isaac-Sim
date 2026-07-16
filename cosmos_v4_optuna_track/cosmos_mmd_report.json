@@ -1,0 +1,43 @@
+{
+  "embedder": {
+    "backend": "dinov2",
+    "model": "dinov2_vitb14_reg",
+    "image_size": 224,
+    "resize_size": 256
+  },
+  "real": {
+    "root": "/home/ubuntu/loco_dataset",
+    "annotations": "/home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json",
+    "n": 858
+  },
+  "frame_stride": 15,
+  "max_samples": 1000,
+  "rbf_gamma": 0.0012028565203850065,
+  "sets": {
+    "base_v4": {
+      "n": 198,
+      "dirs": [
+        "palletjack_sdg/palletjack_data/trajectory/cosmos_transfer/20260712_cosmos_transfer_all_seeds_2prompts",
+        "palletjack_sdg/palletjack_data/trajectory/cosmos_transfer/20260713_cosmos_transfer_new_themes_2seeds"
+      ]
+    },
+    "optuna": {
+      "n": 153,
+      "dirs": [
+        "palletjack_sdg/palletjack_data/trajectory/cosmos_transfer/20260713_cosmos_transfer_optuna_23runs_1seed"
+      ]
+    }
+  },
+  "mmd_vs_real": {
+    "base_v4": 0.48417757994826705,
+    "optuna": 0.42031721091200736
+  },
+  "mmd_pairwise": {
+    "base_v4": {
+      "optuna": 0.1869866974428913
+    },
+    "optuna": {
+      "base_v4": 0.1869866974428913
+    }
+  }
+}

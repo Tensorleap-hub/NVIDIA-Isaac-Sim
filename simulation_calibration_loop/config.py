@@ -282,8 +282,16 @@ class WorkflowConfig:
     top_k_export: int = 10
     # How many of the best trials are eligible when picking the diverse top-k.
     # The diverse set trades a little objective quality for parameter spread,
-    # so it draws from a pool larger than k itself.
+    # so it draws from a pool larger than k itself. Only used when
+    # diverse_objective_threshold is null.
     diverse_candidate_pool: int = 30
+    # Quality gate for the diverse top-k candidate pool: every unique trial
+    # with objective MMD <= this value is a candidate (the unconditional
+    # top-30 pool let greedy max-min pick trials with objectives up to 0.72
+    # on the 20260710 weekend run). Set to null to restore the old
+    # pool-size-based behavior. 0.44 was chosen against the DINOv2
+    # vitb14_reg objective scale (best runs ~0.33-0.40).
+    diverse_objective_threshold: float | None = 0.44
     mmd_max_samples: int = 1000
     synthetic_rgb_base_dir: str | None = None
     embedder_backend: str = "dinov2"
@@ -348,6 +356,11 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
         top_n_best_trials=int(raw.get("top_n_best_trials", 3)),
         top_k_export=int(raw.get("top_k_export", 10)),
         diverse_candidate_pool=int(raw.get("diverse_candidate_pool", 30)),
+        diverse_objective_threshold=(
+            float(raw["diverse_objective_threshold"])
+            if raw.get("diverse_objective_threshold") is not None
+            else (None if "diverse_objective_threshold" in raw else 0.44)
+        ),
         mmd_max_samples=int(raw.get("mmd_max_samples", 1000)),
         embedder_backend=str(raw.get("embedder_backend", "dinov2")),
         dino=_load_section(raw.get("dino"), DINOv2Config),
