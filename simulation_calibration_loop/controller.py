@@ -46,6 +46,15 @@ from .parameter_schema import (
 from .ui import WorkflowUI
 
 
+# Objective-outlier (measurement noise-spike) gate, ported from the engine
+# calibration loop (`_is_mmd_outlier`). A Tukey/MAD threshold: an objective
+# more than k MADs above the rolling median is treated as sampling noise and
+# dropped from TPE's posterior via mark_failed rather than told.
+_OUTLIER_MAD_K: float = 5.0
+_OUTLIER_HISTORY: int = 30
+_OUTLIER_MIN_HISTORY: int = 12
+
+
 class SimulationCalibrationController:
     """Own the iterative calibration workflow and its durable state."""
 
@@ -88,7 +97,7 @@ class SimulationCalibrationController:
         self.seed_rows = [
             {
                 "suggestion_id": f"seed_{index}",
-                "optuna_trial_number": None,
+                "dist_id": None,
                 "params": flatten_config(item[1], self.schema),
             }
             for index, item in enumerate(seed_items)
@@ -105,6 +114,10 @@ class SimulationCalibrationController:
         # workflow currently optimizes a single synthetic family.
         self.group_name = "simulation_1"
         self.param_bounds, self.param_type = self._build_param_bounds_from_config()
+
+        # Rolling window of recent (non-outlier) objective values, used to gate
+        # noise-spike MMD trials out of TPE's posterior (see _is_objective_outlier).
+        self._recent_objectives: list[float] = []
 
         self.optimizer_config = deepcopy(DEFAULT_CONFIG)
         self.optimizer_config["experiment_name"] = config.project_name
@@ -472,52 +485,22 @@ class SimulationCalibrationController:
         if not scored:
             return []
 
-        current_distributions = []
-        all_embeddings = []
-        embeddings_indices_by_dist: dict[int, list] = {}
-        start_index = 0
-
-        for dist_index, entry in enumerate(scored):
+        objective_name = self.optimizer_config["optimization_metrics"][0]
+        external_dists: list[tuple[str, dict[str, Any]]] = []
+        external_metrics: list[dict[str, float]] = []
+        for entry in scored:
             embedding_array = np.load(entry.embedding_path)
-            all_embeddings.append(embedding_array)
-            end_index = start_index + len(embedding_array)
-            params = {f"shape_logit_{self.group_name}": 0.0}
+            score = self.runner.score(embedding_array)
             theme_params = flatten_config(entry.config, self.schema)
-            for key, value in theme_params.items():
-                params[f"{self.group_name}__{key}"] = value
-            current_distributions.append((entry.entry_id, params))
-            embeddings_indices_by_dist[dist_index] = [(0, np.arange(start_index, end_index))]
-            start_index = end_index
-
-        embeddings_by_shape = [np.concatenate(all_embeddings, axis=0)]
-        trial_numbers = [None] * len(scored)
+            external_dists.append((entry.entry_id, self._logit_params(theme_params)))
+            external_metrics.append({objective_name: score})
+            self._note_recent_objective(score)
 
         print(f"Priming Optuna with {len(scored)} pool entries (cached embeddings)...")
-        raw_suggestions, _ = self.runner.evaluate_iteration(
-            current_distributions=current_distributions,
-            embeddings_by_shape=embeddings_by_shape,
-            embeddings_indices_by_dist=embeddings_indices_by_dist,
-            trial_numbers=trial_numbers,
-        )
-
-        suggestions = []
-        for suggestion_id, params in raw_suggestions:
-            flattened = {
-                key[len(f"{self.group_name}__"):]: value
-                for key, value in params.items()
-                if key.startswith(f"{self.group_name}__")
-            }
-            trial_number = None
-            if suggestion_id.startswith("trial_"):
-                trial_number = int(suggestion_id.split("_", 1)[1])
-            suggestions.append({
-                "suggestion_id": suggestion_id,
-                "optuna_trial_number": trial_number,
-                "params": flattened,
-            })
+        self.runner.replay(external_dists, external_metrics)
 
         return self._attach_base_configs_to_rows(
-            suggestions,
+            self._ask_suggestions(),
             iteration_index=0,
             use_seed_defaults=False,
         )
@@ -533,7 +516,7 @@ class SimulationCalibrationController:
             rows.append(
                 {
                     "suggestion_id": f"pool_bootstrap_{index}",
-                    "optuna_trial_number": None,
+                    "dist_id": None,
                     "params": flatten_config(entry.config, self.schema),
                     "base_config": deepcopy(entry.config),
                     "base_pool_entry_id": entry.entry_id,
@@ -562,14 +545,18 @@ class SimulationCalibrationController:
                     embedding_path=Path(item["embedding_path"]),
                     image_count=int(item["image_count"]),
                     flattened_params=item["flattened_params"],
-                    optuna_trial_number=item.get("optuna_trial_number"),
+                    dist_id=item.get("dist_id"),
                     objective_value=item.get("objective_value"),
                     base_pool_entry_id=item.get("base_pool_entry_id"),
                     base_pool_lineage=item.get("base_pool_lineage"),
                 )
                 for item in iteration["artifacts"]
             ]
-            _, iteration_summary, _ = self._run_optimizer_iteration(artifacts)
+            # Resume rebuilds the study only — the next batch is already persisted
+            # as this iteration's `suggestions`, so we ingest (import as external
+            # observations) without asking for (and discarding) a fresh batch.
+            self._ingest_artifacts(artifacts)
+            iteration_summary = iteration["iteration_summary"]
             best_trials = self.runner.get_best_trials(top_n=self.config.top_n_best_trials)
             best_trial_id = best_trials[0][0] if best_trials else "-"
             self.ui.set_status(
@@ -730,7 +717,7 @@ class SimulationCalibrationController:
                     embedding_path=embedding_path,
                     image_count=len(image_paths),
                     flattened_params=params_row,
-                    optuna_trial_number=row_record.get("optuna_trial_number"),
+                    dist_id=row_record.get("dist_id"),
                     base_pool_entry_id=row_record.get("base_pool_entry_id"),
                     base_pool_lineage=row_record.get("base_pool_lineage"),
                 )
@@ -745,63 +732,117 @@ class SimulationCalibrationController:
             )
         return artifacts
 
-    def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str], list[float]]:
-        """Evaluate one completed synthetic batch and request the next suggestions."""
-        embeddings = []
-        current_distributions = []
-        embeddings_indices_by_dist = {}
-        trial_numbers = []
-        start_index = 0
+    def _logit_params(self, flattened_params: dict[str, Any]) -> dict[str, Any]:
+        """Wrap flattened Isaac params into the optimizer's grouped/logit param dict.
 
-        for dist_index, artifact in enumerate(artifacts):
+        The mixture logit is pinned to 0.0 (single synthetic family -> softmax
+        weight of 1.0); every searched param is namespaced under the group.
+        """
+        params: dict[str, Any] = {f"simulation_logit_{self.group_name}": 0.0}
+        for key, value in flattened_params.items():
+            params[f"{self.group_name}__{key}"] = value
+        return params
+
+    def _is_objective_outlier(self, score: float) -> bool:
+        """Tukey/MAD gate: is this objective a noise spike relative to recent history?
+
+        Mirrors the engine loop's `_is_mmd_outlier` (median absolute deviation,
+        k=5, min history 12). Robust to the outliers themselves; only fires once
+        enough non-outlier trials have accumulated to estimate a stable median.
+        """
+        history = self._recent_objectives
+        if len(history) < _OUTLIER_MIN_HISTORY:
+            return False
+        arr = np.asarray(history, dtype=np.float64)
+        median = float(np.median(arr))
+        mad = float(np.median(np.abs(arr - median)))
+        if mad <= 0.0:
+            return False
+        return score > median + _OUTLIER_MAD_K * mad
+
+    def _note_recent_objective(self, score: float) -> None:
+        """Record a non-outlier objective into the rolling MAD window."""
+        self._recent_objectives.append(score)
+        if len(self._recent_objectives) > _OUTLIER_HISTORY:
+            self._recent_objectives.pop(0)
+
+    def _ingest_artifacts(self, artifacts: list[RunArtifact]) -> list[float]:
+        """Score a completed batch and feed it to the optimizer (tell or replay).
+
+        For each artifact: compute the MMD objective from its embeddings, then
+          - if it originated from this session's `ask()` (dist_id still pending),
+            `tell()` it — or `mark_failed()` it when it is a measurement-noise
+            outlier, so TPE's posterior stays clean;
+          - otherwise (seed, pool-priming, or a suggestion issued in a previous
+            process before a resume) import it as an external observation via
+            `replay()`/`add_trial`.
+
+        Returns the per-artifact objective values in input order. Does NOT ask
+        for the next batch — callers that need suggestions call `_ask_suggestions`.
+        """
+        objective_name = self.optimizer_config["optimization_metrics"][0]
+        objective_values: list[float] = []
+        external_dists: list[tuple[str, dict[str, Any]]] = []
+        external_metrics: list[dict[str, float]] = []
+
+        for artifact in artifacts:
             embedding_array = np.load(artifact.embedding_path)
-            embeddings.append(embedding_array)
-            end_index = start_index + len(embedding_array)
-            params = {
-                f"shape_logit_{self.group_name}": 0.0,
-            }
-            for key, value in artifact.flattened_params.items():
-                params[f"{self.group_name}__{key}"] = value
-            current_distributions.append((artifact.run_id, params))
-            embeddings_indices_by_dist[dist_index] = [(0, np.arange(start_index, end_index))]
-            # `None` means "external trial" and is imported with `add_trial`.
-            # A real trial number means this row originated from `ask()` and must
-            # be completed with `tell(...)`.
-            trial_numbers.append(artifact.optuna_trial_number)
-            start_index = end_index
+            score = self.runner.score(embedding_array)
+            objective_values.append(score)
+            dist_id = artifact.dist_id
+            if dist_id is not None and self.runner.has_pending(dist_id):
+                if self._is_objective_outlier(score):
+                    self.runner.mark_failed(dist_id)
+                    self.ui.append_log(
+                        f"[outlier] suppressed {artifact.run_id} "
+                        f"({objective_name}={score:.6f}); dropped from TPE posterior"
+                    )
+                else:
+                    self.runner.tell(dist_id, score)
+                    self._note_recent_objective(score)
+            else:
+                external_dists.append((artifact.run_id, self._logit_params(artifact.flattened_params)))
+                external_metrics.append({objective_name: score})
+                self._note_recent_objective(score)
 
-        embeddings_by_shape = [np.concatenate(embeddings, axis=0)]
-        raw_suggestions, metrics_list = self.runner.evaluate_iteration(
-            current_distributions=current_distributions,
-            embeddings_by_shape=embeddings_by_shape,
-            embeddings_indices_by_dist=embeddings_indices_by_dist,
-            trial_numbers=trial_numbers,
-        )
+        if external_dists:
+            self.runner.replay(external_dists, external_metrics)
 
+        return objective_values
+
+    def _ask_suggestions(self) -> list[dict[str, Any]]:
+        """Ask the optimizer for the next batch and strip params back to Isaac paths."""
+        raw_suggestions = self.runner.ask(self.config.iteration_batch_size)
         suggestions = []
-        for suggestion_id, params in raw_suggestions:
-            flattened = {}
-            for key, value in params.items():
-                if key.startswith(f"{self.group_name}__"):
-                    flattened[key[len(f"{self.group_name}__"):]] = value
-            trial_number = None
-            if suggestion_id.startswith("trial_"):
-                trial_number = int(suggestion_id.split("_", 1)[1])
+        for dist_id, params in raw_suggestions:
+            flattened = {
+                key[len(f"{self.group_name}__"):]: value
+                for key, value in params.items()
+                if key.startswith(f"{self.group_name}__")
+            }
             suggestions.append(
                 {
-                    "suggestion_id": suggestion_id,
-                    "optuna_trial_number": trial_number,
+                    "suggestion_id": dist_id,
+                    "dist_id": dist_id,
                     "params": flattened,
                 }
             )
+        return suggestions
+
+    def _iteration_summary(self, objective_values: list[float]) -> dict[str, str]:
         objective_name = self.optimizer_config["optimization_metrics"][0]
-        objective_values = [metrics[objective_name] for metrics in metrics_list]
-        iteration_summary = {
+        return {
             "objective_name": objective_name,
             "iteration_best": f"{min(objective_values):.6f}",
             "iteration_mean": f"{float(np.mean(objective_values)):.6f}",
             "iteration_median": f"{float(np.median(objective_values)):.6f}",
         }
+
+    def _run_optimizer_iteration(self, artifacts: list[RunArtifact]) -> tuple[list[dict[str, Any]], dict[str, str], list[float]]:
+        """Ingest one completed synthetic batch (tell/replay) and ask for the next."""
+        objective_values = self._ingest_artifacts(artifacts)
+        suggestions = self._ask_suggestions()
+        iteration_summary = self._iteration_summary(objective_values)
         return suggestions, iteration_summary, objective_values
 
     def _build_param_bounds_from_config(self) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
@@ -861,7 +902,7 @@ class SimulationCalibrationController:
             "embedding_path": str(artifact.embedding_path),
             "image_count": artifact.image_count,
             "flattened_params": artifact.flattened_params,
-            "optuna_trial_number": artifact.optuna_trial_number,
+            "dist_id": artifact.dist_id,
             "objective_value": artifact.objective_value,
             "base_pool_entry_id": artifact.base_pool_entry_id,
             "base_pool_lineage": artifact.base_pool_lineage,
@@ -1091,22 +1132,23 @@ class SimulationCalibrationController:
         if not baseline_state.get("iterations"):
             raise ValueError(f"Baseline state file has no iterations: {self.baseline_state_path}")
 
-        best_trials = baseline_state["iterations"][-1].get("best_trials", [])
-        if not best_trials:
-            raise ValueError(f"Baseline state file has no best trials: {self.baseline_state_path}")
+        scored_artifacts = [
+            artifact
+            for iteration in baseline_state.get("iterations", [])
+            for artifact in iteration.get("artifacts", [])
+            if artifact.get("objective_value") is not None
+        ]
+        if not scored_artifacts:
+            raise ValueError(f"Baseline state file has no scored artifacts: {self.baseline_state_path}")
 
-        best_trial_id = best_trials[0]["trial_id"]
-        best_trial_number = self._trial_number_from_trial_id(best_trial_id)
-        artifact = self._find_artifact_for_trial_number(baseline_state, best_trial_number)
-        if artifact is None:
-            raise ValueError(
-                f"Could not find artifact for baseline trial {best_trial_id} in {self.baseline_state_path}"
-            )
-
+        artifact = min(scored_artifacts, key=lambda item: float(item["objective_value"]))
         yaml_path = Path(artifact["yaml_path"])
         if not yaml_path.exists():
             raise ValueError(f"Baseline yaml does not exist: {yaml_path}")
-        self.ui.append_log(f"[baseline] using best base trial {best_trial_id} from {yaml_path}")
+        self.ui.append_log(
+            f"[baseline] using best base run {artifact['run_id']} "
+            f"({float(artifact['objective_value']):.6f}) from {yaml_path}"
+        )
         seed_template = deepcopy(seed_items[0][1])
         baseline_template = yaml.safe_load(yaml_path.read_text())
         return self._merge_dicts(seed_template, baseline_template)
@@ -1129,24 +1171,6 @@ class SimulationCalibrationController:
             else:
                 merged[key] = deepcopy(value)
         return merged
-
-    def _trial_number_from_trial_id(self, trial_id: str) -> int:
-        """Parse the workflow's `trial_<n>` identifier format."""
-        if not trial_id.startswith("trial_"):
-            raise ValueError(f"Unsupported trial id format: {trial_id}")
-        return int(trial_id.split("_", 1)[1])
-
-    def _find_artifact_for_trial_number(
-        self,
-        state: dict[str, Any],
-        trial_number: int,
-    ) -> dict[str, Any] | None:
-        """Find the saved artifact that corresponds to one Optuna trial number."""
-        for iteration in state.get("iterations", []):
-            for artifact in iteration.get("artifacts", []):
-                if artifact.get("optuna_trial_number") == trial_number:
-                    return artifact
-        return None
 
     def _promote_global_baseline(self, state: dict[str, Any]) -> None:
         """Persist the current best completed YAML as a shared promoted baseline."""
@@ -1313,11 +1337,7 @@ class SimulationCalibrationController:
         """Build one self-contained export record for a top trial."""
         entry: dict[str, Any] = {
             "rank": rank,
-            "trial_id": (
-                f"trial_{artifact.optuna_trial_number}"
-                if artifact.optuna_trial_number is not None
-                else artifact.run_id
-            ),
+            "trial_id": artifact.dist_id if artifact.dist_id is not None else artifact.run_id,
             "run_id": artifact.run_id,
             "objective_value": artifact.objective_value,
             "yaml_path": str(artifact.yaml_path),
@@ -1449,7 +1469,7 @@ class SimulationCalibrationController:
             stage_root = Path(temp_dir)
             manifest_runs = []
             for artifact in selected_artifacts:
-                trial_id = f"trial_{artifact.optuna_trial_number}" if artifact.optuna_trial_number is not None else artifact.run_id
+                trial_id = artifact.dist_id if artifact.dist_id is not None else artifact.run_id
                 trial_stage_dir = stage_root / trial_id
                 output_stage_dir = trial_stage_dir / "outputs" / artifact.run_id
                 cache_stage_dir = trial_stage_dir / "cache"
@@ -1507,11 +1527,7 @@ class SimulationCalibrationController:
                         embedding_path=Path(item["embedding_path"]),
                         image_count=int(item["image_count"]),
                         flattened_params=item["flattened_params"],
-                        optuna_trial_number=(
-                            int(item["optuna_trial_number"])
-                            if item.get("optuna_trial_number") is not None
-                            else None
-                        ),
+                        dist_id=item.get("dist_id"),
                         objective_value=(
                             float(item["objective_value"])
                             if item.get("objective_value") is not None

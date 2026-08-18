@@ -12,11 +12,25 @@ def _safe_stat(values: np.ndarray, reducer) -> float:
     return float(np.nan) if len(values) == 0 else float(reducer(values))
 
 
+def _display_subset(record: dict) -> str:
+    subset = record.get("subset")
+    if subset == "cosmos":
+        base = "TL-opt" if record.get("source_group") == "optuna" else "base_synth"
+        if record.get("render_type") == "cosmos":
+            return f"{base}+cosmos"
+        return base
+    if subset == "optuna":
+        return "TL-opt"
+    return str(subset)
+
+
 @tensorleap_metadata("data_type", DatasetMetadataType.string)
 def data_type_metadata(idx: int, preprocessing: PreprocessResponse) -> str:
     record = preprocessing.data[idx]
     if not isinstance(record, dict):
         return "real"
+    if record.get("subset") == "cosmos":
+        return "cosmos"
     if "run_config" not in record:
         return "real"
     return str(record.get("subset", "synth"))
@@ -56,7 +70,9 @@ def sample_metadata(idx: int, preprocessing: PreprocessResponse) -> dict:
 
     return {
         "image_sharpness": sharpness,
-        "subset": record["subset"],
+        "subset": _display_subset(record),
+        "render_type": str(record.get("render_type", "")),
+        "source_group": str(record.get("source_group", "")),
         "optuna_bucket": str(record.get("optuna_bucket", "")),
         "optuna_theme": str(record.get("optuna_theme", "")),
         "optuna_repetition": str(record.get("optuna_repetition", "")),

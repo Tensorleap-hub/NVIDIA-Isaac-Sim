@@ -46,6 +46,50 @@ aws s3 sync s3://nvidia-isaac-bucket/trajectory-tests/20260712_cosmos_optuna/ ./
 
 Both prefixes are still being updated (as of 2026-07-12) — re-run the sync later today to pick up the latest clips before relying on them.
 
+## Reproducing the Cosmos Tensorleap Sample on a New Machine
+
+The Tensorleap integration (`tensorleap_intgration_code/`) does not read data from this repo — it
+reads from a local "warehouse" directory configured as `data.data_path` in
+`tensorleap_intgration_code/project_config.yaml` (default:
+`/Users/orram/Tensorleap/data/warehouse`). To push the same sample from a different computer,
+that directory needs the following subfolders, and three CSVs need to exist at the repo root.
+
+**Local folders expected under `data_path`** (only the ones the current config actually reads —
+see `additional: true` in `project_config.yaml`):
+
+| Local path (relative to `data_path`) | What it is |
+|---|---|
+| `dataset/labels/`, `dataset/subset-2/`, `dataset/subset-3/` | LOCO real images + annotations (`loco-all-v1.json`); subset-2 = train, subset-3 = val |
+| `base_v2_final/` | `base_synth_data` — base Isaac synthetic run |
+| `warehouse3cls_cosmos_themes/`, `warehouse3cls_cosmos_themes_original/` | `cosmos_data` COCO datasets, theme sweep (stylized + original) |
+| `warehouse3cls_cosmos_optuna/`, `warehouse3cls_cosmos_optuna_original/` | `cosmos_data` COCO datasets, optuna sweep (stylized + original) |
+| `20260708_cosmos_v4/`, `20260712_cosmos_v4/`, `20260712_cosmos_optuna/` | `cosmos_data.run_config_roots` — only the `run_config.yaml` file in each run folder is read (per-run SDG params), not the rendered frames |
+
+**Repo-root files expected** (used by `sample_selection_filter`, not committed to git):
+
+- `comparison_subset3_proximity_by_ls.csv`
+- `comparison_subset3_proximity_by_ls_base_synth_bbox80.csv`
+- `manual_base_tlopt_selection_500.csv`
+
+`synth_data`, `extended_data`, `optuna_data`, and `optuna_tests_data` are currently disabled
+(`additional: false`) and are not required to reproduce the current push.
+
+**Bash helper:** `scripts/sync_cosmos_presentation_data.sh` pulls all of the above from
+`s3://nvidia-isaac-bucket/cosmos-presentation-data/`. For any folder/file not yet present there,
+it uploads the local copy instead, so the first person to run it seeds the S3 prefix for everyone
+else:
+
+```bash
+./scripts/sync_cosmos_presentation_data.sh              # sync against the default warehouse path
+./scripts/sync_cosmos_presentation_data.sh --dry-run     # preview what would be uploaded/downloaded
+./scripts/sync_cosmos_presentation_data.sh --local-root /path/to/warehouse
+```
+
+If `data_path` on the new machine differs from
+`/Users/orram/Tensorleap/data/warehouse`, either pass `--local-root` to match your warehouse
+location, or update `data.data_path` (and the other `*_data.base_path` / `run_config_roots`
+fields) in `tensorleap_intgration_code/project_config.yaml` to point at it.
+
 ## Important Files
 
 - `leap_integration.py`: Tensorleap integration entrypoint

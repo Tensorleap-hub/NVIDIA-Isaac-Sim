@@ -23,7 +23,6 @@ DEFAULT_CONFIG: Dict = {
         'position_spread': 2,
     },
     'optimization_metrics': ['mmd_rbf'],
-    'logit_bounds': (-5.0, 5.0),
     'convergence_threshold': 0.05,
     'early_stop_patience': 3,
     'optimizer': {

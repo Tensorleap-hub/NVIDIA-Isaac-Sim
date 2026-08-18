@@ -1,10 +1,11 @@
+import csv
 import json
 import os
 import random
 import re
 from collections import Counter
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Set
 
 import cv2
 import numpy as np
@@ -25,6 +26,50 @@ from tensorleap_intgration_code.config import COCO_ID_TO_IDX, CONFIG, abs_path_f
 
 IMAGE_SIZE = int(CONFIG["image_size"])
 MAX_DETS = int(CONFIG["max_num_of_objects"])
+
+
+def _ids_from_proximity_csv(csv_path: str, target_ls: str, groups: Optional[Set[str]] = None) -> Set[str]:
+    """Read a scripts/latent_space_subset3_proximity.py output CSV, filtered to one
+    latent_space and (optionally) a subset of its `group` values."""
+    ids = set()
+    with open(abs_path_from_root(csv_path), "r", newline="") as f:
+        for row in csv.DictReader(f):
+            if row["latent_space"] != target_ls:
+                continue
+            if groups is not None and row["group"] not in groups:
+                continue
+            ids.add(row["sample_id"])
+    return ids
+
+
+def _load_selection_filter_ids() -> Optional[Set[str]]:
+    """Return the set of sample_ids selected by the configured
+    sample_selection_filter.option, or None if the filter is disabled."""
+    cfg = CONFIG.get("sample_selection_filter") or {}
+    if not cfg.get("enabled"):
+        return None
+    option = cfg.get("option", "baseline")
+    target_ls = cfg["latent_space"]
+
+    if option == "baseline":
+        selected_ids = _ids_from_proximity_csv(cfg["csv_path"], target_ls)
+    elif option == "bbox80":
+        selected_ids = _ids_from_proximity_csv(cfg["bbox80_csv_path"], target_ls)
+    elif option == "manual_plus_cosmos":
+        manual_ids = set()
+        with open(abs_path_from_root(cfg["manual_csv_path"]), "r", newline="") as f:
+            for row in csv.DictReader(f):
+                manual_ids.add(row["Index"])
+        cosmos_ids = _ids_from_proximity_csv(
+            cfg["csv_path"], target_ls, groups={"TL-opt+cosmos", "base_synth+cosmos"}
+        )
+        selected_ids = manual_ids | cosmos_ids
+    else:
+        raise ValueError(f"Unknown sample_selection_filter.option: {option!r}")
+
+    if not selected_ids:
+        raise ValueError(f"No sample ids resolved for sample_selection_filter option={option!r}")
+    return selected_ids
 
 
 def _validate_unique_sample_ids(sample_ids: list[str], label: str) -> None:
@@ -71,8 +116,191 @@ def _make_additional_sample_id(r: dict) -> str:
         )
     elif r["subset"] == "base_synth":
         return f"base_synth_{r['experiment']}_frame{r['image_id']}"
+    elif r["subset"] == "cosmos":
+        return f"cosmos_{r['source_group']}_{r['render_type']}_{r['cosmos_split']}_{r['image_id']}"
     else:
         raise ValueError(f"Unsupported additional subset {r['subset']!r}")
+
+
+# cosmos COCO class name -> config coco_id (config idx: small_load_carrier=0, forklift=1, pallet=2)
+_COSMOS_NAME_TO_CONFIG_COCO_ID = {
+    "pallet_truck": 3,
+    "small_load_carrier": 3,
+    "forklift": 5,
+    "pallet": 7,
+}
+
+
+def _read_cosmos_dataset_records() -> list:
+    """Read the paired cosmos original/stylized COCO datasets into records.
+
+    Each dataset is a COCO dir (train/ + valid/) built by prepare_cosmos_dataset.py and
+    prepare_cosmos_original_twins.py. Records are tagged with render_type (original|cosmos)
+    and source_group (themes|optuna) for metadata slicing; cosmos category ids are remapped
+    to the config coco_ids so COCO_ID_TO_IDX resolves them.
+    """
+    cfg = CONFIG.get("cosmos_data") or {}
+    base_path = Path(cfg["base_path"])
+    num_samples = cfg.get("num_samples")
+    run_config_index = _load_cosmos_run_config_index(cfg)
+    records: list = []
+
+    for entry in cfg.get("datasets", []):
+        render_type = entry["render_type"]
+        source_group = entry["source_group"]
+        dataset_dir = base_path / entry["dir"]
+        dataset_records: list = []
+
+        for split in ("train", "valid"):
+            ann_path = dataset_dir / split / "_annotations.coco.json"
+            if not ann_path.is_file():
+                continue
+            with open(ann_path, "r") as f:
+                coco = json.load(f)
+
+            cat_id_to_config_id = {}
+            for cat in coco["categories"]:
+                mapped = _COSMOS_NAME_TO_CONFIG_COCO_ID.get(cat["name"])
+                if mapped is not None:
+                    cat_id_to_config_id[cat["id"]] = mapped
+
+            anns_by_image = {}
+            for ann in coco["annotations"]:
+                mapped_id = cat_id_to_config_id.get(ann["category_id"])
+                if mapped_id is None:
+                    continue
+                anns_by_image.setdefault(ann["image_id"], []).append(
+                    {"category_id": mapped_id, "bbox": ann["bbox"]}
+                )
+
+            for img in coco["images"]:
+                image_stem = Path(img["file_name"]).stem
+                run_folder = _cosmos_run_folder_from_image_stem(image_stem, run_config_index)
+                run_config = run_config_index.get(run_folder)
+                record = {
+                    "image_id": Path(img["file_name"]).stem,
+                    "path": str(dataset_dir / split / img["file_name"]),
+                    "width": img["width"],
+                    "height": img["height"],
+                    "subset": "cosmos",
+                    "anns": anns_by_image.get(img["id"], []),
+                    "render_type": render_type,
+                    "source_group": source_group,
+                    "cosmos_split": split,
+                    "experiment": run_folder or "",
+                    "run_config": run_config,
+                }
+                record.update(_parse_cosmos_run_fields(run_folder))
+                dataset_records.append(record)
+
+        if num_samples is not None and len(dataset_records) > num_samples:
+            rng = random.Random(f"cosmos_{source_group}_{render_type}")
+            rng.shuffle(dataset_records)
+            dataset_records = dataset_records[:num_samples]
+
+        records.extend(dataset_records)
+
+    return records
+
+
+def _load_cosmos_run_config_index(cfg: dict) -> dict:
+    """Index configured Cosmos run_config.yaml files by their run folder name."""
+    roots = cfg.get("run_config_roots") or []
+    index = {}
+    for root in roots:
+        root_path = Path(root)
+        if not root_path.is_absolute():
+            root_path = Path(abs_path_from_root(str(root_path)))
+        if not root_path.is_dir():
+            continue
+        for run_config_path in sorted(root_path.rglob("run_config.yaml")):
+            with run_config_path.open("r") as f:
+                exp_config = yaml.safe_load(f)
+            index[run_config_path.parent.name] = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+    return index
+
+
+def _cosmos_run_folder_from_image_stem(image_stem: str, run_config_index: dict) -> str:
+    """Infer source folder from image name; e.g. folder_clean_0001 -> folder."""
+    source_stem = re.sub(r"_\d+$", "", image_stem)
+    matches = [
+        folder
+        for folder in run_config_index
+        if source_stem == folder or source_stem.startswith(f"{folder}_")
+    ]
+    if not matches:
+        return ""
+    return max(matches, key=len)
+
+
+_COSMOS_OPTUNA_RE = re.compile(
+    r"^(?P<trial>[a-z]+\d+)_[^_]+_r\d+_iter(?P<iteration>\d+)_run(?P<run>\d+)_seed(?P<seed>\d+)$"
+)
+_COSMOS_TOP_RE = re.compile(
+    r"^r(?P<trial>\d+)_top\d+_[^_]+_[^_]+_seed(?P<seed>\d+)$"
+)
+
+
+def _parse_cosmos_run_fields(run_folder: str) -> dict:
+    fields = {
+        "run_number": 0,
+        "iteration": None,
+        "trial_number": None,
+        "optuna_theme": "",
+        "optuna_repetition": "",
+    }
+    if not run_folder:
+        return fields
+
+    optuna_match = _COSMOS_OPTUNA_RE.match(run_folder)
+    if optuna_match:
+        fields.update({
+            "run_number": int(optuna_match.group("run")),
+            "iteration": int(optuna_match.group("iteration")),
+            "trial_number": int(optuna_match.group("trial")[2:]),
+            "optuna_theme": optuna_match.group("trial"),
+            "optuna_repetition": f"seed{optuna_match.group('seed')}",
+        })
+        return fields
+
+    top_match = _COSMOS_TOP_RE.match(run_folder)
+    if top_match:
+        fields.update({
+            "trial_number": int(top_match.group("trial")),
+            "optuna_theme": f"top{top_match.group('trial')}",
+            "optuna_repetition": f"seed{top_match.group('seed')}",
+        })
+
+    return fields
+
+
+def _load_cosmos_records() -> list:
+    """Cosmos records for the additional split (empty unless cosmos_data.additional is set)."""
+    cfg = CONFIG.get("cosmos_data") or {}
+    if not cfg.get("additional"):
+        return []
+    return _read_cosmos_dataset_records()
+
+
+def _preprocess_cosmos_only() -> List[PreprocessResponse]:
+    """Build train/val purely from the cosmos original/stylized datasets (no LOCO/synth)."""
+    records = _read_cosmos_dataset_records()
+    sort_key = lambda r: (r["source_group"], r["render_type"], r["image_id"])
+    train_records = sorted((r for r in records if r["cosmos_split"] == "train"), key=sort_key)
+    val_records = sorted((r for r in records if r["cosmos_split"] == "valid"), key=sort_key)
+
+    train_ids = [_make_additional_sample_id(r) for r in train_records]
+    val_ids = [_make_additional_sample_id(r) for r in val_records]
+    _validate_unique_sample_ids(train_ids, "cosmos training split")
+    _validate_unique_sample_ids(val_ids, "cosmos validation split")
+    _validate_unique_sample_ids(train_ids + val_ids, "cosmos all splits")
+
+    return [
+        PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids,
+                           state=DataStateType.training),
+        PreprocessResponse(data={sid: r for sid, r in zip(val_ids, val_records)}, sample_ids=val_ids,
+                           state=DataStateType.validation),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +325,9 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     custom_cfg = CONFIG.get("custom_latent_space") or {}
     if custom_cfg.get("real_cache_manifest") or custom_cfg.get("base_cache_manifest") or custom_cfg.get("runs_root"):
         return _preprocess_custom_latent_space(custom_cfg)
+
+    if (CONFIG.get("cosmos_data") or {}).get("cosmos_only"):
+        return _preprocess_cosmos_only()
 
     data_path = CONFIG["data"]["data_path"]
     ann_file = os.path.join(data_path, CONFIG["data"]["annotations_file"])
@@ -135,11 +366,7 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
     extended_records = _load_extended_records()
     optuna_records = _load_optuna_records()
     optuna_test_records = _load_optuna_test_records()
-
-    max_samples = CONFIG.get("max_samples")
-    if max_samples is not None:
-        train_records = train_records[:max_samples]
-        val_records   = val_records[:max_samples]
+    cosmos_records = _load_cosmos_records()
 
     synth_records.sort(key=lambda r: r["run_number"])
     base_synth_records.sort(key=lambda r: (r["experiment"], r["image_id"]))
@@ -163,11 +390,37 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         )
     )
 
-    additional_records = synth_records + base_synth_records + extended_records + optuna_records + optuna_test_records
+    cosmos_records.sort(key=lambda r: (r["source_group"], r["render_type"], r["cosmos_split"], r["image_id"]))
+
+    max_samples = CONFIG.get("max_samples")
+    if max_samples is not None:
+        train_records = train_records[:max_samples]
+        val_records = val_records[:max_samples]
+        synth_records = synth_records[:max_samples]
+        base_synth_records = base_synth_records[:max_samples]
+        extended_records = extended_records[:max_samples]
+        optuna_records = optuna_records[:max_samples]
+        optuna_test_records = optuna_test_records[:max_samples]
+        cosmos_records = cosmos_records[:max_samples]
+
+    additional_records = synth_records + base_synth_records + extended_records + optuna_records + optuna_test_records + cosmos_records
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
     additional_ids = [_make_additional_sample_id(r) for r in additional_records]
+
+    selection_filter_ids = _load_selection_filter_ids()
+    if selection_filter_ids is not None:
+        kept = [
+            (sid, r) for sid, r in zip(additional_ids, additional_records) if sid in selection_filter_ids
+        ]
+        print(
+            f"sample_selection_filter enabled: keeping {len(kept)}/{len(additional_ids)} "
+            f"additional samples ({len(selection_filter_ids)} selected ids)"
+        )
+        additional_ids = [sid for sid, _ in kept]
+        additional_records = [r for _, r in kept]
+
     _validate_unique_sample_ids(train_ids, "training split")
     _validate_unique_sample_ids(val_ids, "validation split")
     _validate_unique_sample_ids(additional_ids, "additional split")

@@ -35,6 +35,21 @@ def _bool_to_float(value):
     return float(bool(value))
 
 
+def _camera_config(rc: dict) -> dict:
+    cam = rc.get("camera", {})
+    if cam:
+        return cam
+    return rc.get("cameras", {}).get("ego", {})
+
+
+def _camera_value(cam: dict, old_key: str, new_key: str = None):
+    if old_key in cam:
+        return cam.get(old_key)
+    if new_key and new_key in cam:
+        return cam.get(new_key)
+    return None
+
+
 def _get_record_and_config(idx: str, preprocess: PreprocessResponse):
     record = preprocess.data[idx]
     rc = record.get("run_config") if isinstance(record, dict) else None
@@ -251,7 +266,7 @@ def synth_metadata(idx: str, preprocess: PreprocessResponse) -> dict:
     if not rc:
         return _SENTINEL.copy()
 
-    cam = rc.get("camera", {})
+    cam = _camera_config(rc)
     pj = rc.get("palletjacks", {})
     light = rc.get("lighting", {})
     mat = rc.get("materials", {})
@@ -259,8 +274,11 @@ def synth_metadata(idx: str, preprocess: PreprocessResponse) -> dict:
     dist = rc.get("distractors", {})
     textures = mat.get("textures", [])
 
-    tilt_min = cam.get("camera_tilt_min")
-    tilt_max = cam.get("camera_tilt_max")
+    height = _camera_value(cam, "camera_height_mean", "height_m")
+    tilt = _camera_value(cam, "camera_tilt_mean", "pitch_deg")
+    roll = _camera_value(cam, "camera_roll_mean", "roll_deg")
+    tilt_min = _camera_value(cam, "camera_tilt_min", "pitch_deg")
+    tilt_max = _camera_value(cam, "camera_tilt_max", "pitch_deg")
 
     return {
         "synth_source":                      str(record.get("subset", "")),
@@ -277,14 +295,14 @@ def synth_metadata(idx: str, preprocess: PreprocessResponse) -> dict:
         "synth_render_height":               int(render.get("height", 0)),
         "synth_env_name":                    str(rc.get("environment", {}).get("name", "")),
         "synth_camera_type":                 str(cam.get("camera_type", "pinhole")),
-        "synth_camera_height_min":           float(cam.get("camera_height_min", _NAN)),
-        "synth_camera_height_max":           float(cam.get("camera_height_max", _NAN)),
+        "synth_camera_height_min":           _float_or_nan(_camera_value(cam, "camera_height_min", "height_m") if height is None else height),
+        "synth_camera_height_max":           _float_or_nan(_camera_value(cam, "camera_height_max", "height_m") if height is None else height),
         "synth_camera_tilt_min":             float(tilt_min) if tilt_min is not None else _NAN,
         "synth_camera_tilt_max":             float(tilt_max) if tilt_max is not None else _NAN,
-        "synth_camera_yaw_min":              float(cam.get("camera_yaw_min", _NAN)),
-        "synth_camera_yaw_max":              float(cam.get("camera_yaw_max", _NAN)),
-        "synth_camera_roll_min":             float(cam.get("camera_roll_min", _NAN)),
-        "synth_camera_roll_max":             float(cam.get("camera_roll_max", _NAN)),
+        "synth_camera_yaw_min":              _float_or_nan(_camera_value(cam, "camera_yaw_min")),
+        "synth_camera_yaw_max":              _float_or_nan(_camera_value(cam, "camera_yaw_max")),
+        "synth_camera_roll_min":             _float_or_nan(_camera_value(cam, "camera_roll_min", "roll_deg") if roll is None else roll),
+        "synth_camera_roll_max":             _float_or_nan(_camera_value(cam, "camera_roll_max", "roll_deg") if roll is None else roll),
         "synth_fov_min":                     float(cam.get("fov_min", _NAN)),
         "synth_fov_max":                     float(cam.get("fov_max", _NAN)),
         "synth_noise_std_min":               float(cam.get("noise_std_min", _NAN)),
@@ -319,7 +337,7 @@ def synth_metadata_mean_std(idx: str, preprocess: PreprocessResponse) -> dict:
     if not rc:
         return _MEAN_STD_SENTINEL.copy()
 
-    cam = rc.get("camera", {})
+    cam = _camera_config(rc)
     pj = rc.get("palletjacks", {})
     light = rc.get("lighting", {})
     mat = rc.get("materials", {})
@@ -360,13 +378,13 @@ def synth_metadata_mean_std(idx: str, preprocess: PreprocessResponse) -> dict:
         "synth_camera_position_mean_y":            _vector_item(cam.get("position_mean"), 1),
         "synth_camera_position_std_x":             _vector_item(cam.get("position_std"), 0),
         "synth_camera_position_std_y":             _vector_item(cam.get("position_std"), 1),
-        "synth_camera_height_mean":                _float_or_nan(cam.get("camera_height_mean")),
+        "synth_camera_height_mean":                _float_or_nan(_camera_value(cam, "camera_height_mean", "height_m")),
         "synth_camera_height_std":                 _float_or_nan(cam.get("camera_height_std")),
-        "synth_camera_tilt_mean":                  _float_or_nan(cam.get("camera_tilt_mean")),
+        "synth_camera_tilt_mean":                  _float_or_nan(_camera_value(cam, "camera_tilt_mean", "pitch_deg")),
         "synth_camera_tilt_std":                   _float_or_nan(cam.get("camera_tilt_std")),
         "synth_camera_yaw_mean":                   _float_or_nan(cam.get("camera_yaw_mean")),
         "synth_camera_yaw_std":                    _float_or_nan(cam.get("camera_yaw_std")),
-        "synth_camera_roll_mean":                  _float_or_nan(cam.get("camera_roll_mean")),
+        "synth_camera_roll_mean":                  _float_or_nan(_camera_value(cam, "camera_roll_mean", "roll_deg")),
         "synth_camera_roll_std":                   _float_or_nan(cam.get("camera_roll_std")),
         "synth_focal_length_mean":                 _float_or_nan(cam.get("focal_length_mean")),
         "synth_focal_length_std":                  _float_or_nan(cam.get("focal_length_std")),

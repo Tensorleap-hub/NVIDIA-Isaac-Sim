@@ -149,7 +149,7 @@ def get_per_sample_metrics(
 # Confusion matrix
 # ---------------------------------------------------------------------------
 
-@tensorleap_custom_metric("Confusion Matrix")
+@tensorleap_custom_metric("Confusion Matrix", compute_insights=False)
 def confusion_matrix_metric(
     dets: np.ndarray, labels: np.ndarray, classes: np.ndarray
 ):

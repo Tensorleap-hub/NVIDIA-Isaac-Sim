@@ -31,7 +31,7 @@ from tensorleap_intgration_code import (
     rtdetr_loss_components_native,
     rtdetr_total_loss_native,
     sample_metadata,
-    # synth_metadata_mean_std,
+    synth_metadata_mean_std,
 )
 from tensorleap_intgration_code.config import CONFIG, abs_path_from_root
 
@@ -69,7 +69,7 @@ def check_integration(idx, subset):
     _ = confusion_matrix_metric(dets_out, labels_out, gt)
     _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
-    # _ = synth_metadata_mean_std(idx, subset)
+    _ = synth_metadata_mean_std(idx, subset)
 
 
 if __name__ == "__main__":

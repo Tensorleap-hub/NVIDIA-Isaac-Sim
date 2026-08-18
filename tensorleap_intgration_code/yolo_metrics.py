@@ -110,7 +110,7 @@ def yolo_per_sample_metrics(output0: np.ndarray, classes: np.ndarray):
     return metrics
 
 
-@tensorleap_custom_metric("yolo_confusion_matrix")
+@tensorleap_custom_metric("yolo_confusion_matrix", compute_insights=False)
 def yolo_confusion_matrix(output0: np.ndarray, classes: np.ndarray):
     image_size = float(CONFIG["image_size"])
     labels_arr, boxes_xyxy_pix, scores_arr = decode_yolo_output(output0)

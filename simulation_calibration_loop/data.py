@@ -40,7 +40,7 @@ class RunArtifact:
     embedding_path: Path
     image_count: int
     flattened_params: dict[str, Any]
-    optuna_trial_number: int | None
+    dist_id: str | None
     objective_value: float | None = None
     base_pool_entry_id: str | None = None
     base_pool_lineage: str | None = None

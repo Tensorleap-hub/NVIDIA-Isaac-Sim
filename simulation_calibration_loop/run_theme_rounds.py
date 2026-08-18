@@ -177,12 +177,12 @@ def _upload_theme_best_runs(workspace_dir: Path, s3_prefix: str, top_n: int) -> 
 
     artifacts.sort(key=lambda x: float(x["objective_value"]))
 
-    distances_lines = ["run_id\tobjective_value\toptuna_trial_number\tyaml_path"]
+    distances_lines = ["run_id\tobjective_value\tdist_id\tyaml_path"]
     for item in artifacts:
         distances_lines.append(
             f"{item['run_id']}\t"
             f"{item['objective_value']:.6f}\t"
-            f"{item.get('optuna_trial_number', '')}\t"
+            f"{item.get('dist_id', '')}\t"
             f"{item.get('yaml_path', '')}"
         )
     distances_text = "\n".join(distances_lines) + "\n"
@@ -193,8 +193,8 @@ def _upload_theme_best_runs(workspace_dir: Path, s3_prefix: str, top_n: int) -> 
 
         for item in artifacts[:top_n]:
             run_id = item["run_id"]
-            trial_num = item.get("optuna_trial_number")
-            trial_id = f"trial_{trial_num}" if trial_num is not None else run_id
+            dist_id = item.get("dist_id")
+            trial_id = dist_id if dist_id is not None else run_id
             trial_dir = stage / trial_id
 
             output_dir = Path(item["output_dir"])

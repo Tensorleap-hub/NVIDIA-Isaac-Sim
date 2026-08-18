@@ -3,10 +3,9 @@ Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 """
 
 import math
-import numbers
 import optuna
-from pathlib import Path
-from typing import Dict, List, Tuple
+from scipy.stats.qmc import Sobol
+from typing import Dict, List, Optional, Tuple
 
 
 class OptunaOptimizer:
@@ -25,40 +24,33 @@ class OptunaOptimizer:
     - Pareto front tracking for trade-off analysis
     - SQLite persistence for study state
 
-    Min/max handling:
-    - If a parameter pair uses *_min and *_max bounds in param_bounds, the optimizer
-      transforms it internally to *_min and *_delta where delta = max - min.
-    - Optuna operates on min + delta to guarantee max >= min; outgoing suggestions
-      are converted back to min/max and clamped to the original max bounds.
-    - current_distributions provided to suggest_next_distributions should use
-      min/max keys; they are normalized to min/delta before add_trial().
-    - Ensure min/max bounds are consistent (max upper bound > min lower bound),
-      or the derived delta range may be too small.
     """
 
     def __init__(
         self,
-        experiment_dir: Path,
         config: Dict,
         param_bounds: Dict[str, Dict],
         param_type: Dict[str, Dict[str, str]],
+        logit_bounds: Tuple[float, float] = (-2.0, 2.0)
     ):
         """
         Initialize Optuna optimizer.
 
         Args:
-            experiment_dir: Path to experiment directory for SQLite storage
             config: Experiment configuration dict with optimization_metrics, etc.
-                    Reads `logit_bounds` (defaults to (-5.0, 5.0)).
             param_bounds: Dict mapping simulation names to their parameter bounds
                           e.g., {'simulation_1': {'void_count_mean': [1.0, 10.0], ...}}
                           Simulation names (group_names) are inferred from the keys
             param_type: Dict mapping simulation names to parameter type strings
+            logit_bounds: Min/max bounds for shape logits (default: -2.0 to 2.0).
+                Mix-weight prior: tighter bounds bias the uniform-on-the-cube
+                Sobol startup and TPE proposals toward equal softmax weights.
+                (-2, 2) allows max softmax ratio of e^4 ~ 55x — enough to
+                express any realistic per-sim skew (e.g., 98%/1%/1%) while
+                keeping the bulk of the search volume near uniform mix.
         """
-        self.experiment_dir = Path(experiment_dir)
         self.config = config
-        self.study_path = self.experiment_dir / "optuna_study.db"
-        self.logit_bounds = tuple(config.get('logit_bounds', (-5.0, 5.0)))
+        self.logit_bounds = logit_bounds
         self.param_type = param_type
 
         # Validate inputs
@@ -79,9 +71,8 @@ class OptunaOptimizer:
                     f"param_type keys for '{group_name}' must match param_bounds keys"
                 )
 
-        # Find and swich min/max params to min + delta
-        # 2. All params for all shapes
-        self.param_bounds, self.param_type = self._arrange_param_bounds(param_bounds, param_type)
+        self.param_bounds = param_bounds
+        self.param_type = param_type
 
         # Infer group names from param_bounds keys (sorted for deterministic order)
         self.group_names = sorted(param_bounds.keys())
@@ -90,17 +81,12 @@ class OptunaOptimizer:
         self.optimization_metrics = config.get('optimization_metrics', ['mmd_rbf', 'mean_nn_distance'])
         n_objectives = len(self.optimization_metrics)
 
-        # Ensure experiment directory exists
-        self.experiment_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create or load Optuna study with SQLite persistence
-        #storage = f"sqlite:///{self.study_path}"
         study_name = config.get('experiment_name', 'optuna_study')
 
         # Get optimizer config
         optimizer_config = config.get('optimizer', {})
         multivariate = optimizer_config.get('multivariate', True)
-        group = optimizer_config.get('group', False)
+        group = optimizer_config.get('group', True)
         constant_liar = optimizer_config.get('constant_liar', True)
 
         # Set n_startup_trials: higher for joint optimization due to larger search space
@@ -126,20 +112,27 @@ class OptunaOptimizer:
                 multivariate=multivariate,
                 group=group,
                 constant_liar=constant_liar,
-                warn_independent_sampling=False,
+                warn_independent_sampling=False
             )
         )
 
-        # Track pending trials from last ask() for potential future completion
-        self.pending_trials = []
+        self.n_startup_trials = n_startup_trials
+        self.random_seed = config.get('random_seed', 42)
+
+        # Track distributions asked-but-not-yet-told. Keyed by dist_id.
+        # Value is (Optional[Trial], params_with_logits):
+        #   Trial present  → TPE-asked, complete via study.tell()
+        #   Trial is None  → Sobol-asked, complete via add_trial(create_trial(...))
+        self._asked: Dict[str, Tuple[Optional[optuna.Trial], Dict]] = {}
 
         print(f"Initialized OptunaOptimizer (joint mode)")
-        print(f"  Study storage: {self.study_path}")
         print(f"  Study name: {study_name}")
         print(f"  Objectives: {n_objectives} ({', '.join(self.optimization_metrics)})")
-        print(f"  Logit bounds: {self.logit_bounds}")
+        print(f"  Logit bounds: {logit_bounds}")
         print(f"  TPE startup trials: {n_startup_trials}")
         print(f"  TPE multivariate: {multivariate}")
+        print(f"  TPE group: {group}")
+        print(f"  TPE constant_liar: {constant_liar}")
         print(f"  Groups: {', '.join(self.group_names)}")
         for group_name in self.group_names:
             params = list(self.param_bounds[group_name].keys())
@@ -154,18 +147,18 @@ class OptunaOptimizer:
         2. All parameters for all shapes
 
         Returns:
-            Dict with shape_logit_* keys and {shape}__{param} keys
+            Dict with simulation_logit_* keys and {shape}__{param} keys
         """
         params = {}
 
         # 1. Shape logits (converted to probs downstream via softmax)
         for group_name in self.group_names:
             logit = trial.suggest_float(
-                f'shape_logit_{group_name}',
+                f'simulation_logit_{group_name}',
                 self.logit_bounds[0],
                 self.logit_bounds[1]
             )
-            params[f'shape_logit_{group_name}'] = logit
+            params[f'simulation_logit_{group_name}'] = logit
 
         # 2. All params for all shapes
         for group_name in self.group_names:
@@ -246,6 +239,25 @@ class OptunaOptimizer:
 
         raise ValueError(f"Invalid param_type: {param_type}")
 
+    def _expand_logit_bounds_from_data(self, current_distributions: List[Tuple[str, Dict]]):
+        min_logit = float('inf')
+        max_logit = float('-inf')
+
+        for _, params in current_distributions:
+            for param_name, value in params.items():
+                if param_name.startswith('simulation_logit_'):
+                    min_logit = min(min_logit, value)
+                    max_logit = max(max_logit, value)
+
+        if min_logit < float('inf') and max_logit > float('-inf'):
+            margin = max(abs(max_logit - min_logit) * 0.2, 1.0)
+            new_lower = min(self.logit_bounds[0], min_logit - margin)
+            new_upper = max(self.logit_bounds[1], max_logit + margin)
+
+            if new_lower < self.logit_bounds[0] or new_upper > self.logit_bounds[1]:
+                print(f"  Expanding logit bounds from {self.logit_bounds} to ({new_lower:.2f}, {new_upper:.2f})")
+                self.logit_bounds = (new_lower, new_upper)
+
     def _build_full_distributions(self) -> Dict:
         """
         Build Optuna distributions for all params (logits + all shape params).
@@ -259,7 +271,7 @@ class OptunaOptimizer:
 
         # Logit distributions
         for group_name in self.group_names:
-            distributions[f'shape_logit_{group_name}'] = optuna.distributions.FloatDistribution(
+            distributions[f'simulation_logit_{group_name}'] = optuna.distributions.FloatDistribution(
                 self.logit_bounds[0], self.logit_bounds[1]
             )
 
@@ -338,8 +350,8 @@ class OptunaOptimizer:
                           e.g., {'circle': 100, 'ellipse': 80, 'irregular': 70}
 
         Returns:
-            Dict with shape_logit_* keys
-            e.g., {'shape_logit_circle': -0.22, 'shape_logit_ellipse': -0.44, ...}
+            Dict with simulation_logit_* keys
+            e.g., {'simulation_logit_circle': -0.22, 'simulation_logit_ellipse': -0.44, ...}
         """
         total = sum(sample_counts.values())
         if total == 0:
@@ -351,7 +363,7 @@ class OptunaOptimizer:
             prob = max(count / total, 1e-6)
             # Inverse softmax: logit = log(prob)
             # (constant offset cancels out in softmax)
-            logits[f'shape_logit_{shape}'] = math.log(prob)
+            logits[f'simulation_logit_{shape}'] = math.log(prob)
 
         return logits
 
@@ -361,13 +373,13 @@ class OptunaOptimizer:
         Convert shape logits in params dict to probabilities via softmax.
 
         Args:
-            params: Dict containing shape_logit_* keys
+            params: Dict containing simulation_logit_* keys
 
         Returns:
             Dict mapping shape names to probabilities (sum to 1.0)
         """
         # Extract logits
-        logit_prefix = 'shape_logit_'
+        logit_prefix = 'simulation_logit_'
         logits = {}
         for key, value in params.items():
             if key.startswith(logit_prefix):
@@ -388,18 +400,18 @@ class OptunaOptimizer:
     @staticmethod
     def convert_logits_to_probs_in_params(params: Dict) -> Dict:
         """
-        Convert shape_logit_* keys to shape_prob_* keys with softmax probabilities.
+        Convert simulation_logit_* keys to simulation_prob_* keys with softmax probabilities.
 
         This is for output formatting only - internally the optimizer still uses logits.
 
         Args:
-            params: Dict with shape_logit_* and other parameter keys
+            params: Dict with simulation_logit_* and other parameter keys
 
         Returns:
-            New dict with shape_prob_* instead of shape_logit_*, plus all other params
+            New dict with simulation_prob_* instead of simulation_logit_*, plus all other params
         """
         # Extract logits and compute probabilities
-        logit_prefix = 'shape_logit_'
+        logit_prefix = 'simulation_logit_'
         logits = {}
         other_params = {}
 
@@ -415,251 +427,147 @@ class OptunaOptimizer:
             max_logit = max(logits.values())
             exp_logits = {k: math.exp(v - max_logit) for k, v in logits.items()}
             total = sum(exp_logits.values())
-            probs = {f'shape_prob_{k}': v / total for k, v in exp_logits.items()}
+            probs = {f'simulation_prob_{k}': v / total for k, v in exp_logits.items()}
         else:
             probs = {}
 
         # Return combined dict with probabilities + other params
         return {**probs, **other_params}
 
-    def _arrange_param_bounds(self, param_bounds, param_type):
-        self.max_bound_storage = {}
-        self.max_type_storage = {}
-        rel_eps = 1e-4
-        for group_name in sorted(param_bounds.keys()):
-            group_bounds = param_bounds[group_name]
-            group_types = param_type[group_name]
-            if group_name not in self.max_bound_storage:
-                self.max_bound_storage[group_name] = {}
-            if group_name not in self.max_type_storage:
-                self.max_type_storage[group_name] = {}
-            for param_name, bounds in list(group_bounds.items()):
-                if param_name.endswith('_min'):
-                    base = param_name[:-4]
-                    max_name = f'{base}_max'
-                    delta_name = f'{base}_delta'
-                    if max_name in group_bounds:
-                        max_bounds = group_bounds.pop(max_name)
-                        max_type = group_types.pop(max_name)
-                        self.max_bound_storage[group_name][max_name] = max_bounds
-                        self.max_type_storage[group_name][max_name] = max_type
-                        width_scale = max_bounds[1] - group_bounds[param_name][0]
-                        epsilon = max(rel_eps * width_scale, 1e-12)
+    def _sobol_params(self, offset: int, n_points: int) -> List[Dict]:
+        param_specs = []
+        for group_name in self.group_names:
+            param_specs.append((f'simulation_logit_{group_name}', self.logit_bounds, 'float'))
+        for group_name in self.group_names:
+            for param_name, bounds in self.param_bounds[group_name].items():
+                param_specs.append((f'{group_name}__{param_name}', bounds, self.param_type[group_name][param_name]))
 
-                        max_diff = max_bounds[1] - group_bounds[param_name][0]
-                        max_diff = max(max_diff, epsilon)
+        sampler = Sobol(d=len(param_specs), scramble=True, seed=self.random_seed)
+        if offset > 0:
+            sampler.fast_forward(offset)
+        unit_samples = sampler.random(n_points)
 
-                        diff_min_max = max_bounds[0] - group_bounds[param_name][1]
-                        if max_bounds[0] <= group_bounds[param_name][1]:
-                            min_diff = epsilon
-                        else:
-                            min_diff =  diff_min_max
-
-                        min_type = group_types[param_name]
-                        if min_type == "float" or max_type == "float":
-                            group_types[delta_name] = "float"
-                        else:
-                            group_types[delta_name] = "int"
-                            min_diff = int(round(max(min_diff, 1)))
-                            max_diff = int(round(max(max_diff, 1)))
-
-                        group_bounds[delta_name] = [min_diff, max_diff]
-        return param_bounds, param_type
+        results = []
+        for sample in unit_samples:
+            params = {}
+            for j, (name, bounds, ptype) in enumerate(param_specs):
+                u = float(sample[j])
+                if ptype == 'categorical':
+                    idx = min(int(u * len(bounds)), len(bounds) - 1)
+                    params[name] = bounds[idx]
+                elif ptype == 'int':
+                    low, high = int(bounds[0]), int(bounds[1])
+                    params[name] = min(int(low + u * (high - low + 1)), high)
+                else:
+                    low, high = float(bounds[0]), float(bounds[1])
+                    params[name] = low + u * (high - low)
+            results.append(params)
+        return results
 
     @staticmethod
-    def _split_group_prefix(param_name: str) -> Tuple[str, str, str]:
-        if '__' in param_name:
-            group_name, raw_name = param_name.split('__', 1)
-            name_prefix = f"{group_name}__"
-            return group_name, raw_name, name_prefix
-        return None, param_name, ""
+    def _clamp(params: Dict, distributions: Dict) -> Dict:
+        clamped = {}
+        for key, val in params.items():
+            dist = distributions.get(key)
+            if dist is not None and hasattr(dist, 'low') and hasattr(dist, 'high'):
+                val = max(dist.low, min(dist.high, val))
+            clamped[key] = val
+        return clamped
 
-    @staticmethod
-    def _suffix_name(base: str, suffix: str, name_prefix: str) -> str:
-        return f"{name_prefix}{base}_{suffix}"
+    def replay(
+        self,
+        distributions: List[Tuple[str, Dict]],
+        metrics_list: List[Dict[str, float]],
+    ) -> None:
+        if len(distributions) != len(metrics_list):
+            raise ValueError(
+                f"Mismatch: {len(distributions)} distributions but "
+                f"{len(metrics_list)} metric dicts"
+            )
+        self._expand_logit_bounds_from_data(distributions)
+        full_distributions = self._build_full_distributions()
+        for (_dist_id, params), metrics in zip(distributions, metrics_list):
+            values = [metrics[name] for name in self.optimization_metrics]
+            clamped = self._clamp(params, full_distributions)
+            self.study.add_trial(optuna.trial.create_trial(
+                params=clamped,
+                distributions=full_distributions,
+                values=values,
+                state=optuna.trial.TrialState.COMPLETE,
+            ))
 
-    @staticmethod
-    def _edit_current_distribution(current_distributions: List[Tuple[str,Dict[str, float]]]) -> List[Tuple[str,Dict[str, float]]]:
-        for name, group in current_distributions:
-            for param_name, val in list(group.items()):
-                group_name, raw_name, name_prefix = OptunaOptimizer._split_group_prefix(param_name)
-
-                if raw_name.endswith('_min'):
-                    base = raw_name[:-4]
-                    max_name = OptunaOptimizer._suffix_name(base, 'max', name_prefix)
-                    if max_name in group and isinstance(group[max_name], numbers.Real):
-                        max_val = group.pop(max_name)
-                        delta = max_val - val
-                        delta_name = OptunaOptimizer._suffix_name(base, 'delta', name_prefix)
-                        group[delta_name] = delta
-        return current_distributions
-
-    def _delta_to_max(self, suggestions: List[Tuple[str,Dict[str, float]]]) -> List[Tuple[str,Dict[str, float]]]:
-        for name, group in suggestions:
-            for param_name, val in list(group.items()):
-                group_name, raw_name, name_prefix = self._split_group_prefix(param_name)
-
-                if raw_name.endswith('_min'):
-                    base = raw_name[:-4]
-                    delta_name = self._suffix_name(base, 'delta', name_prefix)
-                    if delta_name in group and isinstance(group[delta_name], numbers.Real):
-                        delta_val = group.pop(delta_name)
-                        max_value = val + delta_val
-                        max_name = self._suffix_name(base, 'max', name_prefix)
-                        min_param_name = f"{base}_min"
-                        max_param_name = f"{base}_max"
-
-                        min_is_int = (group_name and group_name in self.param_type and
-                                     min_param_name in self.param_type[group_name] and
-                                     self.param_type[group_name][min_param_name] == "int")
-                        max_is_int = (group_name and group_name in self.max_type_storage and
-                                     max_param_name in self.max_type_storage[group_name] and
-                                     self.max_type_storage[group_name][max_param_name] == "int")
-
-                        if min_is_int:
-                            val = int(round(val))
-                            group[param_name] = val
-
-                        if max_is_int:
-                            max_value = int(round(max_value))
-
-                        group[max_name] = max_value
-                        if group_name and group_name in self.max_bound_storage and max_param_name in self.max_bound_storage[group_name]:
-                            max_bounds = self.max_bound_storage[group_name][max_param_name]
-
-                            if max_value > max_bounds[-1]:
-                                group[max_name] = int(round(max_bounds[-1])) if max_is_int else max_bounds[-1]
-                            elif max_value < max_bounds[0]:
-                                group[max_name] = int(round(max_bounds[0])) if max_is_int else max_bounds[0]
+    def ask(self, n: int) -> List[Tuple[str, Dict]]:
+        # Advance both the Sobol offset and the dist_id off of *asked* trials
+        # (COMPLETE + FAIL + any pending _asked entry), not off of COMPLETE
+        # trials alone. If we counted only completions, a mark_failed() call
+        # would leave the counter frozen — the next ask() would re-draw the
+        # same Sobol positions and re-use the same dist_ids as the previous
+        # batch, causing wasted re-evaluations and duplicate COMPLETE trials
+        # in the study once the re-drawn point gets tell()'d successfully.
+        asked_count = len(self.study.trials) + len(self._asked)
+        in_startup = asked_count < self.n_startup_trials
+        suggestions: List[Tuple[str, Dict]] = []
+        if in_startup:
+            sobol_points = self._sobol_params(offset=asked_count, n_points=n)
+            for i, params_with_logits in enumerate(sobol_points):
+                dist_id = f"dist_{asked_count + i}"
+                self._asked[dist_id] = (None, params_with_logits)
+                suggestions.append(
+                    (dist_id, self.convert_logits_to_probs_in_params(params_with_logits))
+                )
+        else:
+            for i in range(n):
+                trial = self.study.ask()
+                params_with_logits = self._define_joint_search_space(trial)
+                dist_id = f"dist_{asked_count + i}"
+                self._asked[dist_id] = (trial, params_with_logits)
+                suggestions.append(
+                    (dist_id, self.convert_logits_to_probs_in_params(params_with_logits))
+                )
         return suggestions
+
+    def tell(self, dist_id: str, score: float) -> None:
+        if dist_id not in self._asked:
+            raise KeyError(f"No pending ask for dist_id={dist_id!r}")
+        trial_or_none, params_with_logits = self._asked.pop(dist_id)
+        if trial_or_none is not None:
+            self.study.tell(trial_or_none, score)
+        else:
+            full_distributions = self._build_full_distributions()
+            clamped = self._clamp(params_with_logits, full_distributions)
+            self.study.add_trial(optuna.trial.create_trial(
+                params=clamped,
+                distributions=full_distributions,
+                values=[score],
+                state=optuna.trial.TrialState.COMPLETE,
+            ))
+
+    def mark_failed(self, dist_id: str) -> None:
+        # Drop a trial from TPE's posterior without polluting it with a
+        # noise-spike MMD. Optuna's TPE skips FAIL-state trials when
+        # fitting its kernel density estimate; the ask/tell bookkeeping
+        # still completes so batched proposals stay aligned.
+        if dist_id not in self._asked:
+            raise KeyError(f"No pending ask for dist_id={dist_id!r}")
+        trial_or_none, params_with_logits = self._asked.pop(dist_id)
+        if trial_or_none is not None:
+            self.study.tell(trial_or_none, state=optuna.trial.TrialState.FAIL)
+        else:
+            full_distributions = self._build_full_distributions()
+            clamped = self._clamp(params_with_logits, full_distributions)
+            self.study.add_trial(optuna.trial.create_trial(
+                params=clamped,
+                distributions=full_distributions,
+                values=None,
+                state=optuna.trial.TrialState.FAIL,
+            ))
 
     def suggest_next_distributions(
         self,
         current_distributions: List[Tuple[str, Dict]],
         metrics_list: List[Dict[str, float]],
         config: Dict,
-        trial_numbers: List[int | None] | None = None,
     ) -> List[Tuple[str, Dict]]:
-        """
-        Register current results and suggest next distribution specifications.
-
-        This is the main optimization interface. Each call:
-        1. Registers current distributions and their metrics with Optuna via add_trial()
-        2. Asks Optuna for the next batch of suggestions
-
-        The optimizer is agnostic to data source - it only sees distributions and metrics.
-        Works uniformly for all iterations (initial external data or optimizer-suggested).
-
-        Args:
-            current_distributions: List of (dist_id, params_dict) where params_dict
-                                   contains shape_logit_* and {shape}__{param} keys
-            metrics_list: List of metric dicts corresponding to current_distributions
-            config: Experiment configuration dict
-
-        Returns:
-            suggestions: List of (dist_id, params_dict) tuples for next iteration
-        """
-        if len(current_distributions) != len(metrics_list):
-            raise ValueError(
-                f"Mismatch: {len(current_distributions)} distributions but "
-                f"{len(metrics_list)} metric dicts"
-            )
-        if trial_numbers is None:
-            trial_numbers = []
-            for dist_id, _ in current_distributions:
-                if isinstance(dist_id, str) and dist_id.startswith("trial_"):
-                    try:
-                        trial_numbers.append(int(dist_id.split("_", 1)[1]))
-                    except ValueError:
-                        trial_numbers.append(None)
-                else:
-                    trial_numbers.append(None)
-        if len(trial_numbers) != len(current_distributions):
-            raise ValueError(
-                f"Mismatch: {len(current_distributions)} distributions but "
-                f"{len(trial_numbers)} trial numbers"
-            )
-
-        current_distributions = self._edit_current_distribution(current_distributions)
-
-        # Build full distributions once (same for all trials in joint mode)
-        distributions = self._build_full_distributions()
-
-        # Tell: Register current results with Optuna using add_trial()
-        print(f"  Registering {len(current_distributions)} results with Optuna...")
-
-        existing_trial_numbers = {t.number for t in self.study.trials}
-        for idx, ((dist_id, params), metrics, trial_number) in enumerate(zip(current_distributions, metrics_list, trial_numbers)):
-            # Get metric values
-            trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
-            # Clamp params to distribution bounds. The legitimate case is the
-            # delta≈0 edge of the *_min/*_max → min/delta reparameterization,
-            # where seed pairs with max == min produce delta < epsilon. For all
-            # other out-of-range values, warn loudly so the caller can spot
-            # mis-declared bounds in their config.
-            clamped_params = {}
-            for key, val in params.items():
-                dist = distributions.get(key)
-                if dist is not None and hasattr(dist, 'low') and hasattr(dist, 'high'):
-                    if val < dist.low or val > dist.high:
-                        is_delta = '_delta' in key
-                        if not is_delta:
-                            print(
-                                f"  WARNING: seed value {val!r} for '{key}' falls outside "
-                                f"declared bounds [{dist.low}, {dist.high}]; clamping."
-                            )
-                        val = max(dist.low, min(dist.high, val))
-                clamped_params[key] = val
-            if trial_number is None or trial_number not in existing_trial_numbers:
-                # External seed data, or a trial from a previous in-memory session
-                # that no longer exists after restart — import via add_trial.
-                trial = optuna.trial.create_trial(
-                    params=clamped_params,
-                    distributions=distributions,
-                    values=trial_values,
-                    state=optuna.trial.TrialState.COMPLETE
-                )
-                self.study.add_trial(trial)
-            else:
-                # Complete an asked trial produced in the current session's ask()
-                self.study.tell(
-                    trial_number,
-                    values=trial_values,
-                    state=optuna.trial.TrialState.COMPLETE,
-                    skip_if_finished=True,
-                )
-
-            # Log probabilities for readability
-            probs = self.logits_to_probabilities(params)
-            probs_str = ', '.join([f"{k}={v:.2%}" for k, v in sorted(probs.items())])
-            metrics_str = ', '.join([f"{name}={metrics[name]:.4f}"
-                                    for name in self.optimization_metrics])
-            print(f"    [{idx + 1}/{len(current_distributions)}] {dist_id}: {metrics_str} | {probs_str}")
-
-        # Ask: Get next batch of suggestions
-        n_distributions = config.get('iteration_batch_size', 8)
-        suggestions = []
-        self.pending_trials = []
-
-        print(f"\n  Suggesting {n_distributions} distributions for next iteration...")
-
-        for i in range(n_distributions):
-            trial = self.study.ask()
-            params_with_logits = self._define_joint_search_space(trial)
-            dist_id = f"trial_{trial.number}"
-
-            # Convert logits to probabilities for output only
-            params_with_probs = self.convert_logits_to_probs_in_params(params_with_logits)
-            suggestions.append((dist_id, params_with_probs))
-            self.pending_trials.append(trial)
-            # Log suggestion with probabilities
-            probs = self.logits_to_probabilities(params_with_logits)
-            probs_str = ', '.join([f"{k}={v:.2%}" for k, v in sorted(probs.items())])
-
-        pareto_size = len(self.get_pareto_front())
-        completed_count = len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])
-        print(f"  Total completed trials: {completed_count}")
-        print(f"  Current Pareto front size: {pareto_size}")
-
-        suggestions = self._delta_to_max(suggestions)
-        return suggestions
+        n = config.get('iteration_batch_size', 8)
+        self.replay(current_distributions, metrics_list)
+        return self.ask(n)

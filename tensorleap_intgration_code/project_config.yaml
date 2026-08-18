@@ -4,7 +4,7 @@ data:
   data_path: "/Users/orram/Tensorleap/data/warehouse"
   annotations_file: "dataset/labels/loco-all-v1.json"
 
-model_path: "rfdetr-base.onnx"
+model_path: "rfdetr-base-fixed.onnx"
 model_type: "RFDETR"
 
 max_num_of_objects: 300
@@ -76,7 +76,44 @@ optuna_tests_data:
   tests:                   # null = include all; list like [camera] to include only test_camera
   num_samples:              # null = no limit; per-run cap after deterministic shuffle
 
+cosmos_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse"
+  additional: true          # set to false to exclude cosmos original/stylized comparison data
+  cosmos_only: false        # when true, train/val are built ONLY from the cosmos datasets below (no LOCO/synth)
+  num_samples:              # null = no limit; per-dataset cap after deterministic shuffle
+  run_config_roots:
+    - "/Users/orram/Tensorleap/data/warehouse/20260708_cosmos_v4"
+    - "/Users/orram/Tensorleap/data/warehouse/20260712_cosmos_v4"
+    - "/Users/orram/Tensorleap/data/warehouse/20260712_cosmos_optuna"
+  # COCO datasets (train+valid loaded together), each tagged with render_type + source_group metadata.
+  # cosmos categories (pallet_truck/forklift/pallet = ids 1/2/3) are remapped to config coco_ids 3/5/7.
+  datasets:
+    - {dir: "warehouse3cls_cosmos_themes",          render_type: cosmos,   source_group: themes}
+    - {dir: "warehouse3cls_cosmos_themes_original", render_type: original, source_group: themes}
+    - {dir: "warehouse3cls_cosmos_optuna",          render_type: cosmos,   source_group: optuna}
+    - {dir: "warehouse3cls_cosmos_optuna_original", render_type: original, source_group: optuna}
+
 custom_latent_space:
-  real_cache_manifest: "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"
-  base_cache_manifest: "simulation_calibration_loop/population_view/cache/base_9a2b9d15e33c5661_dinov2_vitb14_reg.manifest.json"  # base_v2_final, 4160 images
-  runs_root: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
+  # Disabled for the cosmos original-vs-stylized push (cosmos_data.cosmos_only). Restore to
+  # re-enable the DINO latent-space mode.
+  real_cache_manifest:   # "simulation_calibration_loop/population_view/cache/real_data_0e27b2406dc30ae9_dinov2_vitb14_reg.manifest.json"
+  base_cache_manifest:   # "simulation_calibration_loop/population_view/cache/base_9a2b9d15e33c5661_dinov2_vitb14_reg.manifest.json"  # base_v2_final, 4160 images
+  runs_root:             # "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
+
+sample_selection_filter:
+  # When enabled, restricts the "additional" state to only selected sample_ids.
+  # train/val (subset-3 real data) are never filtered. `option` picks which selection:
+  #   baseline            - scripts/latent_space_subset3_proximity.py's plain output: closest-to-
+  #                         subset-3 for TL-opt/TL-opt+cosmos, full decile-stratified spread for
+  #                         base_synth/base_synth+cosmos.
+  #   bbox80              - same as baseline, but base_synth's spread is split so >=80% of its
+  #                         selected samples have metadata_# of objects > 0 ("some bbox").
+  #   manual_plus_cosmos  - the 500 hand-picked TL-opt/base_synth (non-cosmos) samples in
+  #                         manual_csv_path, unioned with the TL-opt+cosmos/base_synth+cosmos rows
+  #                         from csv_path (the manual export has no cosmos rows of its own).
+  enabled: true
+  option: "baseline"   # one of: baseline | bbox80 | manual_plus_cosmos
+  latent_space: "labels-semantic"
+  csv_path: "comparison_subset3_proximity_by_ls.csv"
+  bbox80_csv_path: "comparison_subset3_proximity_by_ls_base_synth_bbox80.csv"
+  manual_csv_path: "manual_base_tlopt_selection_500.csv"

@@ -7,6 +7,8 @@ include:
     - tensorleap_requirements.txt
     - tensorleap_intgration_code/*.py
     - tensorleap_intgration_code/project_config.yaml
-    - simulation_calibration_loop/population_view/cache/*
     - rtdetr_native/*
+    - comparison_subset3_proximity_by_ls.csv
+    - comparison_subset3_proximity_by_ls_base_synth_bbox80.csv
+    - manual_base_tlopt_selection_500.csv
 pythonVersion: py310

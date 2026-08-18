@@ -1,164 +1,86 @@
-"""
-Production Experiment Runner for orchestrating the optimization loop.
+"""Local ask/tell adapter around the engine's OptunaOptimizer + MMDCalculator.
 
-Modified for production use:
-- Accepts config dict instead of YAML file path
-- No YAML dependency
-- Simplified initialization
+The engine's calibration optimizer (Sobol startup + TPE) is driven with the
+synchronous ``ask() -> generate -> tell()/mark_failed()`` flow. Each
+distribution's synthetic embeddings are scored against a fixed real reference
+via the shared :class:`MMDCalculator`, so the objective computed here is
+byte-for-byte the same one the engine's in-process CalibrationLoop uses.
 
-Agnostic to data source - receives embeddings and distributions from external source.
+This module is local orchestration glue — it has no engine counterpart. The
+optimizer/metrics it wraps are vendored verbatim from the engine.
 """
+
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from pathlib import Path
-from typing import Dict, List, Tuple
 
-from .metrics import compute_per_param_set_metrics
+from .metrics import MMDCalculator
 from .optimizer import OptunaOptimizer
 
 
 class ExperimentRunner:
-    """
-    Orchestrates the optimization loop.
+    """Own the Optuna study + the real-reference MMD objective.
 
-    Receives data from external source, computes metrics, updates optimizer.
+    Exposes the engine optimizer's ``ask``/``tell``/``mark_failed``/``replay``
+    surface plus a ``score`` helper so the controller can run one iteration as
+    ``ask -> generate -> score -> tell/mark_failed`` and inject seed/pool
+    observations via ``replay``.
     """
 
     def __init__(
         self,
         config: Dict,
         param_bounds: Dict[str, Dict],
-        param_type: Dict[str, Dict[str, str]]
+        param_type: Dict[str, Dict[str, str]],
     ):
-        """
-        Initialize experiment runner.
-
-        Args:
-            config: Experiment configuration dict (from config.DEFAULT_CONFIG)
-            param_bounds: Parameter bounds dict {simulation_name: {param: [min, max]}}
-                         Simulation names are inferred from param_bounds keys
-            param_type: Parameter type dict {simulation_name: {param: "int"|"float"|"categorical"}}
-        """
         self.config = config
-        self._setup_experiment_dir()
-
-        # Optuna optimizer (creates its own directory and SQLite DB)
         self.optimizer = OptunaOptimizer(
-            experiment_dir=Path(self.config['experiment_dir']),
-            config=self.config,
+            config=config,
             param_bounds=param_bounds,
-            param_type=param_type
+            param_type=param_type,
         )
-
         self.param_type = param_type
+        self.mmd_calc: Optional[MMDCalculator] = None
 
-        # Real embeddings reference (set via set_real_embeddings)
-        self.real_embeddings_400d = None
-
-        print(f"Initialized ExperimentRunner")
-        print(f"Experiment directory: {self.config['experiment_dir']}")
-
-    def _setup_experiment_dir(self):
-        """
-        Setup experiment directory based on experiment name.
-
-        Creates directory as {experiments_base_dir}/{experiment_name}.
-        If directory exists, reuses it to continue optimization from existing state.
-        Updates self.config['experiment_dir'] with the resolved path.
-        """
-        base_dir = Path(self.config.get('experiments_base_dir', 'data/experiments'))
-        exp_name = self.config['experiment_name']
-
-        exp_dir = base_dir / exp_name
-        self.config['experiment_dir'] = str(exp_dir)
-
-        if exp_dir.exists():
-            print(f"Reusing existing experiment directory: {exp_dir}")
-        else:
-            print(f"Creating new experiment directory: {exp_dir}")
-
-    def set_real_embeddings(self, embeddings_400d: np.ndarray):
-        """
-        Set reference distribution (one-time setup).
-
-        Args:
-            embeddings_400d: Real embeddings (400D) to use as reference
-        """
-        self.real_embeddings_400d = embeddings_400d
-        print(f"Set real embeddings: {embeddings_400d.shape}")
-
-    def run_iteration(
-        self,
-        current_distributions: List[Tuple[str, Dict]],
-        embeddings_by_shape: List[np.ndarray],
-        embeddings_indices_by_dist: Dict[int, List[Tuple[int, np.ndarray]]],
-        trial_numbers: List[int | None] | None = None,
-    ) -> List[Tuple[str, Dict]]:
-        suggestions, _ = self.evaluate_iteration(
-            current_distributions=current_distributions,
-            embeddings_by_shape=embeddings_by_shape,
-            embeddings_indices_by_dist=embeddings_indices_by_dist,
-            trial_numbers=trial_numbers,
+    def set_real_embeddings(self, real_embeddings: np.ndarray) -> None:
+        """Set the fixed real reference and precompute its multi-bandwidth gammas."""
+        self.mmd_calc = MMDCalculator(
+            real_embeddings,
+            max_samples=self.config.get("mmd_max_samples", 2000),
+            seed=self.config.get("random_seed", 42),
         )
-        return suggestions
+        print(f"Set real embeddings: {real_embeddings.shape}")
 
-    def evaluate_iteration(
-        self,
-        current_distributions: List[Tuple[str, Dict]],
-        embeddings_by_shape: List[np.ndarray],
-        embeddings_indices_by_dist: Dict[int, List[Tuple[int, np.ndarray]]],
-        trial_numbers: List[int | None] | None = None,
-    ) -> Tuple[List[Tuple[str, Dict]], List[Dict[str, float]]]:
-        """
-        Process external data and get next suggestions.
-
-        Every iteration is the same:
-        1. Receive external data (distributions + embeddings)
-        2. Compute metrics
-        3. Tell optimizer and get next suggestions
-
-        Args:
-            current_distributions: What was evaluated [(dist_id, params_dict), ...]
-                                   params_dict contains shape_logit_* and {shape}__{param} keys
-            embeddings_by_shape: Original embeddings arrays from each simulation source
-            embeddings_indices_by_dist: Dict mapping distribution_id to list of (source_idx, indices) tuples
-
-        Returns:
-            next_suggestions: What to try next [(dist_id, params_dict), ...]
-        """
-        if self.real_embeddings_400d is None:
+    def score(self, synth_embeddings: np.ndarray) -> float:
+        """Multi-bandwidth RBF MMD between synthetic embeddings and the real reference."""
+        if self.mmd_calc is None:
             raise ValueError("Real embeddings not set. Call set_real_embeddings() first.")
+        return float(self.mmd_calc.mmd_rbf(synth_embeddings))
 
-        n_distributions = len(current_distributions)
+    def ask(self, n: int) -> List[Tuple[str, Dict]]:
+        """Draw the next batch of distributions (Sobol during startup, then TPE)."""
+        return self.optimizer.ask(n)
 
-        # Compute per-distribution metrics with MMD subsampling
-        mmd_max_samples = self.config.get('mmd_max_samples', 2000)
-        metrics_list = compute_per_param_set_metrics(
-            embeddings_by_shape,
-            embeddings_indices_by_dist,
-            self.real_embeddings_400d,
-            n_param_sets=n_distributions,
-            mmd_max_samples=mmd_max_samples
-        )
+    def has_pending(self, dist_id: str) -> bool:
+        """True if ``dist_id`` was issued by ``ask()`` this session and not yet completed."""
+        return dist_id in self.optimizer._asked
 
-        # Tell optimizer and get next suggestions
-        next_suggestions = self.optimizer.suggest_next_distributions(
-            current_distributions=current_distributions,
-            metrics_list=metrics_list,
-            config=self.config,
-            trial_numbers=trial_numbers,
-        )
+    def tell(self, dist_id: str, score: float) -> None:
+        """Complete an asked distribution with its measured objective."""
+        self.optimizer.tell(dist_id, score)
 
-        return next_suggestions, metrics_list
+    def mark_failed(self, dist_id: str) -> None:
+        """Drop an asked distribution from TPE's posterior (e.g. a noise-spike outlier)."""
+        self.optimizer.mark_failed(dist_id)
 
-    def get_best_trials(self, top_n: int = None) -> List[Tuple[str, Dict]]:
-        """
-        Get the best trials seen so far.
+    def replay(
+        self,
+        distributions: List[Tuple[str, Dict]],
+        metrics_list: List[Dict[str, float]],
+    ) -> None:
+        """Import external observations (seeds, pool priming, resume) as completed trials."""
+        self.optimizer.replay(distributions, metrics_list)
 
-        Args:
-            top_n: Number of best trials to return. If None, returns all.
-
-        Returns:
-            List of (trial_id, params_dict) tuples with probabilities
-        """
+    def get_best_trials(self, top_n: Optional[int] = None) -> List[Tuple[str, Dict]]:
+        """Best completed trials as (trial_id, params-with-probs), best objective first."""
         return self.optimizer.get_best_trials_as_distributions(top_n=top_n)
