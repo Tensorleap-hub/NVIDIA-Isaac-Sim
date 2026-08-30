@@ -1,5 +1,13 @@
 # Option 3-lite: refresh the calibration_optuna fork to the engine loop, run it on the TL latent space
 
+> **Status (2026-08-30): superseded as the primary path by
+> [`option2-engine-synthetic-job.md`](option2-engine-synthetic-job.md).**
+> Phase 1 (vendoring) is DONE (commit b05760f) and is kept as the fallback loop: if the TL-LS
+> search in the engine job doesn't converge, run the vendored `engine_loop.CalibrationLoop` with
+> the DINOv2 embedder. Phases 2–5 below are on hold: replicating the engine's default LS headless
+> turned out to require capturing an ES-driven layer pick + the engine's converted TF graph
+> (an expensive export), which the engine job provides natively.
+
 Goal: run the engine's exact `CalibrationLoop` semantics (auto n_samples sizing, noise-floor
 stopping, MAD outlier gate, dimensionality-scaled budget) headlessly on the EC2 Isaac machine,
 scoring MMD in the Tensorleap latent space instead of DINOv2 — as the de-risking step before
