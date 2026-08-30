@@ -5,12 +5,15 @@
     real_may/       train = real + top-runs-may-ok            valid -> ../real/valid
     real_all/       train = real + base_v2 + may              valid -> ../real/valid
     real_traj/      train = real + trajectory-optimized       valid -> ../real/valid
-    real_all_traj/  train = real + base_v2 + may + traj       valid -> ../real/valid
+    real_basev4/    train = real + base_v4 (trajectory+random) valid -> ../real/valid
+    real_traj_basev4/ train = real + traj + base_v4            valid -> ../real/valid
+    real_all_traj/  train = real + base_v2 + may + traj + v4  valid -> ../real/valid
     evalsets/       eval-only sets whose valid/ IS a training subset (train-fit diagnostics):
         train_real/valid   -> ../../real/train
         train_basev2/valid = base_v2 synth frames only
         train_may/valid    = may synth frames only
         train_traj_optuna/valid = trajectory-optimized synth frames only
+        train_basev4/valid = base_v4 synth frames only
 
 Invariants asserted at the end (hard failure):
   * every valid/ image is a subset-3 image, none of them appears in any train/

@@ -19,6 +19,8 @@ LOCO_LABELS = LOCO / "labels"
 BASEV2 = RAW / "base_v2_final"
 MAY = RAW / "top-runs-may-ok"
 TRAJ_OPTUNA = RAW / "trajectory-optimized"
+BASEV4_TRAJ = RAW / "base_v4_trajectory"
+BASEV4_RAND = RAW / "base_v4_random"
 
 OUT = Path("/home/ubuntu/datasets_coco")   # built COCO datasets live here
 LOGS = OUT / "logs"
@@ -43,9 +45,11 @@ ARMS: dict[str, list[str]] = {
     "real_may": ["may"],
     "real_all": ["basev2", "may"],
     "real_traj": ["traj_optuna"],
-    "real_all_traj": ["basev2", "may", "traj_optuna"],
+    "real_basev4": ["basev4"],
+    "real_traj_basev4": ["traj_optuna", "basev4"],
+    "real_all_traj": ["basev2", "may", "traj_optuna", "basev4"],
 }
-SYNTH_SOURCES = ["basev2", "may", "traj_optuna"]
+SYNTH_SOURCES = ["basev2", "may", "traj_optuna", "basev4"]
 RUN_NAME = "rfdetr_reducelr"
 
 
@@ -58,6 +62,11 @@ def synth_run_dirs(source: str) -> list[Path]:
     elif source == "traj_optuna":
         # nested Camera/rgb layout (trajectory-SDG runs), not flat rgb_*.png
         dirs = sorted(p for p in TRAJ_OPTUNA.iterdir() if p.is_dir())
+    elif source == "basev4":
+        # ONE dataset in two render modes: base_v4_trajectory (exp01-06, v4t_ prefix, ~5 frames/seed)
+        # + base_v4_random (exp07-32, v4r_ prefix, 1 frame/seed). Nested Camera/rgb layout.
+        # Prefixes were added on copy so names don't collide with base_v2_final's expNN_ in source_of().
+        dirs = sorted(p for p in list(BASEV4_TRAJ.iterdir()) + list(BASEV4_RAND.iterdir()) if p.is_dir())
     else:
         raise ValueError(source)
     dirs = [d for d in dirs if any(d.glob("rgb_*.png")) or any(d.glob("Camera/rgb/rgb_*.png"))]
@@ -89,6 +98,8 @@ def source_of(file_name: str) -> str:
     """Classify a train image by its filename (real jpgs vs prefixed synth pngs)."""
     if file_name.endswith(".jpg"):
         return "real"
+    if file_name.startswith(("v4t_", "v4r_")):
+        return "basev4"
     if file_name.startswith("exp"):
         return "basev2"
     if file_name.startswith(("top", "dp", "dl")):

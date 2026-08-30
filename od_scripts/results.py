@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ARMS, OUT, arm_output_dir  # noqa: E402
 
 CLASSES = ["forklift", "pallet", "pallet_truck"]
-SPLIT_ORDER = ["valid_real", "train_real", "train_basev2", "train_may", "train_traj_optuna", "train_combined"]
+SPLIT_ORDER = ["valid_real", "train_real", "train_basev2", "train_may", "train_traj_optuna", "train_basev4", "train_combined"]
 SPLIT_LABEL = {"valid_real": "**valid** (subset-3, real)", "train_real": "train: real", "train_basev2": "train: base_v2 synth",
-               "train_may": "train: may synth", "train_traj_optuna": "train: trajectory-optimized synth", "train_combined": "train: combined"}
+               "train_may": "train: may synth", "train_traj_optuna": "train: trajectory-optimized synth", "train_basev4": "train: base_v4 synth", "train_combined": "train: combined"}
 
 
 def training_summary(arm: str):
