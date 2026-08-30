@@ -18,6 +18,7 @@ LOCO = RAW / "loco_dataset"
 LOCO_LABELS = LOCO / "labels"
 BASEV2 = RAW / "base_v2_final"
 MAY = RAW / "top-runs-may-ok"
+TRAJ_OPTUNA = RAW / "trajectory-optimized"
 
 OUT = Path("/home/ubuntu/datasets_coco")   # built COCO datasets live here
 LOGS = OUT / "logs"
@@ -41,7 +42,10 @@ ARMS: dict[str, list[str]] = {
     "real_basev2": ["basev2"],
     "real_may": ["may"],
     "real_all": ["basev2", "may"],
+    "real_traj": ["traj_optuna"],
+    "real_all_traj": ["basev2", "may", "traj_optuna"],
 }
+SYNTH_SOURCES = ["basev2", "may", "traj_optuna"]
 RUN_NAME = "rfdetr_reducelr"
 
 
@@ -51,9 +55,12 @@ def synth_run_dirs(source: str) -> list[Path]:
         dirs = sorted(p for p in BASEV2.iterdir() if p.is_dir())
     elif source == "may":
         dirs = sorted(MAY.glob("*/trial_*/outputs/*/"))
+    elif source == "traj_optuna":
+        # nested Camera/rgb layout (trajectory-SDG runs), not flat rgb_*.png
+        dirs = sorted(p for p in TRAJ_OPTUNA.iterdir() if p.is_dir())
     else:
         raise ValueError(source)
-    dirs = [d for d in dirs if any(d.glob("rgb_*.png"))]
+    dirs = [d for d in dirs if any(d.glob("rgb_*.png")) or any(d.glob("Camera/rgb/rgb_*.png"))]
     names = [d.name for d in dirs]
     assert len(names) == len(set(names)), f"{source}: duplicate run-dir names would collide as run_prefix"
     return dirs
@@ -84,6 +91,8 @@ def source_of(file_name: str) -> str:
         return "real"
     if file_name.startswith("exp"):
         return "basev2"
+    if file_name.startswith(("top", "dp", "dl")):
+        return "traj_optuna"
     if file_name.startswith("iter"):
         return "may"
     return "unknown"

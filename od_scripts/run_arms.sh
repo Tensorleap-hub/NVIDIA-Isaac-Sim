@@ -6,7 +6,7 @@
 #   * evalsets/train_real                 <- fit on the real training images
 #   * evalsets/train_<synth> per source   <- fit on each synthetic source (diagnostic only)
 #   * the arm's own train/ (combined)     <- fit on everything it trained on
-# Arms can be given as args (default: all four, in order).
+# Arms can be given as args (default: every arm in common.ARMS, in order).
 set -uo pipefail
 REPO=/home/ubuntu/NVIDIA-Isaac-Sim
 PY=$REPO/.venv/bin/python
@@ -14,12 +14,10 @@ OD=$REPO/od_scripts
 DC=/home/ubuntu/datasets_coco
 LOGS=$DC/logs
 mkdir -p "$LOGS"
-ARMS=("$@"); [ ${#ARMS[@]} -eq 0 ] && ARMS=(real real_basev2 real_may real_all)
+ARMS=("$@"); [ ${#ARMS[@]} -eq 0 ] && ARMS=($("$PY" -c "import sys; sys.path.insert(0,'$OD'); from common import ARMS; print(' '.join(ARMS))"))
 
-sources_of() {  # synthetic sources per arm
-  case "$1" in
-    real) echo "" ;; real_basev2) echo "basev2" ;; real_may) echo "may" ;; real_all) echo "basev2 may" ;;
-  esac
+sources_of() {  # synthetic sources per arm, from common.ARMS
+  "$PY" -c "import sys; sys.path.insert(0,'$OD'); from common import ARMS; print(' '.join(ARMS['$1']))"
 }
 
 for ARM in "${ARMS[@]}"; do

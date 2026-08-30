@@ -1,13 +1,16 @@
-"""Build every COCO dataset for the 4-arm study under /home/ubuntu/datasets_coco.
+"""Build every COCO dataset for the real/synth arm study under /home/ubuntu/datasets_coco.
 
     real/           train = LOCO sub1+2+4+5 (3 classes)      valid = LOCO subset-3 ONLY
     real_basev2/    train = real + base_v2_final              valid -> ../real/valid (dir symlink)
     real_may/       train = real + top-runs-may-ok            valid -> ../real/valid
     real_all/       train = real + base_v2 + may              valid -> ../real/valid
+    real_traj/      train = real + trajectory-optimized       valid -> ../real/valid
+    real_all_traj/  train = real + base_v2 + may + traj       valid -> ../real/valid
     evalsets/       eval-only sets whose valid/ IS a training subset (train-fit diagnostics):
         train_real/valid   -> ../../real/train
         train_basev2/valid = base_v2 synth frames only
         train_may/valid    = may synth frames only
+        train_traj_optuna/valid = trajectory-optimized synth frames only
 
 Invariants asserted at the end (hard failure):
   * every valid/ image is a subset-3 image, none of them appears in any train/
@@ -30,7 +33,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (ARMS, EVALSETS, KEEP_CLASSES, LOCO, LOCO_TRAIN_ANNS, LOCO_VAL_ANN,  # noqa: E402
+from common import (ARMS, EVALSETS, SYNTH_SOURCES, KEEP_CLASSES, LOCO, LOCO_TRAIN_ANNS, LOCO_VAL_ANN,  # noqa: E402
                     LOCO_VAL_IMGS, OUT, source_of, synth_run_dirs)
 from synth_coco import collect_frames, frames_to_coco  # noqa: E402
 
@@ -113,9 +116,11 @@ def build_real(force: bool) -> Path:
 
 
 # ----------------------------------------------------------------------------- synth
-def _first_frame_md5(run_dir: Path) -> str:
-    first = sorted(run_dir.glob("rgb_*.png"))[0]
-    return hashlib.md5(first.read_bytes()).hexdigest()
+def _run_md5(run_dir: Path) -> str:
+    """Content key for run-level dedup: md5 of the run's LARGEST rgb png. (Frame 0 is sometimes a
+    blank/uninitialised render identical across unrelated runs, so it must not be the key.)"""
+    pngs = sorted(run_dir.glob("rgb_*.png")) or sorted(run_dir.glob("Camera/rgb/rgb_*.png"))
+    return hashlib.md5(max(pngs, key=lambda p: p.stat().st_size).read_bytes()).hexdigest()
 
 
 def build_synth_only(source: str, categories, force: bool) -> Path:
@@ -131,9 +136,9 @@ def build_synth_only(source: str, categories, force: bool) -> Path:
     seen_md5 = {}
     skipped_dup = 0
     for rd in synth_run_dirs(source):
-        h = _first_frame_md5(rd)
+        h = _run_md5(rd)
         if h in seen_md5:
-            print(f"  DUP run (same first frame as {seen_md5[h]}): {rd} -> skipped")
+            print(f"  DUP run (same content as {seen_md5[h]}): {rd} -> skipped")
             skipped_dup += 1
             continue
         seen_md5[h] = rd.name
@@ -249,7 +254,7 @@ def main():
     real = build_real(args.force)
     with open(real / "train" / "_annotations.coco.json") as f:
         cats = json.load(f)["categories"]
-    for s in ("basev2", "may"):
+    for s in SYNTH_SOURCES:
         build_synth_only(s, cats, args.force)
     tr_real = EVALSETS / "train_real"
     if args.force and tr_real.exists():

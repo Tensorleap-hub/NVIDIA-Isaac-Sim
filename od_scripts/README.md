@@ -2,7 +2,10 @@
 
 Detect `forklift`, `pallet`, `pallet_truck` in warehouse imagery with RF-DETR Base.
 Real data = LOCO; synthetic = Isaac Sim SDG renders. Everything here reads only
-`/home/ubuntu/datasets` and writes only `/home/ubuntu/datasets_coco`.
+`/home/ubuntu/datasets` (`loco_dataset`, `base_v2_final`, `top-runs-may-ok`, `trajectory-optimized`) and writes only `/home/ubuntu/datasets_coco`.
+Arms are defined once in `common.ARMS`; `build_datasets.py`, `run_arms.sh`, `verify_gt.py`, `results.py` all read it.
+Synthetic runs are deduplicated by content (md5 of the run's largest frame — frame 0 is sometimes a blank render);
+blank frames carry no boxes and are dropped automatically.
 
 ## Two rules
 1. **Validation = LOCO subset-3, only.** It is never in any `train/`.
@@ -29,8 +32,10 @@ Real data = LOCO; synthetic = Isaac Sim SDG renders. Everything here reads only
 | `real_basev2` | real + `base_v2_final` (32 exps × 128 frames; 2889 labeled) = 6999 | → `../real/valid` |
 | `real_may` | real + `top-runs-may-ok` (59 runs; 3632 labeled) = 7742 | → `../real/valid` |
 | `real_all` | real + base_v2 + may = 10631 | → `../real/valid` |
+| `real_traj` | real + `trajectory-optimized` (312 traj runs × ≤11 frames; 2826 labeled) = 6936 | → `../real/valid` |
+| `real_all_traj` | real + base_v2 + may + traj = 13457 | → `../real/valid` |
 | `evalsets/train_real` | — | → `real/train` (fit on real train) |
-| `evalsets/train_basev2`, `train_may` | — | that synth source only |
+| `evalsets/train_basev2`, `train_may`, `train_traj_optuna` | — | that synth source only |
 | `evalsets/train_<arm>` | — | → `<arm>/train` (created by `run_arms.sh`) |
 
 Categories (identical everywhere, derived from LOCO's id order): `1 forklift, 2 pallet, 3 pallet_truck`.

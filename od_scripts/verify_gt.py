@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ARMS, OUT, source_of  # noqa: E402
 
 CLASS_COLORS = {"forklift": "#E0A020", "pallet": "#2A9D8F", "pallet_truck": "#C4407A"}
-SOURCE_LABEL = {"real": "LOCO real (train)", "valid": "LOCO subset-3 (valid)", "basev2": "base_v2 synth", "may": "may-rounds synth"}
+SOURCE_LABEL = {"real": "LOCO real (train)", "valid": "LOCO subset-3 (valid)", "basev2": "base_v2 synth", "may": "may-rounds synth", "traj_optuna": "trajectory-optimized synth"}
 THUMB_W = 520
 PER_SOURCE = 2
 
@@ -147,20 +147,20 @@ def main():
 
     # ---- composition table
     parts.append("<h2>Composition</h2><div class='tblwrap'><table><tr><th>dataset</th><th>role</th><th class='n'>images</th>"
-                 "<th class='n'>real</th><th class='n'>base_v2</th><th class='n'>may</th>"
+                 "<th class='n'>real</th><th class='n'>base_v2</th><th class='n'>may</th><th class='n'>traj</th>"
                  + "".join(f"<th class='n'>{c} boxes</th>" for c in classes) + "</tr>")
     v = manifest["valid"]
     parts.append(f"<tr><td>real/valid (shared by all arms)</td><td>validation</td><td class='n'>{v['images']}</td><td class='n'>{v['images']}</td>"
-                 f"<td class='n'>0</td><td class='n'>0</td>" + "".join(f"<td class='n'>{v['class_counts'].get(c, 0)}</td>" for c in classes) + "</tr>")
+                 f"<td class='n'>0</td><td class='n'>0</td><td class='n'>0</td>" + "".join(f"<td class='n'>{v['class_counts'].get(c, 0)}</td>" for c in classes) + "</tr>")
     for arm, d in manifest["arms"].items():
         bs = d["by_source"]
         parts.append(f"<tr><td>{arm}/train</td><td>training arm</td><td class='n'>{d['train_images']}</td><td class='n'>{bs.get('real', 0)}</td>"
-                     f"<td class='n'>{bs.get('basev2', 0)}</td><td class='n'>{bs.get('may', 0)}</td>"
+                     f"<td class='n'>{bs.get('basev2', 0)}</td><td class='n'>{bs.get('may', 0)}</td><td class='n'>{bs.get('traj_optuna', 0)}</td>"
                      + "".join(f"<td class='n'>{d['class_counts'].get(c, 0)}</td>" for c in classes) + "</tr>")
     parts.append("</table></div>")
 
     # ---- per-source box stats (from real_all train + valid)
-    c_all, id2n, anns_all = load(OUT / "real_all" / "train")
+    c_all, id2n, anns_all = load(OUT / "real_all_traj" / "train")
     st = stats(c_all["images"], anns_all, id2n)
     c_val, _, anns_val = load(OUT / "real" / "valid")
     st["valid"] = stats([{**im, "file_name": im["file_name"]} for im in c_val["images"]], anns_val, id2n)["real"]
@@ -168,7 +168,7 @@ def main():
                  "Useful to spot a permuted class mapping: a swapped mapping shows up as wildly different size/frequency profiles between real and synthetic.</p>"
                  "<div class='tblwrap'><table><tr><th>source</th><th class='n'>images</th>"
                  + "".join(f"<th class='n'>{c} / img</th><th class='n'>{c} med. area</th>" for c in classes) + "</tr>")
-    for s in ("real", "valid", "basev2", "may"):
+    for s in ("real", "valid", "basev2", "may", "traj_optuna"):
         d = st[s]
         parts.append(f"<tr><td>{SOURCE_LABEL[s]}</td><td class='n'>{d['images']}</td>" + "".join(
             f"<td class='n'>{d['boxes'].get(c, 0) / d['images']:.2f}</td><td class='n'>{d['median_rel_area'].get(c, 0):.3f}</td>" for c in classes) + "</tr>")
