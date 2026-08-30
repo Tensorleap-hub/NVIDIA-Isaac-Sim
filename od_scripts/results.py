@@ -22,12 +22,13 @@ def training_summary(arm: str):
     mcsv = arm_output_dir(arm) / "metrics.csv"
     if not mcsv.exists():
         return None
-    rows = [r for r in csv.DictReader(open(mcsv)) if r.get("val/ema_mAP_50_95") not in (None, "")]
+    all_rows = list(csv.DictReader(open(mcsv)))
+    rows = [r for r in all_rows if r.get("val/ema_mAP_50_95") not in (None, "")]
     if not rows:
         return None
     best = max(rows, key=lambda r: float(r["val/ema_mAP_50_95"]))
-    lr_key = next((k for k in ("train/lr_max", "train/lr") if k in rows[0]), None)
-    lrs = sorted({round(float(r[lr_key]), 9) for r in rows if r.get(lr_key)}, reverse=True) if lr_key else []
+    lr_key = next((k for k in ("train/lr_max", "train/lr") if k in all_rows[0]), None)
+    lrs = sorted({round(float(r[lr_key]), 9) for r in all_rows if r.get(lr_key)}, reverse=True) if lr_key else []
     return {"epochs": len(rows), "best_epoch": int(float(best["epoch"])), "best_5095": float(best["val/ema_mAP_50_95"]),
             "best_50": float(best.get("val/ema_mAP_50", "nan")), "lr_levels": len(lrs), "done": (arm_output_dir(arm) / "checkpoint_best_ema.pth").exists()}
 
@@ -47,7 +48,7 @@ def g(m: dict, *keys, default=float("nan")):
 
 
 def main():
-    print("# 4-arm study results\n")
+    print("# Real/synth arm study — results\n")
     print("All arms: RF-DETR Base, COCO pretrain, ReduceLROnPlateau recipe (`od_scripts/train.py`). "
           "Selection metric = EMA mAP@50:95 on **real/valid = LOCO subset-3 only**. Train-split numbers are fit diagnostics, never used for selection.\n")
     print("## Validation (selection metric, best EMA epoch)\n")
