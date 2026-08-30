@@ -20,14 +20,22 @@ sources_of() {  # synthetic sources per arm, from common.ARMS
   "$PY" -c "import sys; sys.path.insert(0,'$OD'); from common import ARMS; print(' '.join(ARMS['$1']))"
 }
 
+# Env knobs: EPOCHS_DEFAULT (cap, default 60), EPOCHS_<arm> (per-arm cap), NUM_WORKERS (default 4),
+#            REUSE_EXISTING=1 -> if <arm>/output/rfdetr_reducelr/checkpoint_best_ema.pth exists, skip training (evals only).
 for ARM in "${ARMS[@]}"; do
   OUT=$DC/$ARM/output/rfdetr_reducelr
-  echo "$(date -u +%FT%TZ) [$ARM] train start"
-  rm -rf "$OUT"                                   # never let rf-detr silently resume from last.ckpt
-  "$PY" "$OD/train.py" --dataset-dir "$DC/$ARM" --output-dir "$OUT" > "$LOGS/$ARM.train.log" 2>&1
-  RC=$?
-  echo "$(date -u +%FT%TZ) [$ARM] train rc=$RC"
   CKPT=$OUT/checkpoint_best_ema.pth
+  EPV="EPOCHS_$ARM"; EPOCHS=${!EPV:-${EPOCHS_DEFAULT:-60}}
+  if [ "${REUSE_EXISTING:-0}" = "1" ] && [ -f "$CKPT" ]; then
+    echo "$(date -u +%FT%TZ) [$ARM] reusing existing $CKPT (training skipped)"; RC=0
+  else
+    echo "$(date -u +%FT%TZ) [$ARM] train start (epochs cap $EPOCHS, workers ${NUM_WORKERS:-4})"
+    rm -rf "$OUT"                                 # never let rf-detr silently resume from last.ckpt
+    "$PY" "$OD/train.py" --dataset-dir "$DC/$ARM" --output-dir "$OUT" --epochs "$EPOCHS" \
+          --num-workers "${NUM_WORKERS:-4}" > "$LOGS/$ARM.train.log" 2>&1
+    RC=$?
+    echo "$(date -u +%FT%TZ) [$ARM] train rc=$RC"
+  fi
   if [ $RC -ne 0 ] || [ ! -f "$CKPT" ]; then echo "[$ARM] FAILED (no $CKPT)"; continue; fi
 
   EV=$OUT/eval; mkdir -p "$EV"

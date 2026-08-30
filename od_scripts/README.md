@@ -55,8 +55,8 @@ RF-DETR silently resumes from `<output-dir>/last.ckpt` — `run_arms.sh` wipes t
 ```bash
 # one arm by hand
 .venv/bin/python od_scripts/train.py --dataset-dir /home/ubuntu/datasets_coco/real_basev2
-# whole study
-nohup od_scripts/run_arms.sh > /home/ubuntu/datasets_coco/logs/queue.log 2>&1 &
+# whole study (env knobs: EPOCHS_DEFAULT / EPOCHS_<arm> caps, NUM_WORKERS, REUSE_EXISTING=1 = evals only if ckpt exists)
+EPOCHS_DEFAULT=30 EPOCHS_real_all_traj=25 NUM_WORKERS=8 nohup od_scripts/run_arms.sh > /home/ubuntu/datasets_coco/logs/queue.log 2>&1 &
 # fair eval of any checkpoint on the real valid
 .venv/bin/python od_scripts/eval_checkpoint.py --dataset-dir /home/ubuntu/datasets_coco/real --pretrain-weights <ckpt>
 ```
