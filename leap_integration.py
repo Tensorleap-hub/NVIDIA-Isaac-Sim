@@ -19,6 +19,7 @@ from tensorleap_intgration_code import (
     bb_decoder,
     confusion_matrix_metric,
     data_type_metadata,
+    dino_latent_space,
     get_per_sample_metrics,
     gt_boxes_encoder,
     gt_encoder,
@@ -70,6 +71,7 @@ def check_integration(idx, subset):
     _ = data_type_metadata(idx, subset)
     _ = sample_metadata(idx, subset)
     _ = synth_metadata_mean_std(idx, subset)
+    _ = dino_latent_space(idx, subset)
 
 
 if __name__ == "__main__":

@@ -93,6 +93,15 @@ cosmos_data:
     - {dir: "warehouse3cls_cosmos_optuna",          render_type: cosmos,   source_group: optuna}
     - {dir: "warehouse3cls_cosmos_optuna_original", render_type: original, source_group: optuna}
 
+dino_latent_space:
+  cache_dir: "/Users/orram/Tensorleap/data/warehouse/dino_ls_cache"
+  repo: "facebookresearch/dinov2"
+  model_name: "dinov2_vitb14_reg"
+  device:            # null = auto (cuda / mps / cpu)
+  image_size: 224
+  resize_size: 256
+  batch_size: 16
+
 custom_latent_space:
   # Disabled for the cosmos original-vs-stylized push (cosmos_data.cosmos_only). Restore to
   # re-enable the DINO latent-space mode.
