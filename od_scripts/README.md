@@ -36,6 +36,7 @@ blank frames carry no boxes and are dropped automatically.
 | `real_basev4` | real + `base_v4_{trajectory,random}` (ONE dataset: exp01-06 traj 5 frames/seed + exp07-32 random 1 frame/seed; 6241 labeled) = 10351 | → `../real/valid` |
 | `real_traj_basev4` | real + traj + base_v4 = 13177 | → `../real/valid` |
 | `real_all_traj` | real + base_v2 + may + traj + base_v4 = 19698 | → `../real/valid` |
+| `real_all_matched` | size-matched control: real + 1444 base_v2 + 1445 may = 6999 (== `real_basev2`; seeded sample, `common.ARM_SUBSAMPLE`) | → `../real/valid` |
 | `evalsets/train_real` | — | → `real/train` (fit on real train) |
 | `evalsets/train_basev2`, `train_may`, `train_traj_optuna`, `train_basev4` | — | that synth source only |
 | `evalsets/train_<arm>` | — | → `<arm>/train` (created by `run_arms.sh`) |

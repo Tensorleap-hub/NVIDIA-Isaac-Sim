@@ -48,7 +48,12 @@ ARMS: dict[str, list[str]] = {
     "real_basev4": ["basev4"],
     "real_traj_basev4": ["traj_optuna", "basev4"],
     "real_all_traj": ["basev2", "may", "traj_optuna", "basev4"],
+    "real_all_matched": ["basev2", "may"],
 }
+# Size-matched control: total train == len(real_basev2.train) (6999), synth split evenly
+# across the listed sources (seeded sample). Answers "is real_all just more data?".
+ARM_SUBSAMPLE: dict[str, dict[str, int]] = {"real_all_matched": {"basev2": 1444, "may": 1445}}
+SUBSAMPLE_SEED = 42
 SYNTH_SOURCES = ["basev2", "may", "traj_optuna", "basev4"]
 RUN_NAME = "rfdetr_reducelr"
 

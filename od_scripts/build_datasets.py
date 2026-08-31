@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import random
 import json
 import os
 import shutil
@@ -36,7 +37,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (ARMS, EVALSETS, SYNTH_SOURCES, KEEP_CLASSES, LOCO, LOCO_TRAIN_ANNS, LOCO_VAL_ANN,  # noqa: E402
+from common import (ARMS, ARM_SUBSAMPLE, SUBSAMPLE_SEED, EVALSETS, SYNTH_SOURCES, KEEP_CLASSES, LOCO, LOCO_TRAIN_ANNS, LOCO_VAL_ANN,  # noqa: E402
                     LOCO_VAL_IMGS, OUT, source_of, synth_run_dirs)
 from synth_coco import collect_frames, frames_to_coco  # noqa: E402
 
@@ -155,11 +156,16 @@ def build_synth_only(source: str, categories, force: bool) -> Path:
     return d
 
 
-def merge_split(src_split: Path, dst_split: Path, coco: dict) -> int:
-    """Append every image/annotation of src_split into coco, symlinking to realpath."""
+def merge_split(src_split: Path, dst_split: Path, coco: dict, limit: int | None = None) -> int:
+    """Append src_split's images/annotations into coco, symlinking to realpath.
+    limit: seeded uniform subsample of that many images (size-matched control arms)."""
     with open(src_split / "_annotations.coco.json") as f:
         s = json.load(f)
     assert s["categories"] == coco["categories"]
+    if limit is not None and limit < len(s["images"]):
+        keep_imgs = random.Random(SUBSAMPLE_SEED).sample(s["images"], limit)
+        keep_ids = {im["id"] for im in keep_imgs}
+        s = {**s, "images": keep_imgs, "annotations": [a for a in s["annotations"] if a["image_id"] in keep_ids]}
     img_off = max((i["id"] for i in coco["images"]), default=0)
     ann_off = max((a["id"] for a in coco["annotations"]), default=0)
     names = {i["file_name"] for i in coco["images"]}
@@ -192,8 +198,9 @@ def build_arm(arm: str, sources: list[str], force: bool):
     coco = _empty_coco(cats)
     n_real = merge_split(real_train, d / "train", coco)
     counts = {"real": n_real}
+    limits = ARM_SUBSAMPLE.get(arm, {})
     for s in sources:
-        counts[s] = merge_split(EVALSETS / f"train_{s}" / "valid", d / "train", coco)
+        counts[s] = merge_split(EVALSETS / f"train_{s}" / "valid", d / "train", coco, limit=limits.get(s))
     json.dump(coco, open(d / "train" / "_annotations.coco.json", "w"))
     os.symlink("../real/valid", d / "valid")          # ONE shared real-only valid
     print(f"[{arm}] train={len(coco['images'])} {counts}  valid -> real/valid")
