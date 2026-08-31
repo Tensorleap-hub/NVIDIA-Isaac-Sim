@@ -4,7 +4,7 @@ data:
   data_path: "/Users/orram/Tensorleap/data/warehouse"
   annotations_file: "dataset/labels/loco-all-v1.json"
 
-model_path: "rfdetr-base-fixed.onnx"
+model_path: "rfdetr-real-basev2-fixed.onnx"
 model_type: "RFDETR"
 
 max_num_of_objects: 300
@@ -18,10 +18,13 @@ split:
   val_subsets:
     - "subset-3"
 
+# Aligned to rfdetr-real-basev2-fixed.onnx logit columns (0=forklift, 1=pallet,
+# 2=pallet_truck, 3=unused). LOCO small_load_carrier (coco_id 3) and stillage (10)
+# are intentionally excluded from GT and scoring.
 categories:
-  - {coco_id: 3,  name: small_load_carrier, idx: 0}
-  - {coco_id: 5,  name: forklift,           idx: 1}
-  - {coco_id: 7,  name: pallet,             idx: 2}
+  - {coco_id: 5,  name: forklift,     idx: 0}
+  - {coco_id: 7,  name: pallet,       idx: 1}
+  - {coco_id: 11, name: pallet_truck, idx: 2}
 
 loss:
   map_coco_category_to_label: false

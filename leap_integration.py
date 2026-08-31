@@ -4,7 +4,7 @@ Model : rfdetr-base.onnx — outputs:
   dets:   (1, 300, 4) — cxcywh normalized bounding boxes
   labels: (1, 300, 4) — class logits (3 foreground + 1 background)
 Data  : LOCO warehouse (COCO format) — 3 classes
-        small_load_carrier | forklift | pallet
+        forklift | pallet | pallet_truck
 """
 import numpy as np
 import onnxruntime as ort

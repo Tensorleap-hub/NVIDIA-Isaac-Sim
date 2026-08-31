@@ -122,9 +122,10 @@ def _make_additional_sample_id(r: dict) -> str:
         raise ValueError(f"Unsupported additional subset {r['subset']!r}")
 
 
-# cosmos COCO class name -> config coco_id (config idx: small_load_carrier=0, forklift=1, pallet=2)
+# cosmos COCO class name -> config coco_id (config idx: forklift=0, pallet=1, pallet_truck=2;
+# small_load_carrier keeps LOCO id 3, which is no longer in the config and is dropped)
 _COSMOS_NAME_TO_CONFIG_COCO_ID = {
-    "pallet_truck": 3,
+    "pallet_truck": 11,
     "small_load_carrier": 3,
     "forklift": 5,
     "pallet": 7,
@@ -589,9 +590,9 @@ def _preprocess_custom_latent_space(custom_cfg: dict) -> List[PreprocessResponse
 
 # Synthetic class name → COCO category_id (matched to the 3-class warehouse config)
 _SYNTH_CLASS_TO_IDX = {
-    "palletjack": 3,   # small_load_carrier (idx 0)
-    "forklift":    5,  # forklift           (idx 1)
-    "pallet":      7,  # pallet             (idx 2)
+    "palletjack": 11,  # pallet_truck (idx 2)
+    "forklift":    5,  # forklift     (idx 0)
+    "pallet":      7,  # pallet       (idx 1)
 }
 
 
