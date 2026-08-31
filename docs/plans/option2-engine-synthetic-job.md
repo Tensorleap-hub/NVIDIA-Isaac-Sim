@@ -23,6 +23,12 @@ make the calibration loop transfer-bound.
 
 1. k3d TL install on EC2, cluster created with a shared volume mount
    (`--volume /shared/isaac:/shared/isaac`) so generation pods and the host see one directory.
+   GPU sharing: install with the default `gpu: false` (engine values) — TL then runs CPU-only,
+   never requests `nvidia.com/gpu`, and Isaac keeps the whole card. If CPU inference proves too
+   slow (watch per-sample infer timing in job logs), flip `gpu: true` + GPU machine type: the
+   engine sets `TF_FORCE_GPU_ALLOW_GROWTH` (engine/run.py) so TF grows VRAM incrementally rather
+   than preallocating, and the loop serializes render vs. infer — but TF never releases grown
+   memory, so verify Isaac's peak VRAM + TF footprint fit the card first.
 2. Warehouse/LOCO data present (already on the box for the standalone loop); wire
    `project_config.yaml` paths.
 3. `leap push` the existing integration; run evaluate on this install — its PCA is the basis the
