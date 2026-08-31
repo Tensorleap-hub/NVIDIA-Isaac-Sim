@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 
 import numpy as np
 import torch
@@ -219,6 +220,156 @@ class RFDETREmbedder:
                 hidden = outputs.hidden_states[self._hidden_state_index]  # (B, 1+N, C)
                 patch_tokens = hidden[:, 1:, :]  # drop cls token (no register tokens)
                 batches.append(patch_tokens.mean(dim=1).cpu().numpy())  # (B, C)
+        embeddings = np.concatenate(batches, axis=0)
+        np.save(cache_path, embeddings)
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+        return embeddings
+
+    def _load_image(self, path: Path) -> torch.Tensor:
+        with Image.open(path) as image:
+            return self.transform(image.convert("RGB"))
+
+
+_RFDETR_PROJECTOR_PREFIX = "backbone.0.projector."
+_RFDETR_SRC_ROOT = str(Path(__file__).resolve().parent.parent / "models" / "rf-detr" / "src")
+
+
+class RFDETRNeckEmbedder:
+    """RF-DETR DINOv2 encoder + trained projector/neck feature extractor.
+
+    Reconstructs the checkpoint's actual multi-scale projector (the module RF-DETR
+    calls its P4 stage — the closest functional analogue to YOLO's P3 available in
+    this checkpoint, since it only trained a single projector scale) instead of a
+    raw, unfused DINOv2 hidden state like ``RFDETREmbedder``. All four
+    ``_RFDETR_SCALE_LAYERS`` stages feed the projector, matching how the checkpoint
+    was trained; its single output stage is mean-pooled to a (B, out_channels)
+    embedding per image.
+    """
+
+    def __init__(
+        self,
+        checkpoint_path: str,
+        device: str,
+        resize_size: int,
+        image_size: int,
+        out_channels: int = 256,
+    ):
+        from transformers import Dinov2Config, Dinov2Model  # lazy import – only for backend="rfdetr_neck"
+
+        if _RFDETR_SRC_ROOT not in sys.path:
+            sys.path.insert(0, _RFDETR_SRC_ROOT)
+        from rfdetr.models.backbone.projector import MultiScaleProjector  # noqa: E402
+
+        if image_size % 14 != 0:
+            raise ValueError(f"image_size must be a multiple of the ViT-S/14 patch size (14), got {image_size}")
+        if not checkpoint_path:
+            raise ValueError(
+                "RFDETRNeckEmbedder requires a fine-tuned checkpoint_path "
+                "(the trained projector has no pretrained-only weights)."
+            )
+
+        self.device = torch.device(device)
+        self.grid_size = image_size // 14
+
+        config = Dinov2Config(
+            hidden_size=384,
+            num_hidden_layers=12,
+            num_attention_heads=6,
+            mlp_ratio=4,
+            patch_size=14,
+            image_size=518,
+            num_register_tokens=0,
+        )
+        encoder = Dinov2Model(config)
+        projector = MultiScaleProjector(
+            in_channels=[384, 384, 384, 384],
+            out_channels=out_channels,
+            scale_factors=[1.0],
+            num_blocks=3,
+            layer_norm=True,
+        )
+
+        ckpt = torch.load(checkpoint_path, map_location=str(self.device), weights_only=False)
+        state_dict = ckpt.get("model", ckpt.get("state_dict", ckpt))
+
+        encoder_sd = {
+            key[len(_RFDETR_ENCODER_PREFIX):]: value
+            for key, value in state_dict.items()
+            if key.startswith(_RFDETR_ENCODER_PREFIX)
+        }
+        if not encoder_sd:
+            raise ValueError(
+                f"No RF-DETR encoder weights found under prefix '{_RFDETR_ENCODER_PREFIX}' in {checkpoint_path}"
+            )
+        result = encoder.load_state_dict(encoder_sd, strict=False)
+        if result.missing_keys or result.unexpected_keys:
+            raise ValueError(
+                "RF-DETR encoder weights did not map cleanly onto Dinov2Model "
+                f"(missing={len(result.missing_keys)}, unexpected={len(result.unexpected_keys)})"
+            )
+
+        projector_sd = {
+            key[len(_RFDETR_PROJECTOR_PREFIX):]: value
+            for key, value in state_dict.items()
+            if key.startswith(_RFDETR_PROJECTOR_PREFIX)
+        }
+        if not projector_sd:
+            raise ValueError(
+                f"No RF-DETR projector weights found under prefix '{_RFDETR_PROJECTOR_PREFIX}' in {checkpoint_path}"
+            )
+        result = projector.load_state_dict(projector_sd, strict=False)
+        if result.missing_keys or result.unexpected_keys:
+            raise ValueError(
+                "RF-DETR projector weights did not map cleanly onto MultiScaleProjector "
+                f"(missing={len(result.missing_keys)}, unexpected={len(result.unexpected_keys)})"
+            )
+
+        self._encoder = encoder
+        self._encoder.eval()
+        self._encoder.to(self.device)
+        self._projector = projector
+        self._projector.eval()
+        self._projector.to(self.device)
+
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize(resize_size, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.CenterCrop(image_size),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
+            ]
+        )
+
+    def embed_paths(
+        self,
+        image_paths: list[Path],
+        *,
+        batch_size: int,
+        cache_path: Path,
+        manifest: dict[str, Any],
+    ) -> np.ndarray:
+        """Embed images through the RF-DETR encoder + trained neck, reusing a cache entry when the manifest matches."""
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path = cache_path.with_suffix(".manifest.json")
+        if cache_path.exists() and manifest_path.exists():
+            cached_manifest = json.loads(manifest_path.read_text())
+            if cached_manifest == manifest:
+                return np.load(cache_path)
+
+        batches = []
+        with torch.inference_mode():
+            for start in range(0, len(image_paths), batch_size):
+                batch_paths = image_paths[start : start + batch_size]
+                images = torch.stack([self._load_image(p) for p in batch_paths], dim=0).to(self.device)
+                outputs = self._encoder(images, output_hidden_states=True)
+                stage_maps = []
+                for hidden_state_index in _RFDETR_SCALE_LAYERS:
+                    hidden = outputs.hidden_states[hidden_state_index]  # (B, 1+N, C)
+                    patch_tokens = hidden[:, 1:, :]  # drop cls token (no register tokens)
+                    b, n, c = patch_tokens.shape
+                    stage_maps.append(patch_tokens.transpose(1, 2).reshape(b, c, self.grid_size, self.grid_size))
+                neck_feat = self._projector(stage_maps)[0]  # (B, out_channels, H, W) — only/finest stage
+                batches.append(neck_feat.mean(dim=(2, 3)).cpu().numpy())  # (B, out_channels)
         embeddings = np.concatenate(batches, axis=0)
         np.save(cache_path, embeddings)
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))

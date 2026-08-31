@@ -26,6 +26,7 @@ from .config import WorkflowConfig
 from .data import (
     DINOv2Embedder,
     RFDETREmbedder,
+    RFDETRNeckEmbedder,
     RunArtifact,
     StateStore,
     discover_generated_images,
@@ -148,10 +149,25 @@ class SimulationCalibrationController:
             self._embedder_id = f"rfdetr_{ckpt_stem}"
             self._embedder_repo = ""
             self._embedder_batch_size = config.rfdetr_embedder.batch_size
-            self.embedder: DINOv2Embedder | RFDETREmbedder = RFDETREmbedder(
+            self.embedder: DINOv2Embedder | RFDETREmbedder | RFDETRNeckEmbedder = RFDETREmbedder(
                 checkpoint_path=config.rfdetr_embedder.checkpoint_path,
                 num_classes=config.rfdetr_embedder.num_classes,
                 layer_index=config.rfdetr_embedder.layer_index,
+                device=config.rfdetr_embedder.device,
+                image_size=config.rfdetr_embedder.image_size,
+                resize_size=config.rfdetr_embedder.resize_size,
+            )
+        elif config.embedder_backend == "rfdetr_neck":
+            ckpt_stem = (
+                Path(config.rfdetr_embedder.checkpoint_path).stem
+                if config.rfdetr_embedder.checkpoint_path
+                else "pretrained"
+            )
+            self._embedder_id = f"rfdetr_neck_{ckpt_stem}"
+            self._embedder_repo = ""
+            self._embedder_batch_size = config.rfdetr_embedder.batch_size
+            self.embedder = RFDETRNeckEmbedder(
+                checkpoint_path=config.rfdetr_embedder.checkpoint_path,
                 device=config.rfdetr_embedder.device,
                 image_size=config.rfdetr_embedder.image_size,
                 resize_size=config.rfdetr_embedder.resize_size,
