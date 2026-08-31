@@ -93,6 +93,10 @@ cosmos_data:
     - {dir: "warehouse3cls_cosmos_optuna",          render_type: cosmos,   source_group: optuna}
     - {dir: "warehouse3cls_cosmos_optuna_original", render_type: original, source_group: optuna}
 
+# Which @tensorleap_custom_latent_space implementation is registered with
+# leap_binder (only one can be active at a time): "dino" | "rfdetr_neck"
+active_latent_space: "dino"
+
 dino_latent_space:
   cache_dir: "/Users/orram/Tensorleap/data/warehouse/dino_ls_cache"
   repo: "facebookresearch/dinov2"
@@ -101,6 +105,19 @@ dino_latent_space:
   image_size: 224
   resize_size: 256
   batch_size: 16
+
+# RF-DETR's own fine-tuned DINOv2 encoder + trained projector/neck (its single
+# P4 stage - the closest functional analogue to YOLO's P3 for this checkpoint,
+# since only one projector scale was trained). See RFDETRNeckEmbedder in
+# simulation_calibration_loop/data.py.
+rfdetr_neck_latent_space:
+  cache_dir: "/Users/orram/Tensorleap/data/warehouse/rfdetr_neck_ls_cache"
+  checkpoint_path: "s3_training_analysis/warehouse3cls_traj_v4b/rfdetr_traj_v4b_base/checkpoint_best_ema.pth"
+  device:            # null = auto (cuda / mps / cpu)
+  image_size: 224
+  resize_size: 256
+  batch_size: 16
+  out_channels: 256
 
 custom_latent_space:
   # Disabled for the cosmos original-vs-stylized push (cosmos_data.cosmos_only). Restore to

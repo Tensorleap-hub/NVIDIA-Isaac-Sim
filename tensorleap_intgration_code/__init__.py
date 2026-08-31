@@ -11,7 +11,7 @@ from .losses import (
     rtdetr_total_loss_native,
     rtdetr_loss_components_native,
 )
-from .latent_space import dino_latent_space, extract_latent_space
+from .latent_space import active_latent_space, extract_latent_space, extract_rfdetr_neck_latent_space
 from .metadata import data_type_metadata, sample_metadata
 from .synth_metadata import synth_metadata_mean_std
 from .metrics import get_per_sample_metrics, confusion_matrix_metric
@@ -27,8 +27,9 @@ __all__ = [
     "compute_rtdetr_native_losses",
     "rtdetr_total_loss_native",
     "rtdetr_loss_components_native",
-    "dino_latent_space",
+    "active_latent_space",
     "extract_latent_space",
+    "extract_rfdetr_neck_latent_space",
     "data_type_metadata",
     "sample_metadata",
     "synth_metadata_mean_std",
