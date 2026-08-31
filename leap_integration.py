@@ -14,7 +14,7 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_integration_test,
     tensorleap_load_model,
 )
-
+from code_loader.plot_functions.visualize import visualize
 from tensorleap_intgration_code import (
     active_latent_space,
     bb_decoder,
@@ -62,7 +62,7 @@ def check_integration(idx, subset):
     labels_out = raw[1]  # (1, 300, 4)
 
     _ = image_visualizer(image)
-    _ = pred_bb_decoder(image, dets_out, labels_out)
+    pred_boxs = pred_bb_decoder(image, dets_out, labels_out)
     _ = bb_decoder(image, gt, dets_out, labels_out)
     _ = rtdetr_total_loss_native(labels_out, dets_out, gt_boxes, gt_labels, gt_valid)
     _ = rtdetr_loss_components_native(labels_out, dets_out, gt_boxes, gt_labels, gt_valid)
@@ -72,6 +72,7 @@ def check_integration(idx, subset):
     _ = sample_metadata(idx, subset)
     _ = synth_metadata_mean_std(idx, subset)
     _ = active_latent_space(idx, subset)
+    visualize(pred_boxs)
 
 
 if __name__ == "__main__":
