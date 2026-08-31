@@ -1,0 +1,51 @@
+# Theme-rounds v2 (2026-07-16): weekend format, three deliberate changes.
+#   1. FRESH BASELINE — no pool/best reuse from prior runs. The promoted dir
+#      starts EMPTY (no base_pool.json, no best.yaml): theme 1 iteration 0
+#      anchors on the base_v4 seed configs, the pool accumulates from scratch
+#      within THIS run, and scores are on a new scale (see 3) so nothing old
+#      is comparable anyway.
+#   2. Two staged themes join the chain per the reintroduction order:
+#      distractor_diversity (after occurrence) and exploration_bounds (last —
+#      by then every earlier theme has promoted a tuned environment for the
+#      roam-box envelope). Characters stays disabled (unfixed spawn crash).
+#   3. Embedder = RF-DETR DINOv2 encoder trained on REAL DATA ONLY
+#      (rfdetr_real_base_tuned, dataset_dir=warehouse3cls_real): the embedding
+#      space owes nothing to synthetic renders, so MMD-to-real measures the
+#      domain gap without a synth-trained encoder's bias.
+# Rendering: SDG episode mode with TRAJECTORY capture — each trial's 4 seeds
+# render in ONE Isaac session (same planner/frames as per-process; ~4.5 vs
+# ~8 min/trial). Known deviation: character spawn positions re-roll per trial,
+# not per seed.
+rounds: 3
+common:
+  promoted_baseline_dir: ./promoted_baseline_trajectory_realenc
+  max_iterations: 10
+  iteration_batch_size: 4
+  # 4 seeds x 15 arc-spaced trajectory frames = 60 frames per trial, pooled
+  # before embedding (weekend budget, unchanged).
+  sample_number: 15
+  eval_seeds: [1, 2, 3, 4]
+  isaac:
+    episode_mode: true
+  embedder_backend: dinov2
+  top_k_export: 10
+  diverse_candidate_pool: 30
+  base_pool:
+    enabled: true
+    max_size: 60
+    pin_seeds: true
+  rfdetr_embedder:
+    checkpoint_path: /home/ubuntu/warehouse3cls_mixed/output/rfdetr_real_base_tuned/checkpoint_best_ema.pth
+    num_classes: 3
+    layer_index: 3
+    batch_size: 16
+    resize_size: 256
+    image_size: 224
+configs:
+- project_config_trajectory_camera.yaml
+- project_config_trajectory_camera_jitter.yaml
+- project_config_trajectory_agent.yaml
+- project_config_trajectory_scene.yaml
+- project_config_trajectory_distractor_occurrence.yaml
+- project_config_trajectory_distractor_diversity.yaml
+- project_config_trajectory_exploration_bounds.yaml

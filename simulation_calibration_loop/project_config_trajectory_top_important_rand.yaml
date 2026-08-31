@@ -1,0 +1,120 @@
+# RANDOM-MODE RE-BASELINE of the top-important joint theme (2026-07-16).
+# Same 18-knob search space + environment as project_config_trajectory_top_important,
+# but trials render with the SDG episode mode: 32 seeds x 1 RANDOM frame each in one
+# Isaac session (32 independent layouts/trial vs 4 layouts x 15 frames before).
+# Objective values are NOT comparable to the trajectory-mode runs -> fresh pool
+# (base_pool disabled in the rounds file), substrate = weekend best.yaml (params only).
+# Single cross-cutting theme built from the highest-fANOVA-importance knobs of
+# the first full theme-rounds run (DINOv2, 2026-07-09->11). See the
+# `traj-top-important` theme in config.py for the selection rationale. This
+# searches the ~18 best knobs across camera / scene / occurrence / agent
+# JOINTLY (plus environment.name via traj-environment), seeded from that run's
+# promoted best (0.32604) and reusing its 60-observation pool.
+project_name: trajectory_top_important_rand
+workspace_dir: ./workspace_trajectory_top_important_rand
+seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4
+real_dataset_root: /home/ubuntu/loco_dataset
+real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json
+max_iterations: 30
+iteration_batch_size: 8
+isaac:
+  script_path: ../palletjack_sdg/standalone_palletjack_trajectory_sdg.py
+  # Episode/random rendering (2026-07-15 SDG): one Isaac session per trial,
+  # every image an independent scene re-roll + freespace pose.
+  episode_mode: true
+  capture_mode: random
+search_space:
+  themes:
+  - traj-top-important
+  - traj-environment
+  exclude:
+  - run.data_dir
+  - run.num_frames
+  - run.headless
+  - cameras.ego.shutter_close_fraction
+  - cameras.chase.enabled
+  - cameras.ego.fisheye.enabled
+  - cameras.ego.fisheye.k1
+  - cameras.ego.fisheye.k2
+  - cameras.ego.fisheye.k3
+  - cameras.ego.fisheye.k4
+  - capture.video
+  bounds:
+    # camera
+    cameras.ego.fov_mean:
+    - 30.0
+    - 120.0
+    cameras.ego.fov_std:
+    - 0.0
+    - 8.0
+    cameras.ego.f_stop:
+    - 0.0
+    - 8.0
+    cameras.ego.focus_distance_m:
+    - 2.0
+    - 10.0
+    cameras.ego.height_m:
+    - 0.5
+    - 3.0
+    cameras.ego.pitch_deg:
+    - -30.0
+    - 5.0
+    cameras.ego.roll_deg:
+    - -5.0
+    - 5.0
+    # scene
+    lighting.intensity_mean:
+    - 10000.0
+    - 220000.0
+    materials.roughness_mean:
+    - 0.1
+    - 0.9
+    materials.roughness_std:
+    - 0.0
+    - 0.5
+    distractors.clutter_level:
+    - 0.0
+    - 6.0
+    # distractor occurrence / composition
+    distractors.groups.BottlePlastic.occurrence:
+    - 0
+    - 6
+    distractors.groups.TrafficSigns.occurrence:
+    - 0
+    - 6
+    distractors.groups.RackPile.occurrence:
+    - 0
+    - 6
+    distractors.groups.CratePlastic.occurrence:
+    - 0
+    - 6
+    distractors.groups.BarelPlastic.occurrence:
+    - 0
+    - 6
+    # agent
+    agent.turn_rate_dps:
+    - 30.0
+    - 180.0
+    agent.speed_mps:
+    - 0.3
+    - 4.0
+    # environment (searched jointly via traj-environment)
+    environment.name:
+    - full_warehouse
+    - warehouse
+    - warehouse_multiple_shelves
+    - warehouse_with_forklifts
+embedder_backend: dinov2
+rfdetr_embedder:
+  checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth
+tpe_sampler:
+  n_startup_trials: 10
+  multivariate: true
+  # group=True (needs multivariate) uses the group-decomposed search space:
+  # it models params that co-occur within a trial jointly, per group. Correct
+  # here because this joint theme is primed from the 60-obs pool whose entries
+  # come from DIFFERENT prior themes (camera-only / scene-only / ...), i.e. a
+  # varying-per-trial param set — the exact case plain multivariate handles
+  # poorly. (The weekend single-axis themes had a fixed param set, so they ran
+  # group=False.)
+  group: true
