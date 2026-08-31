@@ -55,5 +55,6 @@ for ARM in "${ARMS[@]}"; do
   done
   unset SPLITS
   "$PY" "$OD/results.py" > "$DC/RESULTS.md" 2>/dev/null && echo "$(date -u +%FT%TZ) [$ARM] results table updated"
+  "$OD/upload_s3.sh" "$ARM" && "$OD/upload_s3.sh" --study-files
 done
 echo "$(date -u +%FT%TZ) queue complete"
