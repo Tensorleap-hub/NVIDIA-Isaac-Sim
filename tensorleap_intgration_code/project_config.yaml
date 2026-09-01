@@ -73,6 +73,16 @@ optuna_data:
   additional: false          # set to false to exclude optuna-generated data entirely
   num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
 
+trajectory_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse/trajectory-optimized"
+  additional: true          # set to false to exclude trajectory-optimized data entirely
+  num_samples:              # null = no limit; per-run cap after deterministic shuffle
+
+optuna_trajectory_base_data:
+  base_path: "/Users/orram/Tensorleap/data/warehouse/optuna_trajectory_base_init"
+  additional: true          # set to false to exclude optuna trajectory base-init data entirely
+  num_samples:              # null = no limit; per exp/seed cap after deterministic shuffle
+
 optuna_tests_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/optuna_tests"
   additional: false          # set to false to exclude optuna test datasets entirely

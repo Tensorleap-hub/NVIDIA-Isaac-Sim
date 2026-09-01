@@ -116,6 +116,10 @@ def _make_additional_sample_id(r: dict) -> str:
         )
     elif r["subset"] == "base_synth":
         return f"base_synth_{r['experiment']}_frame{r['image_id']}"
+    elif r["subset"] == "trajectory":
+        return f"traj_{r['experiment']}_frame{r['image_id']}"
+    elif r["subset"] == "optuna_traj_base":
+        return f"optuna_traj_base_{r['experiment']}_frame{r['image_id']}"
     elif r["subset"] == "cosmos":
         return f"cosmos_{r['source_group']}_{r['render_type']}_{r['cosmos_split']}_{r['image_id']}"
     else:
@@ -364,6 +368,8 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
 
     synth_records = _load_synth_records()
     base_synth_records = _load_base_synth_records()
+    trajectory_records = _load_trajectory_records()
+    optuna_traj_base_records = _load_optuna_trajectory_base_records()
     extended_records = _load_extended_records()
     optuna_records = _load_optuna_records()
     optuna_test_records = _load_optuna_test_records()
@@ -371,6 +377,8 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
 
     synth_records.sort(key=lambda r: r["run_number"])
     base_synth_records.sort(key=lambda r: (r["experiment"], r["image_id"]))
+    trajectory_records.sort(key=lambda r: (r["experiment"], r["image_id"]))
+    optuna_traj_base_records.sort(key=lambda r: (r["experiment"], r["image_id"]))
     extended_records.sort(key=lambda r: (r.get("iteration", 0), r["run_number"], r["experiment"]))
     optuna_records.sort(
         key=lambda r: (
@@ -399,12 +407,14 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         val_records = val_records[:max_samples]
         synth_records = synth_records[:max_samples]
         base_synth_records = base_synth_records[:max_samples]
+        trajectory_records = trajectory_records[:max_samples]
+        optuna_traj_base_records = optuna_traj_base_records[:max_samples]
         extended_records = extended_records[:max_samples]
         optuna_records = optuna_records[:max_samples]
         optuna_test_records = optuna_test_records[:max_samples]
         cosmos_records = cosmos_records[:max_samples]
 
-    additional_records = synth_records + base_synth_records + extended_records + optuna_records + optuna_test_records + cosmos_records
+    additional_records = synth_records + base_synth_records + trajectory_records + optuna_traj_base_records + extended_records + optuna_records + optuna_test_records + cosmos_records
 
     train_ids = [str(r["image_id"]) for r in train_records]
     val_ids   = [str(r["image_id"]) for r in val_records]
@@ -785,6 +795,78 @@ def _load_base_synth_records() -> list:
     return records
 
 
+def _load_trajectory_style_records(cfg_key: str, subset: str) -> list:
+    cfg = CONFIG.get(cfg_key, {})
+    if not cfg.get("additional", True):
+        return []
+
+    base = cfg.get("base_path", "")
+    if not base or not os.path.isdir(base):
+        return []
+
+    base_path = Path(base)
+    run_dirs = []
+    for path in sorted(p for p in base_path.iterdir() if p.is_dir()):
+        if (path / "run_config.yaml").is_file():
+            run_dirs.append(path)
+        else:
+            run_dirs.extend(sorted(
+                sub for sub in path.iterdir()
+                if sub.is_dir() and (sub / "run_config.yaml").is_file()
+            ))
+
+    records = []
+    for run_dir in run_dirs:
+        with (run_dir / "run_config.yaml").open("r") as f:
+            exp_config = yaml.safe_load(f)
+        run_config = _deep_merge(_SDG_BASE_CONFIG, exp_config)
+
+        orig_w = int(run_config.get("render", {}).get("width", 960))
+        orig_h = int(run_config.get("render", {}).get("height", 544))
+        experiment = (
+            run_dir.name if run_dir.parent == base_path
+            else f"{run_dir.parent.name}__{run_dir.name}"
+        )
+        frame_records = _read_supported_frame_records(run_dir, run_config)
+
+        for image_id, img_path, anns in frame_records:
+            records.append({
+                "image_id": image_id,
+                "path": str(img_path),
+                "width": orig_w,
+                "height": orig_h,
+                "subset": subset,
+                "anns": anns,
+                "run_config": run_config,
+                "experiment": experiment,
+            })
+
+    num_samples = cfg.get("num_samples")
+    if num_samples is not None:
+        by_exp = {}
+        for r in records:
+            by_exp.setdefault(r["experiment"], []).append(r)
+        sampled = []
+        rng = random.Random(42)
+        for exp_records in by_exp.values():
+            if len(exp_records) > num_samples:
+                rng.shuffle(exp_records)
+                sampled.extend(exp_records[:num_samples])
+            else:
+                sampled.extend(exp_records)
+        records = sampled
+
+    return records
+
+
+def _load_trajectory_records() -> list:
+    return _load_trajectory_style_records("trajectory_data", "trajectory")
+
+
+def _load_optuna_trajectory_base_records() -> list:
+    return _load_trajectory_style_records("optuna_trajectory_base_data", "optuna_traj_base")
+
+
 def _load_extended_records() -> list:
     """
     Load frames from extended/{name}-{iter}/{run_name}/ directories.
@@ -994,11 +1076,37 @@ def _read_basic_writer_frame_records(
     return frame_records
 
 
+def _read_camera_basic_writer_frame_records(
+    experiment_dir: Path,
+    run_config: dict,
+) -> list[tuple[int, Path, list[dict]]]:
+    rgb_dir = experiment_dir / "Camera" / "rgb"
+    ann_dir = experiment_dir / "Camera" / "bounding_box_2d_tight"
+    if not rgb_dir.is_dir() or not ann_dir.is_dir():
+        return []
+
+    frame_records = []
+    for img_path in sorted(rgb_dir.iterdir()):
+        frame_match = _OPTUNA_FLAT_RGB_RE.match(img_path.name)
+        if frame_match is None or not img_path.is_file():
+            continue
+        frame_id = int(frame_match.group("frame"))
+        ann_path = ann_dir / f"bounding_box_2d_tight_{frame_id:04d}.npy"
+        label_path = ann_dir / f"bounding_box_2d_tight_labels_{frame_id:04d}.json"
+        frame_records.append(
+            (frame_id, img_path, _parse_basic_writer_bbox_annotations(ann_path, label_path))
+        )
+    return frame_records
+
+
 def _read_supported_frame_records(
     experiment_dir: Path,
     run_config: dict,
 ) -> list[tuple[int, Path, list[dict]]]:
     frame_records = _read_camera_kitti_frame_records(experiment_dir, run_config)
+    if frame_records:
+        return frame_records
+    frame_records = _read_camera_basic_writer_frame_records(experiment_dir, run_config)
     if frame_records:
         return frame_records
     return _read_basic_writer_frame_records(experiment_dir, run_config)
