@@ -53,6 +53,8 @@ def _load_selection_filter_ids() -> Optional[Set[str]]:
 
     if option == "baseline":
         selected_ids = _ids_from_proximity_csv(cfg["csv_path"], target_ls)
+    elif option in ("dino_centroid", "dino_knn"):
+        selected_ids = _ids_from_proximity_csv(cfg[f"{option}_csv_path"], "dino")
     elif option == "bbox80":
         selected_ids = _ids_from_proximity_csv(cfg["bbox80_csv_path"], target_ls)
     elif option == "manual_plus_cosmos":
@@ -432,23 +434,18 @@ def preprocess_func_leap() -> List[PreprocessResponse]:
         additional_ids = [sid for sid, _ in kept]
         additional_records = [r for _, r in kept]
 
+    train_ids = train_ids + additional_ids
+    train_records = train_records + additional_records
+
     _validate_unique_sample_ids(train_ids, "training split")
     _validate_unique_sample_ids(val_ids, "validation split")
-    _validate_unique_sample_ids(additional_ids, "additional split")
-    _validate_unique_sample_ids(train_ids + val_ids + additional_ids, "all splits")
-    if len(additional_ids) > 0:
-        return [
-            PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids, state=DataStateType.training),
-            PreprocessResponse(data={sid: r for sid, r in zip(val_ids,   val_records)},   sample_ids=val_ids,   state=DataStateType.validation),
-            PreprocessResponse(data={sid: r for sid, r in zip(additional_ids, additional_records)}, sample_ids=additional_ids, state=DataStateType.additional),
-        ]
-    else:
-        return [
-            PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids,
-                               state=DataStateType.training),
-            PreprocessResponse(data={sid: r for sid, r in zip(val_ids, val_records)}, sample_ids=val_ids,
-                               state=DataStateType.validation),
-            ]
+    _validate_unique_sample_ids(train_ids + val_ids, "all splits")
+    return [
+        PreprocessResponse(data={sid: r for sid, r in zip(train_ids, train_records)}, sample_ids=train_ids,
+                           state=DataStateType.training),
+        PreprocessResponse(data={sid: r for sid, r in zip(val_ids, val_records)}, sample_ids=val_ids,
+                           state=DataStateType.validation),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -656,7 +653,9 @@ def _load_synth_records() -> list:
         path for path in base_path.iterdir()
         if path.name.startswith("palletjack_run_") and path.is_dir()
     )
-    if selected_runs is not None:
+    if not run_dirs:
+        run_dirs = [base_path]
+    elif selected_runs is not None:
         available_runs = {int(path.name.split("_")[-1]) for path in run_dirs}
         missing = selected_runs - available_runs
         if missing:
@@ -668,7 +667,7 @@ def _load_synth_records() -> list:
         run_dirs = [path for path in run_dirs if int(path.name.split("_")[-1]) in selected_runs]
 
     for run_path in run_dirs:
-        run_number = int(run_path.name.split("_")[-1])
+        run_number = int(run_path.name.split("_")[-1]) if run_path.name.startswith("palletjack_run_") else 0
         run_records_start = len(records)
 
         exp_dirs = sorted(
@@ -1141,15 +1140,18 @@ def _append_optuna_experiment_records(
     summary: dict | None,
     trial_dir: Path | None,
 ) -> None:
-    match = _OPTUNA_DIR_RE.match(experiment_name)
+    match = _FLAT_OUTPUTS_DIR_RE.match(experiment_name)
     if match is None:
         return
 
     run_config_path = experiment_dir / "run_config.yaml"
     if not run_config_path.is_file() and trial_dir is not None:
-        fallback_yaml_path = trial_dir / "yamls" / f"{experiment_name}.yaml"
-        if fallback_yaml_path.is_file():
-            run_config_path = fallback_yaml_path
+        bare_name = experiment_name.split("__")[0]
+        for candidate in (experiment_name, bare_name):
+            fallback_yaml_path = trial_dir / "yamls" / f"{candidate}.yaml"
+            if fallback_yaml_path.is_file():
+                run_config_path = fallback_yaml_path
+                break
     if not run_config_path.is_file():
         return
 
@@ -1207,7 +1209,7 @@ def _append_optuna_trial_records(
 
     for experiment_dir in sorted(
         path for path in outputs_root.iterdir()
-        if path.is_dir() and _OPTUNA_DIR_RE.match(path.name)
+        if path.is_dir() and _FLAT_OUTPUTS_DIR_RE.match(path.name)
     ):
         _append_optuna_experiment_records(
             records=records,
