@@ -77,6 +77,9 @@ def select_real_image_paths_from_csv(
     `id` field of an entry in `annotation_file`'s LOCO-style `images` list. Only
     rows whose `data_type_column` equals `data_type` are kept, so a CSV mixing
     real and synthetic samples can be used directly as a target definition.
+    When the export carries an `is_low_perf_root_member` column, only rows
+    flagged true are kept — the target is the insight's low-performance cluster
+    members, never the surrounding context samples the export also includes.
     """
     dataset_root = Path(dataset_root)
     annotation_file = Path(annotation_file)
@@ -87,7 +90,13 @@ def select_real_image_paths_from_csv(
     }
 
     with open(target_csv, newline="") as csv_file:
-        rows = [row for row in csv.DictReader(csv_file) if row.get(data_type_column) == data_type]
+        reader = csv.DictReader(csv_file)
+        rows = [row for row in reader if row.get(data_type_column) == data_type]
+        if reader.fieldnames and "is_low_perf_root_member" in reader.fieldnames:
+            rows = [
+                row for row in rows
+                if str(row.get("is_low_perf_root_member", "")).strip().lower() in ("true", "1", "yes")
+            ]
     if not rows:
         raise ValueError(f"No rows with {data_type_column}={data_type!r} found in {target_csv}")
 
@@ -314,7 +323,19 @@ class RFDETRNeckEmbedder:
 
         if _RFDETR_SRC_ROOT not in sys.path:
             sys.path.insert(0, _RFDETR_SRC_ROOT)
-        from rfdetr.models.backbone.projector import MultiScaleProjector  # noqa: E402
+        try:
+            from rfdetr.models.backbone.projector import MultiScaleProjector  # noqa: E402
+        except ModuleNotFoundError:
+            # The vendored rf-detr is partial (no rfdetr.datasets), which breaks
+            # the package __init__ chain; projector.py itself only needs torch/numpy,
+            # so load it straight from its file path.
+            import importlib.util
+
+            projector_file = Path(_RFDETR_SRC_ROOT) / "rfdetr" / "models" / "backbone" / "projector.py"
+            spec = importlib.util.spec_from_file_location("_rfdetr_neck_projector", projector_file)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            MultiScaleProjector = module.MultiScaleProjector
 
         if image_size % 14 != 0:
             raise ValueError(f"image_size must be a multiple of the ViT-S/14 patch size (14), got {image_size}")

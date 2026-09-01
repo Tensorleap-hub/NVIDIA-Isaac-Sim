@@ -1,8 +1,10 @@
 project_name: trajectory_distractor_diversity
 workspace_dir: ./workspace_trajectory_distractor_diversity
 seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4
-real_dataset_root: /home/ubuntu/loco_dataset
-real_annotations_file: /home/ubuntu/warehouse3cls_traj_v2/valid/_annotations.coco.json
+real_dataset_root: /home/ubuntu/datasets/loco_dataset
+real_annotations_file: /home/ubuntu/datasets/loco_dataset/labels/loco-all-v1.json
+# Target = low-perf cluster members (is_low_perf_root_member filter is fixed in data.py)
+real_target_csv: /home/ubuntu/NVIDIA-Isaac-Sim/simulation_calibration_loop/targets/insight-4-samples.csv
 max_iterations: 15
 iteration_batch_size: 4
 isaac:
@@ -48,11 +50,10 @@ search_space:
     distractors.groups.TrafficSigns.diversity:
     - 1
     - 6
+    # Environment pinned to full_warehouse for the neck/low-perf-target run —
+    # the insight target is not an environment-selection question.
     environment.name:
     - full_warehouse
-    - warehouse
-    - warehouse_multiple_shelves
-    - warehouse_with_forklifts
 embedder_backend: dinov2
 rfdetr_embedder:
   checkpoint_path: /home/ubuntu/warehouse3cls_traj_v4b/output/rfdetr_traj_v4b_base/checkpoint_best_ema.pth
