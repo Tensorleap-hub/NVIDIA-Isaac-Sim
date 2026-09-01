@@ -19,6 +19,10 @@
 rounds: 3
 common:
   promoted_baseline_dir: ./promoted_baseline_trajectory_realenc
+  # Restrict the MMD real reference set to this insight's selected real
+  # samples instead of every subset-2/subset-3 image. See
+  # data.select_real_image_paths_from_csv.
+  real_target_csv: targets/insight-4-samples.csv
   max_iterations: 10
   iteration_batch_size: 4
   # 4 seeds x 15 arc-spaced trajectory frames = 60 frames per trial, pooled

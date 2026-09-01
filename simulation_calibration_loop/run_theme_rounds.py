@@ -235,6 +235,8 @@ def _apply_common_overrides(raw: dict, common: dict) -> None:
         "top_k_export",
         "diverse_candidate_pool",
         "diverse_objective_threshold",
+        "real_target_csv",
+        "real_target_data_type",
     ):
         if key in common:
             raw[key] = common[key]
@@ -328,6 +330,7 @@ def _absolutize_workflow_paths(raw: dict, source_config_dir: Path) -> None:
         "seed_config_dir",
         "real_dataset_root",
         "real_annotations_file",
+        "real_target_csv",
     ):
         value = raw.get(key)
         if value:
