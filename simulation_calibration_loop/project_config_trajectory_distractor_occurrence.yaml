@@ -1,6 +1,6 @@
 project_name: trajectory_distractor_occurrence
 workspace_dir: ./workspace_trajectory_distractor_occurrence
-seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4
+seed_config_dir: ../palletjack_sdg/experiments/trajectory/base_v4_fullwh
 real_dataset_root: /home/ubuntu/datasets/loco_dataset
 real_annotations_file: /home/ubuntu/datasets/loco_dataset/labels/loco-all-v1.json
 # Target = low-perf cluster members (is_low_perf_root_member filter is fixed in data.py)
