@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import csv
 import hashlib
 import json
 import os
@@ -58,6 +59,61 @@ def select_real_image_paths(dataset_root: str | Path, annotation_file: str | Pat
         image_path = dataset_root / relative_path
         if image_path.exists():
             image_paths.append(image_path)
+    return sorted(image_paths)
+
+
+def select_real_image_paths_from_csv(
+    dataset_root: str | Path,
+    annotation_file: str | Path,
+    target_csv: str | Path,
+    *,
+    data_type: str = "real",
+    data_type_column: str = "metadata.data_type",
+) -> list[Path]:
+    """Resolve a Tensorleap sample-export CSV into concrete real image paths.
+
+    `target_csv` is a platform sample export (e.g. a saved insight): each row's
+    `sample_id` is `f"{dataset_state}_{image_id}"`, where `image_id` matches the
+    `id` field of an entry in `annotation_file`'s LOCO-style `images` list. Only
+    rows whose `data_type_column` equals `data_type` are kept, so a CSV mixing
+    real and synthetic samples can be used directly as a target definition.
+    """
+    dataset_root = Path(dataset_root)
+    annotation_file = Path(annotation_file)
+    target_csv = Path(target_csv)
+    payload = json.loads(annotation_file.read_text())
+    relative_path_by_image_id = {
+        str(item["id"]): item["path"].replace("/dataset/", "", 1) for item in payload["images"]
+    }
+
+    with open(target_csv, newline="") as csv_file:
+        rows = [row for row in csv.DictReader(csv_file) if row.get(data_type_column) == data_type]
+    if not rows:
+        raise ValueError(f"No rows with {data_type_column}={data_type!r} found in {target_csv}")
+
+    image_paths = []
+    seen_image_ids = set()
+    unresolved_sample_ids = []
+    for row in rows:
+        sample_id = row["sample_id"]
+        state_prefix = f"{row.get('dataset_state', '')}_"
+        image_id = sample_id[len(state_prefix):] if row.get("dataset_state") and sample_id.startswith(state_prefix) else sample_id
+        if image_id in seen_image_ids:
+            continue
+        seen_image_ids.add(image_id)
+        relative_path = relative_path_by_image_id.get(image_id)
+        image_path = dataset_root / relative_path if relative_path is not None else None
+        if image_path is not None and image_path.exists():
+            image_paths.append(image_path)
+        else:
+            unresolved_sample_ids.append(sample_id)
+
+    if unresolved_sample_ids:
+        preview = ", ".join(unresolved_sample_ids[:10])
+        print(
+            f"select_real_image_paths_from_csv: {len(unresolved_sample_ids)}/{len(rows)} sample id(s) "
+            f"from {target_csv} could not be resolved under {dataset_root} (e.g. {preview})"
+        )
     return sorted(image_paths)
 
 

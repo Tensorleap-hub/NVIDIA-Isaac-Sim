@@ -304,6 +304,14 @@ class WorkflowConfig:
     # vitb14_reg objective scale (best runs ~0.33-0.40).
     diverse_objective_threshold: float | None = 0.44
     mmd_max_samples: int = 1000
+    # Optional Tensorleap sample-export CSV (e.g. a saved insight) restricting
+    # the real reference set to a specific selection of samples instead of
+    # every image `real_annotations_file` resolves. See
+    # data.select_real_image_paths_from_csv for the id-resolution rules.
+    real_target_csv: str | None = None
+    # Which value of the CSV's `metadata.data_type` column identifies the real
+    # rows to keep.
+    real_target_data_type: str = "real"
     synthetic_rgb_base_dir: str | None = None
     embedder_backend: str = "dinov2"
     dino: DINOv2Config = field(default_factory=DINOv2Config)
@@ -373,6 +381,8 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
             else (None if "diverse_objective_threshold" in raw else 0.44)
         ),
         mmd_max_samples=int(raw.get("mmd_max_samples", 1000)),
+        real_target_csv=str(Path(raw["real_target_csv"]).expanduser()) if raw.get("real_target_csv") else None,
+        real_target_data_type=str(raw.get("real_target_data_type", "real")),
         embedder_backend=str(raw.get("embedder_backend", "dinov2")),
         dino=_load_section(raw.get("dino"), DINOv2Config),
         rfdetr_embedder=_load_section(raw.get("rfdetr_embedder"), RFDETREmbedderConfig),
@@ -403,6 +413,10 @@ def load_workflow_config(config_path: str | Path) -> WorkflowConfig:
     workflow.seed_config_dir = str(workflow.resolve_path(workflow.seed_config_dir, relative_to_config=config_path))
     workflow.real_dataset_root = str(workflow.resolve_path(workflow.real_dataset_root, relative_to_config=config_path))
     workflow.real_annotations_file = str(workflow.resolve_path(workflow.real_annotations_file, relative_to_config=config_path))
+    if workflow.real_target_csv is not None:
+        workflow.real_target_csv = str(
+            workflow.resolve_path(workflow.real_target_csv, relative_to_config=config_path)
+        )
     workflow.isaac.script_path = str(
         workflow.resolve_path(workflow.isaac.script_path, relative_to_config=config_path)
     )

@@ -34,6 +34,7 @@ from .data import (
     prepare_output_dir,
     run_isaac_generation,
     select_real_image_paths,
+    select_real_image_paths_from_csv,
 )
 from .parameter_schema import (
     filter_parameter_specs,
@@ -288,10 +289,18 @@ class SimulationCalibrationController:
             phase="real-cache",
             note=self._compose_note("loading subset-3 reference embeddings"),
         )
-        real_image_paths = select_real_image_paths(
-            self.config.real_dataset_root,
-            self.config.real_annotations_file,
-        )
+        if self.config.real_target_csv:
+            real_image_paths = select_real_image_paths_from_csv(
+                self.config.real_dataset_root,
+                self.config.real_annotations_file,
+                self.config.real_target_csv,
+                data_type=self.config.real_target_data_type,
+            )
+        else:
+            real_image_paths = select_real_image_paths(
+                self.config.real_dataset_root,
+                self.config.real_annotations_file,
+            )
         if not real_image_paths:
             raise ValueError("No real subset images were resolved from the dataset root and annotation file")
         cache_dir = self.workspace_dir / "cache" / "real"
@@ -306,6 +315,7 @@ class SimulationCalibrationController:
             "model_name": self._embedder_id,
             "repo": self._embedder_repo,
             "image_paths": [str(path) for path in real_image_paths],
+            "real_target_csv": self.config.real_target_csv,
         }
         status = "hit" if cache_path.exists() else "miss"
         self.ui.set_status(real_cache_status=status)
