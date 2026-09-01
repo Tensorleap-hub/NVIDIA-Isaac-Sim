@@ -19,6 +19,7 @@ LOCO_LABELS = LOCO / "labels"
 BASEV2 = RAW / "base_v2_final"
 MAY = RAW / "top-runs-may-ok"
 TRAJ_OPTUNA = RAW / "trajectory-optimized"
+OPTUNA_RAND = RAW / "optuna_rand"
 BASEV4_TRAJ = RAW / "base_v4_trajectory"
 BASEV4_RAND = RAW / "base_v4_random"
 
@@ -49,12 +50,14 @@ ARMS: dict[str, list[str]] = {
     "real_traj_basev4": ["traj_optuna", "basev4"],
     "real_all_traj": ["basev2", "may", "traj_optuna", "basev4"],
     "real_all_matched": ["basev2", "may"],
+    "real_optuna_rand": ["optuna_rand"],
+    "real_all_optrand": ["basev2", "may", "basev4", "optuna_rand"],
 }
 # Size-matched control: total train == len(real_basev2.train) (6999), synth split evenly
 # across the listed sources (seeded sample). Answers "is real_all just more data?".
 ARM_SUBSAMPLE: dict[str, dict[str, int]] = {"real_all_matched": {"basev2": 1444, "may": 1445}}
 SUBSAMPLE_SEED = 42
-SYNTH_SOURCES = ["basev2", "may", "traj_optuna", "basev4"]
+SYNTH_SOURCES = ["basev2", "may", "traj_optuna", "basev4", "optuna_rand"]
 RUN_NAME = "rfdetr_reducelr"
 
 
@@ -67,6 +70,10 @@ def synth_run_dirs(source: str) -> list[Path]:
     elif source == "traj_optuna":
         # nested Camera/rgb layout (trajectory-SDG runs), not flat rgb_*.png
         dirs = sorted(p for p in TRAJ_OPTUNA.iterdir() if p.is_dir())
+    elif source == "optuna_rand":
+        # random-frame render of the same 24 optuna-winning configs as traj_optuna (1 frame/seed,
+        # 128 seeds/config). or_ prefix avoids filename collisions with traj_optuna's seed dirs.
+        dirs = sorted(p for p in OPTUNA_RAND.iterdir() if p.is_dir())
     elif source == "basev4":
         # ONE dataset in two render modes: base_v4_trajectory (exp01-06, v4t_ prefix, ~5 frames/seed)
         # + base_v4_random (exp07-32, v4r_ prefix, 1 frame/seed). Nested Camera/rgb layout.
@@ -105,6 +112,8 @@ def source_of(file_name: str) -> str:
         return "real"
     if file_name.startswith(("v4t_", "v4r_")):
         return "basev4"
+    if file_name.startswith("or_"):
+        return "optuna_rand"
     if file_name.startswith("exp"):
         return "basev2"
     if file_name.startswith(("top", "dp", "dl")):
