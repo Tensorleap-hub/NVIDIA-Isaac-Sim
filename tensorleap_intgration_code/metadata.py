@@ -12,6 +12,21 @@ def _safe_stat(values: np.ndarray, reducer) -> float:
     return float(np.nan) if len(values) == 0 else float(reducer(values))
 
 
+_DISPLAY_SUBSET_BY_SUBSET = {
+    "synth": "base-synth",
+    "optuna": "TL-optimized",
+    "trajectory": "TL-optimized",
+    "optuna_traj_base": "base-synth",
+}
+
+_OPT_RUN_BY_SUBSET = {
+    "synth": "isaac-base",
+    "optuna": "isaac-opt",
+    "trajectory": "trajectory-opt",
+    "optuna_traj_base": "trajectory-base",
+}
+
+
 def _display_subset(record: dict) -> str:
     subset = record.get("subset")
     if subset == "cosmos":
@@ -19,9 +34,7 @@ def _display_subset(record: dict) -> str:
         if record.get("render_type") == "cosmos":
             return f"{base}+cosmos"
         return base
-    if subset == "optuna":
-        return "TL-opt"
-    return str(subset)
+    return _DISPLAY_SUBSET_BY_SUBSET.get(subset, str(subset))
 
 
 @tensorleap_metadata("data_type", DatasetMetadataType.string)
@@ -71,6 +84,7 @@ def sample_metadata(idx: int, preprocessing: PreprocessResponse) -> dict:
     return {
         "image_sharpness": sharpness,
         "subset": _display_subset(record),
+        "opt-run": _OPT_RUN_BY_SUBSET.get(record.get("subset"), ""),
         "render_type": str(record.get("render_type", "")),
         "source_group": str(record.get("source_group", "")),
         "optuna_bucket": str(record.get("optuna_bucket", "")),

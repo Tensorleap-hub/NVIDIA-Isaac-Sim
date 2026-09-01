@@ -11,4 +11,6 @@ include:
     - comparison_subset3_proximity_by_ls.csv
     - comparison_subset3_proximity_by_ls_base_synth_bbox80.csv
     - manual_base_tlopt_selection_500.csv
+    - dino_selection_centroid.csv
+    - dino_selection_knn.csv
 pythonVersion: py310

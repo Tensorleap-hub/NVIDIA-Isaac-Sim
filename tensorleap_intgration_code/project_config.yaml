@@ -41,7 +41,7 @@ loss:
     alpha: 0.25
     gamma: 2.0
 
-max_samples:   # null = no limit; set to e.g. 100 to cap each subset
+max_samples: 873  # null = no limit; set to e.g. 100 to cap each subset (subset3 has 873 samples)
 
 score_threshold: 0.3
 max_detections: 300
@@ -51,14 +51,13 @@ check_sample_index: 0
 
 base_synth_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse/base_v2_final"
-  additional: true          # flat exp*/ directory structure (no palletjack_run_* wrapper needed)
+  additional: false          # disabled: base_v2_final is loaded via synth_data instead
   num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
 
 synth_data:
-  base_path: "/Users/orram/Tensorleap/data/warehouse"
+  base_path: "/Users/orram/Tensorleap/data/warehouse/base_v2_final"
   additional: false # set to false to exclude synthetic data entirely
-#  run_numbers: [0,1,2,3,4,5] # null = include all runs; list of ints to include specific runs e.g. [1, 3, 5]
-  run_numbers: [0,1,2,3,4,5]
+  run_numbers:  # null = include all runs; list of ints to include specific runs e.g. [1, 3, 5] (palletjack_run_* layout only)
   num_samples:            # null = no limit; set to e.g. 500 to cap additional dataset size
                                  #   (data is shuffled before capping and sampling keeps experiments run relative sizes)
 
@@ -69,7 +68,7 @@ extended_data:
   num_samples:              # null = no limit; per-run cap (same semantics as synth_data.num_samples)
 
 optuna_data:
-  base_path: "/Users/orram/Tensorleap/data/warehouse/optuna-ec2"
+  base_path: "/Users/orram/Tensorleap/data/warehouse/top-runs-may-ok"
   additional: false          # set to false to exclude optuna-generated data entirely
   num_samples:              # null = no limit; per-experiment cap after deterministic shuffle
 
@@ -91,7 +90,7 @@ optuna_tests_data:
 
 cosmos_data:
   base_path: "/Users/orram/Tensorleap/data/warehouse"
-  additional: true          # set to false to exclude cosmos original/stylized comparison data
+  additional: false          # set to false to exclude cosmos original/stylized comparison data
   cosmos_only: false        # when true, train/val are built ONLY from the cosmos datasets below (no LOCO/synth)
   num_samples:              # null = no limit; per-dataset cap after deterministic shuffle
   run_config_roots:
@@ -101,9 +100,9 @@ cosmos_data:
   # COCO datasets (train+valid loaded together), each tagged with render_type + source_group metadata.
   # cosmos categories (pallet_truck/forklift/pallet = ids 1/2/3) are remapped to config coco_ids 3/5/7.
   datasets:
-    - {dir: "warehouse3cls_cosmos_themes",          render_type: cosmos,   source_group: themes}
+#    - {dir: "warehouse3cls_cosmos_themes",          render_type: cosmos,   source_group: themes}
     - {dir: "warehouse3cls_cosmos_themes_original", render_type: original, source_group: themes}
-    - {dir: "warehouse3cls_cosmos_optuna",          render_type: cosmos,   source_group: optuna}
+#    - {dir: "warehouse3cls_cosmos_optuna",          render_type: cosmos,   source_group: optuna}
     - {dir: "warehouse3cls_cosmos_optuna_original", render_type: original, source_group: optuna}
 
 # Which @tensorleap_custom_latent_space implementation is registered with
@@ -150,9 +149,15 @@ sample_selection_filter:
   #   manual_plus_cosmos  - the 500 hand-picked TL-opt/base_synth (non-cosmos) samples in
   #                         manual_csv_path, unioned with the TL-opt+cosmos/base_synth+cosmos rows
   #                         from csv_path (the manual export has no cosmos rows of its own).
-  enabled: true
-  option: "baseline"   # one of: baseline | bbox80 | manual_plus_cosmos
+  #   dino_centroid /     - scripts/dino_subset3_selection.py outputs on raw DINOv2 embeddings:
+  #   dino_knn              873 optimized (trajectory+optuna, closest-heavy with far percentile
+  #                         marks) + 873 base (optuna_traj_base+synth bbox>0, furthest-heavy with
+  #                         close percentile marks), by centroid or mean-5NN distance to subset-3.
+  enabled: false
+  option: "dino_knn"   # one of: baseline | bbox80 | manual_plus_cosmos | dino_centroid | dino_knn
   latent_space: "labels-semantic"
   csv_path: "comparison_subset3_proximity_by_ls.csv"
   bbox80_csv_path: "comparison_subset3_proximity_by_ls_base_synth_bbox80.csv"
   manual_csv_path: "manual_base_tlopt_selection_500.csv"
+  dino_centroid_csv_path: "dino_selection_centroid.csv"
+  dino_knn_csv_path: "dino_selection_knn.csv"
