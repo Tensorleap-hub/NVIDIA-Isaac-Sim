@@ -36,9 +36,11 @@ blank frames carry no boxes and are dropped automatically.
 | `real_basev4` | real + `base_v4_{trajectory,random}` (ONE dataset: exp01-06 traj 5 frames/seed + exp07-32 random 1 frame/seed; 6241 labeled) = 10351 | → `../real/valid` |
 | `real_traj_basev4` | real + traj + base_v4 = 13177 | → `../real/valid` |
 | `real_all_traj` | real + base_v2 + may + traj + base_v4 = 19698 | → `../real/valid` |
+| `real_optuna_rand` | real + `optuna_rand` (random-frame render of the same 24 optuna-winning configs as traj_optuna, 128 seeds/config; 2761 labeled) = 6871 | → `../real/valid` |
+| `real_all_optrand` | follow-up combo: real + base_v2 + may + base_v4 + optuna_rand (traj_optuna dropped — it hurt every combo it touched) = 19633 | → `../real/valid` |
 | `real_all_matched` | size-matched control: real + 1444 base_v2 + 1445 may = 6999 (== `real_basev2`; seeded sample, `common.ARM_SUBSAMPLE`) | → `../real/valid` |
 | `evalsets/train_real` | — | → `real/train` (fit on real train) |
-| `evalsets/train_basev2`, `train_may`, `train_traj_optuna`, `train_basev4` | — | that synth source only |
+| `evalsets/train_basev2`, `train_may`, `train_traj_optuna`, `train_basev4`, `train_optuna_rand` | — | that synth source only |
 | `evalsets/train_<arm>` | — | → `<arm>/train` (created by `run_arms.sh`) |
 
 Categories (identical everywhere, derived from LOCO's id order): `1 forklift, 2 pallet, 3 pallet_truck`.

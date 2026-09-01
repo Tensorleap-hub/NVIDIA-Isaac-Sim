@@ -14,6 +14,7 @@
         train_may/valid    = may synth frames only
         train_traj_optuna/valid = trajectory-optimized synth frames only
         train_basev4/valid = base_v4 synth frames only
+        train_optuna_rand/valid = optuna_rand (random-frame render of the 24 traj_optuna configs)
 
 Invariants asserted at the end (hard failure):
   * every valid/ image is a subset-3 image, none of them appears in any train/

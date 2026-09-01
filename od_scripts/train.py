@@ -64,6 +64,9 @@ def main():
     p.add_argument("--dataset-dir", required=True)
     p.add_argument("--output-dir", default=None, help="default: <dataset-dir>/output/rfdetr_reducelr")
     p.add_argument("--pretrain-weights", default=None, help="omit -> RF-DETR COCO pretrain (the normal choice)")
+    p.add_argument("--resume", default=None, help="Lightning .ckpt (e.g. <output-dir>/last.ckpt) to continue "
+                   "an interrupted/capped run from — resumes optimizer, scheduler, epoch, EMA, best-ckpt state. "
+                   "Raise --epochs past the previous cap or the run will see it's already 'done' and stop immediately.")
     p.add_argument("--epochs", type=int, default=60, help="hard cap; early stopping usually ends sooner")
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--lr-encoder", type=float, default=1.5e-4)
@@ -103,6 +106,7 @@ def main():
         tensorboard=not args.no_tensorboard, class_names=class_names,
         early_stopping=True, early_stopping_patience=args.es_patience,
         early_stopping_min_delta=args.min_delta, early_stopping_use_ema=True,
+        resume=args.resume,
     )
 
 
