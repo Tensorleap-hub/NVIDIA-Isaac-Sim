@@ -1,5 +1,16 @@
 # Warehouse 3-class detector — training protocol v2
 
+## Current state (2026-09-02)
+An 11-arm study is **done**. Winner: `real_all_optrand` (real + base_v2 + may + base_v4 +
+optuna_rand), mAP@50:95 **0.2318** on real valid (best F1 is actually `real_all`, 0.508 —
+see the report). Full comparison: `/home/ubuntu/datasets_coco/RESULTS.md` and the charts
+report below. Everything is backed up to
+**`s3://nvidia-isaac-bucket/training/arms_study_20260830/`**: per-arm `checkpoint_best_ema.pth`
++ `metrics.csv` + `eval/*.json` + train log, plus `RESULTS.md`, `MANIFEST.json`,
+`gt_report.html`, `summary_report.html`, `report_data.json` at the root.
+To add a 12th arm: add an entry to `ARMS` in `common.py`, `build_datasets.py` (no `--force`,
+it skips existing dirs), then `run_arms.sh <new_arm>`.
+
 Detect `forklift`, `pallet`, `pallet_truck` in warehouse imagery with RF-DETR Base.
 Real data = LOCO; synthetic = Isaac Sim SDG renders. Everything here reads only
 `/home/ubuntu/datasets` (`loco_dataset`, `base_v2_final`, `top-runs-may-ok`, `trajectory-optimized`, `base_v4_trajectory`+`base_v4_random`) and writes only `/home/ubuntu/datasets_coco`.
@@ -21,8 +32,12 @@ blank frames carry no boxes and are dropped automatically.
 | `verify_gt.py` | GT report: composition, per-source label stats, example boxes per class/source → `gt_report.html` |
 | `train.py` | the recipe (below); ReduceLROnPlateau + early stop via monkeypatch of the installed `rfdetr` |
 | `eval_checkpoint.py` | score a `.pth` on a dataset's `valid/` with RF-DETR's own COCO eval (`--json` output) |
-| `run_arms.sh` | sequential queue: train → evals → `results.py` per arm |
+| `run_arms.sh` | sequential queue: train → evals → `results.py` per arm → `upload_s3.sh` |
 | `results.py` | markdown results table (`RESULTS.md`) |
+| `upload_s3.sh` | push one arm's model+metrics, or the study-level files, to S3 (idempotent, rerunnable) |
+| `merge_metrics.sh` | after `train.py --resume`, splice the pre-resume `metrics.csv` history back in (see Resuming below) |
+| `build_report_data.py` | every arm's full epoch curve + eval metrics → `report_data.json` |
+| `summary_report_template.html` + `report_data.json` → `summary_report.html` | the charts report (bars, per-class, convergence, F1) — regenerate: `.venv/bin/python od_scripts/build_report_data.py`, then re-stamp with `python3 -c "import json; open('/home/ubuntu/datasets_coco/summary_report.html','w').write(open('od_scripts/summary_report_template.html').read().replace('__REPORT_DATA__', json.dumps(json.load(open('/home/ubuntu/datasets_coco/report_data.json')))))"` |
 | `legacy/training_report/` | July-2026 report of the previous (deleted) runs, kept for reference only |
 
 ## Datasets (`/home/ubuntu/datasets_coco`)
@@ -67,4 +82,39 @@ EPOCHS_DEFAULT=30 EPOCHS_real_all_traj=25 NUM_WORKERS=8 nohup od_scripts/run_arm
 ## Outputs
 `/home/ubuntu/datasets_coco/<arm>/output/rfdetr_reducelr/` — `metrics.csv`, checkpoints, `eval/<split>.json`.
 Logs in `/home/ubuntu/datasets_coco/logs/`. Summary table: `/home/ubuntu/datasets_coco/RESULTS.md`.
-Per-class columns in `metrics.csv` (`val/AP/<class>`) are AP@50:95.
+Per-class columns in `metrics.csv` (`val/AP/<class>`) are AP@50:95. Everything here also lives on S3 —
+see **Current state** above for the bucket path.
+
+## Resuming a capped/interrupted run
+`run_arms.sh` caps epochs (`EPOCHS_DEFAULT`/`EPOCHS_<arm>`); if an arm's best epoch is *at* the cap it
+likely hadn't converged. To keep training from `<output-dir>/last.ckpt`:
+```bash
+.venv/bin/python od_scripts/train.py --dataset-dir <ds> --output-dir <out> \
+    --resume <out>/last.ckpt --epochs 60   # must exceed the previous cap
+```
+Gotcha: the resumed run's CSV logger **overwrites** `metrics.csv`, losing the pre-resume epoch history on
+disk (the run itself resumes correctly — optimizer/scheduler/EMA/best-ckpt state all carry over). Before
+resuming, save the old file (`cp metrics.csv metrics.csv.bak` or pull the S3 copy under `<arm>/metrics.csv`
+if already uploaded); after the resumed run finishes, `od_scripts/merge_metrics.sh <backup.csv> <out>/metrics.csv`
+splices the full curve back together. Then re-run the evals (`eval_checkpoint.py` per split) and
+`upload_s3.sh <arm>` to refresh S3 with the converged checkpoint.
+
+## Disaster recovery — if `/home/ubuntu/datasets` or `/home/ubuntu/datasets_coco` is gone
+The **built** COCO datasets (`datasets_coco/`) are not backed up anywhere (they're symlink farms, cheap to
+rebuild, expensive to store) — only `MANIFEST.json` (their composition record) is on S3. The **raw sources**
+they're built from are all backed up, under their *original* names (not the renamed/prefixed copies in
+`/home/ubuntu/datasets`):
+
+| `/home/ubuntu/datasets/…` | S3 source |
+|---|---|
+| `loco_dataset/`, `base_v2_final/` | `s3://nvidia-isaac-bucket/{loco_dataset,base_v2_final}/` |
+| `top-runs-may-ok/` | `s3://nvidia-isaac-bucket/top-runs-may-ok/` |
+| `base_v4_trajectory/` (dirs prefixed `v4t_`) | `s3://nvidia-isaac-bucket/trajectory-tests/20260715_train_v4_128seed/` |
+| `base_v4_random/` (dirs prefixed `v4r_`) | `s3://nvidia-isaac-bucket/trajectory-tests/20260715_train_v4_128rand/` |
+| `trajectory-optimized/` | `s3://nvidia-isaac-bucket/trajectory-tests/trajectory-optimized/` |
+| `optuna_rand/` (dirs prefixed `or_`, symlinks not copies) | `s3://nvidia-isaac-bucket/trajectory-tests/20260715_train_optuna_128rand/` |
+
+To rebuild from scratch: `aws s3 sync` each source into place under `/home/ubuntu/datasets/<name>` (apply the
+`v4t_`/`v4r_`/`or_` prefix per `common.synth_run_dirs()` — or just repoint `common.py`'s `BASEV4_TRAJ` /
+`BASEV4_RAND` / `OPTUNA_RAND` at the unprefixed dirs, since `synth_coco.py` uses the directory name only as a
+uniqueness key, not a semantic one), then `.venv/bin/python od_scripts/build_datasets.py --force`.
