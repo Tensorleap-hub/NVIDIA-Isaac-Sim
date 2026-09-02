@@ -6,7 +6,7 @@ set -uo pipefail
 DC=/home/ubuntu/datasets_coco
 S3=s3://nvidia-isaac-bucket/training/arms_study_20260830
 if [ "${1:-}" = "--study-files" ]; then
-  for f in RESULTS.md MANIFEST.json gt_report.html; do
+  for f in RESULTS.md MANIFEST.json gt_report.html summary_report.html report_data.json; do
     aws s3 cp "$DC/$f" "$S3/$f" --only-show-errors && echo "up $f"
   done
   exit 0
