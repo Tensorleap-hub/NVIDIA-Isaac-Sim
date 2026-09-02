@@ -1,0 +1,438 @@
+<title>Warehouse Detector Arms</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f9f9f7; --surface:#fcfcfb; --surface-2:#f3f3ef; --line:#e1e0d9; --line-strong:#c3c2b7;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+  --blue:#2a78d6; --orange:#eb6834; --aqua:#1baf7a;
+  --seq:#256abf; --seq-soft:#9ec5f4;
+  --good:#0ca30c; --warn:#fab219; --critical:#d03b3b;
+  --context-line:#c3c2b7;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#232322; --line:#2c2c2a; --line-strong:#383835;
+    --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+    --blue:#3987e5; --orange:#d95926; --aqua:#199e70;
+    --seq:#3987e5; --seq-soft:#184f95;
+    --good:#0ca30c; --warn:#fab219; --critical:#e66767;
+    --context-line:#383835;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#232322; --line:#2c2c2a; --line-strong:#383835;
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+  --blue:#3987e5; --orange:#d95926; --aqua:#199e70;
+  --seq:#3987e5; --seq-soft:#184f95;
+  --good:#0ca30c; --warn:#fab219; --critical:#e66767;
+  --context-line:#383835;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink-2);font-family:"Source Sans 3",system-ui,sans-serif;font-size:15.5px;line-height:1.6}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1120px;margin:0 auto;padding:0 28px 100px}
+.topbar{height:4px;background:linear-gradient(90deg,var(--blue),var(--aqua))}
+header.page{padding:40px 0 8px}
+.eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);margin:0 0 10px}
+h1{font-family:"Archivo",system-ui,sans-serif;color:var(--ink);font-weight:800;font-size:2.3rem;letter-spacing:-.02em;text-wrap:balance;margin:0 0 14px;line-height:1.1}
+.lede{font-size:1.08rem;color:var(--ink-2);max-width:70ch;margin:0 0 4px}
+.rules{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0 0}
+.rule{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 13px;font-size:13px;color:var(--ink-2)}
+.rule b{color:var(--ink)}
+section{margin-top:56px}
+.sec-eyebrow{font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);margin:0 0 6px}
+h2{font-family:"Archivo",system-ui,sans-serif;color:var(--ink);font-weight:700;font-size:1.5rem;letter-spacing:-.015em;text-wrap:balance;margin:0 0 10px}
+h3{font-family:"Archivo",system-ui,sans-serif;color:var(--ink);font-weight:600;font-size:1.05rem;margin:28px 0 4px}
+p{max-width:74ch}
+.take{margin:18px 0 4px;font-size:1.02rem;color:var(--ink-2);max-width:80ch;border-left:3px solid var(--blue);padding-left:14px}
+.take b{color:var(--ink)}
+
+/* hero stat row */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:22px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}
+.stat.win{border-color:var(--good)}
+.stat.win::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--good)}
+.stat-label{font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.stat-val{font-family:"Archivo",system-ui,sans-serif;font-weight:800;font-size:1.9rem;color:var(--ink);line-height:1}
+.stat-sub{font-size:.82rem;color:var(--ink-2);margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:.68rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:3px 8px;border-radius:5px;color:#fff;margin-bottom:8px}
+.chip.good{background:var(--good)}
+.chip.neutral{background:var(--ink-3)}
+@media (max-width:800px){.stats{grid-template-columns:1fr 1fr}}
+
+/* ranking bars */
+.barchart{margin-top:18px;display:flex;flex-direction:column;gap:9px}
+.barrow{display:grid;grid-template-columns:190px 1fr 64px;align-items:center;gap:12px}
+.barlabel{font-size:.85rem;color:var(--ink-2);text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.barlabel .tag{font-size:.66rem;color:var(--ink-3);font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.bartrack{height:22px;background:var(--surface-2);border-radius:6px;overflow:hidden;position:relative;border:1px solid var(--line)}
+.barfill{height:100%;background:var(--seq);border-radius:5px 0 0 5px}
+.barfill.win{background:var(--good)}
+.barfill.baseline{background:var(--ink-3)}
+.barval{font-size:.85rem;color:var(--ink);font-weight:600}
+@media (max-width:680px){.barrow{grid-template-columns:120px 1fr 52px}.barlabel{font-size:.74rem}}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0 4px;font-size:.82rem;color:var(--ink-2)}
+.legend .li{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:3px;border-radius:2px;display:inline-block}
+.sw.dot{width:9px;height:9px;border-radius:50%}
+
+/* per-class grouped bars */
+.classgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:16px}
+.classcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.classcard.win{border-color:var(--good)}
+.classcard h4{font-family:"Archivo",system-ui,sans-serif;margin:0 0 10px;font-size:.92rem;color:var(--ink);display:flex;align-items:center;justify-content:space-between}
+.cbar-row{display:grid;grid-template-columns:78px 1fr 44px;align-items:center;gap:8px;margin-bottom:6px;font-size:.78rem}
+.cbar-track{height:12px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.cbar-fill{height:100%;border-radius:4px}
+
+/* line charts */
+.chart-tabs{display:flex;gap:6px;margin:16px 0 4px;flex-wrap:wrap}
+.tabbtn{font:inherit;font-size:.78rem;font-weight:600;padding:7px 13px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer}
+.tabbtn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.linewrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px 8px;margin-top:10px}
+.linewrap svg{width:100%;height:auto;display:block;overflow:visible}
+.axtick{font-size:9.5px;fill:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.gridline{stroke:var(--line);stroke-width:1}
+.axline{stroke:var(--line-strong);stroke-width:1}
+.ctxline{fill:none;stroke:var(--context-line);stroke-width:1.3;opacity:.75}
+.hiline{fill:none;stroke-width:2.4}
+.hovdot{fill:var(--ink);opacity:0}
+.crosshair{stroke:var(--ink-3);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+.tooltip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:11.5px;padding:6px 9px;border-radius:6px;font-family:"IBM Plex Mono",monospace;white-space:nowrap;opacity:0;transform:translate(-50%,-115%);transition:opacity .08s;z-index:5}
+.chartrel{position:relative}
+.endlabel{font-size:10px;font-weight:700;font-family:"IBM Plex Mono",monospace}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin-top:14px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--ink-3);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;background:var(--surface-2)}
+td.n,th.n{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+tr.win td{background:color-mix(in srgb, var(--good) 8%, transparent)}
+.pos{color:var(--good);font-weight:600}
+.neg{color:var(--critical);font-weight:600}
+
+.method{margin-top:56px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;font-size:.86rem;color:var(--ink-3);position:relative}
+.method::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--blue),var(--aqua))}
+.method b{color:var(--ink-2)}
+footer{margin-top:30px;font-size:.78rem;color:var(--ink-3);border-top:1px solid var(--line);padding-top:16px}
+code{font-family:"IBM Plex Mono",monospace;background:var(--surface-2);padding:1px 5px;border-radius:3px;font-size:.86em}
+</style>
+
+<div class="topbar"></div>
+<div class="wrap">
+  <header class="page">
+    <p class="eyebrow">RF-DETR &middot; Warehouse 3-class detector</p>
+    <h1>Real vs. synthetic training data, eleven ways</h1>
+    <p class="lede">Same recipe, same 858-image real validation set, every time &mdash; the only variable is what
+      goes into <code>train/</code>. Eleven arms isolate one question each: does a synthetic source help at all,
+      does combining sources beat any one of them, and is a combo's gain from <b>diversity</b> or just <b>volume</b>?</p>
+    <div class="rules" id="rules"></div>
+  </header>
+
+  <section>
+    <p class="sec-eyebrow">Headline</p>
+    <h2>The winning arm, and what it beat</h2>
+    <div class="stats" id="hero-stats"></div>
+  </section>
+
+  <section>
+    <p class="sec-eyebrow">Ranking</p>
+    <h2>mAP@50:95 on real valid, every arm</h2>
+    <p>Deployable checkpoint (<code>checkpoint_best_ema.pth</code>) scored on LOCO subset-3 &mdash; the one
+      validation set, never trained on, identical across every arm.</p>
+    <div class="barchart" id="bar-5095"></div>
+  </section>
+
+  <section>
+    <h2>mAP@50, same ranking</h2>
+    <div class="barchart" id="bar-50"></div>
+  </section>
+
+  <section>
+    <p class="sec-eyebrow">Detection F1</p>
+    <h2>F1 on real valid &mdash; a different ranking</h2>
+    <p>F1 (at the operating threshold RF-DETR's eval reports) balances precision and recall directly, rather than
+      averaging over every IoU/recall point the way mAP does. <span id="f1-callout"></span></p>
+    <div class="barchart" id="bar-f1"></div>
+    <div class="tblwrap" id="pr-table"></div>
+  </section>
+
+  <section>
+    <p class="sec-eyebrow">Per class</p>
+    <h2>Where the gains actually come from</h2>
+    <p>AP@50:95 by class for the baseline, the two controls, and the top three arms. <code>pallet_truck</code> is
+      the class every synthetic source was meant to help &mdash; and the one that moved least until the final arm.</p>
+    <div class="legend" id="class-legend"></div>
+    <div class="classgrid" id="class-grid"></div>
+  </section>
+
+  <section>
+    <p class="sec-eyebrow">Convergence</p>
+    <h2>Validation score vs. training epoch</h2>
+    <p>Full per-epoch curve, read straight from each run's <code>metrics.csv</code>. Four arms are called out;
+      the rest sit as context &mdash; hover any line for its value and name.</p>
+    <div class="chart-tabs" id="chart-tabs">
+      <button class="tabbtn active" data-metric="map5095">mAP@50:95</button>
+      <button class="tabbtn" data-metric="map50">mAP@50</button>
+      <button class="tabbtn" data-metric="ap2">AP &middot; pallet_truck</button>
+    </div>
+    <div class="legend" id="line-legend"></div>
+    <div class="linewrap chartrel"><svg id="linechart" viewBox="0 0 1040 380"></svg><div class="tooltip" id="tooltip"></div></div>
+  </section>
+
+  <section>
+    <p class="sec-eyebrow">Sanity check</p>
+    <h2>Diversity vs. volume</h2>
+    <p><code>real_all_matched</code> holds the exact same train-set size as <code>real_basev2</code> (6,999
+      images) but splits that budget across two synthetic sources instead of one. If the size-matched arm tracks
+      <code>real_all</code> (34% more images, same two sources) rather than <code>real_basev2</code>, the gain is
+      diversity of sources, not raw frame count.</p>
+    <div class="tblwrap" id="matched-table"></div>
+  </section>
+
+  <section>
+    <p class="sec-eyebrow">Diagnostic, not a selection metric</p>
+    <h2>Train-set fit: real vs. each synthetic source</h2>
+    <p>Never used to pick a winner &mdash; validation stays real-only, always. But the gap between how well a
+      checkpoint fits its own synthetic training frames and how it does on real valid is the clearest read on
+      domain gap per source.</p>
+    <div class="tblwrap" id="fit-table"></div>
+  </section>
+
+  <div class="method">
+    <b>Method.</b> RF-DETR Base, COCO pretrain, identical hyperparameters across every arm (AdamW lr 1e&#8309;&#8308;
+    / encoder 1.5e&#8309;&#8308;, batch 4 &times; grad-accum 4). LR: ReduceLROnPlateau on EMA mAP@50:95 (factor 0.1,
+    patience 3), early stop patience 8. Deployable checkpoint = best EMA. Validation is always the 858-image LOCO
+    subset-3 &mdash; never trained on by any arm, never mixed with synthetic frames. Full protocol in
+    <code>od_scripts/README.md</code>.
+  </div>
+
+  <footer>NVIDIA-Isaac-Sim &middot; warehouse object-detection synthetic-data study &middot; self-contained report</footer>
+</div>
+
+<script>
+const DATA = __REPORT_DATA__;
+</script>
+<script>
+(function(){
+"use strict";
+const cls = DATA.classes;
+const classColor = ["var(--blue)","var(--orange)","var(--aqua)"];
+const arms = DATA.arms;
+const byName = Object.fromEntries(arms.map(a=>[a.arm,a]));
+const NICE = {
+  real:"Real only", real_basev2:"Real + base_v2", real_may:"Real + may", real_all:"Real + base_v2 + may",
+  real_traj:"Real + traj-optuna", real_basev4:"Real + base_v4", real_traj_basev4:"Real + traj-optuna + base_v4",
+  real_all_traj:"Real + base_v2 + may + traj-optuna + base_v4", real_all_matched:"Real + base_v2 + may (size-matched)",
+  real_optuna_rand:"Real + optuna-rand", real_all_optrand:"Real + base_v2 + may + base_v4 + optuna-rand"
+};
+const TAG = {
+  real:"baseline, no synthetic data", real_all_matched:"size-matched control (= real_basev2)",
+  real_all_optrand:"study best", real_all:"previous best"
+};
+function fmt(x,d){ return (x==null||isNaN(x)) ? "—" : x.toFixed(d==null?3:d); }
+function pct(x){ return Math.max(0, Math.min(100, x*100)); }
+
+/* ---- rules strip ---- */
+document.getElementById("rules").innerHTML = `
+  <div class="rule"><b>Valid</b> = LOCO subset-3 only &middot; ${DATA.real_valid_images} images &middot; 0 synthetic frames, in any arm</div>
+  <div class="rule"><b>Real train</b> = ${DATA.real_train_images} LOCO images, shared by every arm</div>
+  <div class="rule"><b>${arms.length} arms</b> &middot; same recipe throughout</div>`;
+
+/* ---- hero stats ---- */
+const winner = arms.reduce((a,b)=> b.valid.map5095>a.valid.map5095?b:a);
+const baseline = byName["real"];
+const matched = byName["real_all_matched"], base2 = byName["real_basev2"], all1 = byName["real_all"];
+const heroStats = [
+  {label:"Study best", val: fmt(winner.valid.map5095), sub: NICE[winner.arm]+" · "+winner.train_images+" imgs", chip:"good", chiptext:"winner"},
+  {label:"vs. real-only baseline", val: "+"+fmt(winner.valid.map5095-baseline.valid.map5095), sub:"mAP@50:95, "+fmt(baseline.valid.map5095)+" → "+fmt(winner.valid.map5095)},
+  {label:"Best single synth source", val: fmt(byName["real_basev4"].valid.map5095), sub:"real + base_v4 alone"},
+  {label:"Diversity vs. volume", val: fmt(matched.valid.map5095), sub: matched.train_images+" imgs, 2 sources ≈ "+all1.train_images+"-img combo ("+fmt(all1.valid.map5095)+")"},
+];
+document.getElementById("hero-stats").innerHTML = heroStats.map(s=>`
+  <div class="stat ${s.chip?'win':''}">
+    ${s.chip?`<span class="chip good">${s.chiptext}</span><br>`:""}
+    <div class="stat-label">${s.label}</div>
+    <div class="stat-val mono">${s.val}</div>
+    <div class="stat-sub">${s.sub}</div>
+  </div>`).join("");
+
+/* ---- ranking bars ---- */
+function rankingBars(elId, key, decimals){
+  const sorted = [...arms].sort((a,b)=> b.valid[key]-a.valid[key]);
+  const max = sorted[0].valid[key];
+  const el = document.getElementById(elId);
+  el.innerHTML = sorted.map(a=>{
+    const isWin = a.arm===winner.arm, isBase = a.arm==="real";
+    const cls = isWin?"win":(isBase?"baseline":"");
+    const tag = TAG[a.arm] ? `<span class="tag">${TAG[a.arm]}</span>` : "";
+    return `<div class="barrow">
+      <span class="barlabel">${NICE[a.arm]}${tag}</span>
+      <div class="bartrack"><div class="barfill ${cls}" style="width:${pct(a.valid[key]/max)}%"></div></div>
+      <span class="barval mono">${fmt(a.valid[key], decimals)}</span>
+    </div>`;
+  }).join("");
+}
+rankingBars("bar-5095","map5095",4);
+rankingBars("bar-50","map50",3);
+rankingBars("bar-f1","f1",3);
+
+/* ---- F1 callout + precision/recall table ---- */
+const f1Winner = arms.reduce((a,b)=> b.valid.f1>a.valid.f1?b:a);
+document.getElementById("f1-callout").innerHTML = f1Winner.arm===winner.arm
+  ? `By that measure <b>${NICE[f1Winner.arm]}</b> is still on top (F1 ${fmt(f1Winner.valid.f1)}).`
+  : `By that measure <b>${NICE[f1Winner.arm]}</b> takes the lead (F1 ${fmt(f1Winner.valid.f1)}) over the mAP@50:95
+     winner <b>${NICE[winner.arm]}</b> (F1 ${fmt(winner.valid.f1)}) &mdash; the mAP winner trades a little precision
+     for the recall gains that move mAP@50:95, so which arm is "best" depends on which error a deployment cares about more.`;
+document.getElementById("pr-table").innerHTML = `
+<table><tr><th>arm</th><th class="n">F1</th><th class="n">precision</th><th class="n">recall</th></tr>
+${[...arms].sort((a,b)=>b.valid.f1-a.valid.f1).map(a=>
+  `<tr class="${a.arm===f1Winner.arm?'win':''}"><td>${NICE[a.arm]}</td><td class="n">${fmt(a.valid.f1)}</td>
+   <td class="n">${fmt(a.valid.precision)}</td><td class="n">${fmt(a.valid.recall)}</td></tr>`).join("")}
+</table>`;
+
+/* ---- per-class grid ---- */
+document.getElementById("class-legend").innerHTML = cls.map((c,i)=>
+  `<span class="li"><span class="sw" style="background:${classColor[i]}"></span>${c}</span>`).join("");
+const classArms = ["real","real_basev2","real_may","real_all_matched","real_all","real_basev4","real_all_optrand"];
+document.getElementById("class-grid").innerHTML = classArms.map(name=>{
+  const a = byName[name]; const isWin = name===winner.arm;
+  const maxAp = 0.5;
+  const rows = cls.map((c,i)=> `<div class="cbar-row">
+      <span>${c}</span>
+      <div class="cbar-track"><div class="cbar-fill" style="width:${pct(a.valid.ap[i]/maxAp)}%;background:${classColor[i]}"></div></div>
+      <span class="mono">${fmt(a.valid.ap[i])}</span>
+    </div>`).join("");
+  return `<div class="classcard ${isWin?'win':''}">
+    <h4>${NICE[name]}${isWin?'<span class="chip good">best</span>':''}</h4>
+    ${rows}
+  </div>`;
+}).join("");
+
+/* ---- line charts ---- */
+const HILITE = {
+  real:      {color:"var(--ink-3)", dash:"5 4", label:"Real only (baseline)"},
+  real_all:  {color:"var(--blue)",  dash:"",    label:"Real + base_v2 + may"},
+  real_all_matched: {color:"var(--orange)", dash:"3 3", label:"Real + base_v2 + may (size-matched)"},
+  real_all_optrand: {color:"var(--good)", dash:"", label:"Real + base_v2 + may + base_v4 + optuna-rand (best)"},
+};
+document.getElementById("line-legend").innerHTML =
+  Object.entries(HILITE).map(([k,v])=>`<span class="li"><span class="sw" style="background:${v.color};${v.dash?'border-top:2px dashed '+v.color+';background:transparent':''}"></span>${v.label}</span>`).join("")
+  + `<span class="li"><span class="sw" style="background:var(--context-line)"></span>other arms</span>`;
+
+const W=1040,H=380,PAD_L=48,PAD_R=64,PAD_T=16,PAD_B=32;
+const plotW = W-PAD_L-PAD_R, plotH = H-PAD_T-PAD_B;
+const svg = document.getElementById("linechart");
+const tip = document.getElementById("tooltip");
+const wrapEl = svg.parentElement;
+
+function metricSeries(a, metric){
+  return a.curve.map(pt=> metric==="ap2" ? (pt.ap && pt.ap[2]!=null ? pt.ap[2] : null) : pt[metric]);
+}
+function drawLines(metric){
+  const maxEpoch = Math.max(...arms.map(a=>a.curve[a.curve.length-1].epoch));
+  let maxVal = 0;
+  arms.forEach(a=> metricSeries(a,metric).forEach(v=>{ if(v!=null) maxVal = Math.max(maxVal, v); }));
+  maxVal = Math.ceil(maxVal*20)/20 + 0.02;
+  const x = ep => PAD_L + (ep/maxEpoch)*plotW;
+  const y = v => PAD_T + plotH - (v/maxVal)*plotH;
+
+  let svgParts = [];
+  // gridlines + axis
+  const yticks = 5;
+  for(let i=0;i<=yticks;i++){
+    const v = maxVal*i/yticks;
+    svgParts.push(`<line class="gridline" x1="${PAD_L}" x2="${W-PAD_R}" y1="${y(v)}" y2="${y(v)}"/>`);
+    svgParts.push(`<text class="axtick" x="${PAD_L-8}" y="${y(v)+3}" text-anchor="end">${v.toFixed(2)}</text>`);
+  }
+  const xticks = Math.min(10, maxEpoch);
+  for(let i=0;i<=xticks;i++){
+    const ep = Math.round(maxEpoch*i/xticks);
+    svgParts.push(`<text class="axtick" x="${x(ep)}" y="${H-PAD_B+16}" text-anchor="middle">${ep}</text>`);
+  }
+  svgParts.push(`<text class="axtick" x="${W/2}" y="${H-2}" text-anchor="middle">epoch</text>`);
+  svgParts.push(`<line class="axline" x1="${PAD_L}" x2="${W-PAD_R}" y1="${PAD_T+plotH}" y2="${PAD_T+plotH}"/>`);
+
+  // context lines (non-highlighted)
+  arms.forEach(a=>{
+    if(HILITE[a.arm]) return;
+    const vals = metricSeries(a,metric);
+    const d = vals.map((v,i)=> v==null?null:`${i===0||vals[i-1]==null?'M':'L'}${x(a.curve[i].epoch)},${y(v)}`).filter(Boolean).join(" ");
+    svgParts.push(`<path class="ctxline" data-arm="${a.arm}" d="${d}"/>`);
+  });
+  // highlighted lines on top
+  Object.keys(HILITE).forEach(name=>{
+    const a = byName[name]; if(!a) return;
+    const h = HILITE[name];
+    const vals = metricSeries(a,metric);
+    const d = vals.map((v,i)=> v==null?null:`${i===0||vals[i-1]==null?'M':'L'}${x(a.curve[i].epoch)},${y(v)}`).filter(Boolean).join(" ");
+    svgParts.push(`<path class="hiline" data-arm="${a.arm}" stroke="${h.color}" stroke-dasharray="${h.dash}" d="${d}"/>`);
+    const last = a.curve[a.curve.length-1];
+    const lastVal = vals[vals.length-1];
+    if(lastVal!=null){
+      svgParts.push(`<text class="endlabel" x="${x(last.epoch)+6}" y="${y(lastVal)+3}" fill="${h.color}">${lastVal.toFixed(3)}</text>`);
+    }
+  });
+
+  // hover targets: one invisible fat path per arm + shared crosshair
+  svgParts.push(`<line class="crosshair" id="xhair" y1="${PAD_T}" y2="${PAD_T+plotH}"/>`);
+  svg.innerHTML = svgParts.join("");
+
+  // hover handling via nearest-epoch lookup across all arms
+  svg.onmousemove = function(evt){
+    const rect = svg.getBoundingClientRect();
+    const svgX = (evt.clientX-rect.left) * (W/rect.width);
+    if(svgX<PAD_L || svgX>W-PAD_R){ tip.style.opacity=0; document.getElementById("xhair").style.opacity=0; return; }
+    const ep = Math.round(((svgX-PAD_L)/plotW)*maxEpoch);
+    document.getElementById("xhair").setAttribute("x1", x(ep));
+    document.getElementById("xhair").setAttribute("x2", x(ep));
+    document.getElementById("xhair").style.opacity = 1;
+    let lines = Object.keys(HILITE).map(name=>{
+      const a = byName[name]; if(!a) return null;
+      const pt = a.curve.find(p=>p.epoch===ep) || a.curve.reduce((p,c)=>Math.abs(c.epoch-ep)<Math.abs(p.epoch-ep)?c:p, a.curve[0]);
+      const v = metric==="ap2" ? (pt.ap?pt.ap[2]:null) : pt[metric];
+      return v==null? null : `<div style="color:${HILITE[name].color}">${NICE[name].split(' + ').slice(0,3).join(' + ')}${NICE[name].split(' + ').length>3?' …':''}: <b>${v.toFixed(3)}</b></div>`;
+    }).filter(Boolean);
+    tip.innerHTML = `<div style="opacity:.7;margin-bottom:2px">epoch ${ep}</div>` + lines.join("");
+    tip.style.left = (svgX*(rect.width/W)) + "px";
+    tip.style.top = "0px";
+    tip.style.opacity = 1;
+  };
+  svg.onmouseleave = function(){ tip.style.opacity=0; document.getElementById("xhair").style.opacity=0; };
+}
+drawLines("map5095");
+document.querySelectorAll(".tabbtn").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll(".tabbtn").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    drawLines(btn.dataset.metric);
+  });
+});
+
+/* ---- diversity vs volume table ---- */
+document.getElementById("matched-table").innerHTML = `
+<table><tr><th>arm</th><th class="n">train imgs</th><th>sources</th><th class="n">mAP@50:95</th><th class="n">mAP@50</th></tr>
+${["real_basev2","real_all_matched","real_all"].map(name=>{
+  const a = byName[name]; const isWin = false;
+  return `<tr class="${name==='real_all_matched'?'win':''}"><td>${NICE[name]}</td><td class="n">${a.train_images}</td><td>${a.sources.join(" + ")||"—"}</td>
+    <td class="n">${fmt(a.valid.map5095)}</td><td class="n">${fmt(a.valid.map50,3)}</td></tr>`;
+}).join("")}
+</table>`;
+
+/* ---- domain-gap fit table ---- */
+const fitRows = arms.filter(a=>Object.keys(a.synth_fit).length).map(a=>{
+  const gap = a.train_real_fit ? (a.train_real_fit.map5095 - a.valid.map5095) : null;
+  const synth = Object.entries(a.synth_fit).map(([k,v])=>`${k}: <b>${fmt(v.map5095)}</b>`).join(", ");
+  return `<tr><td>${NICE[a.arm]}</td><td class="n">${fmt(a.train_real_fit?a.train_real_fit.map5095:null)}</td>
+    <td class="n">${fmt(a.valid.map5095)}</td><td class="n ${gap!=null && gap>0.24?'neg':''}">${gap==null?'—':'+'+fmt(gap)}</td>
+    <td>${synth}</td></tr>`;
+}).join("");
+document.getElementById("fit-table").innerHTML = `
+<table><tr><th>arm</th><th class="n">fit: train-real</th><th class="n">fit: valid-real</th><th class="n">gap</th><th>fit: synth source(s)</th></tr>${fitRows}</table>`;
+
+})();
+</script>
