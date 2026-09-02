@@ -631,165 +631,189 @@ class SimulationCalibrationController:
 
             self.ui.set_status(current_run=run_id, completed_runs=run_index, total_runs=len(rows))
             self._prepare_run_output_dir(output_dir, run_id, run_fingerprint)
-            embedding_reused = False
-            eval_seeds = list(self.config.isaac.eval_seeds) or [0]
+            try:
+                embedding_reused = False
+                eval_seeds = list(self.config.isaac.eval_seeds) or [0]
 
-            # Single-seed reuse fast-paths (pool replay / prior synthetic base)
-            # only apply to the legacy one-run layout (output_dir/Camera/rgb) and
-            # are inactive for trajectory configs (no synthetic_rgb_base_dir, no
-            # direct pool replay). Keep them only when a single seed is requested.
-            image_paths: list[Path] = []
-            if len(eval_seeds) == 1:
-                single_seed_dir = output_dir / f"seed_{eval_seeds[0]}"
-                image_paths, embedding_reused = self._copy_synthetic_artifacts_from_pool_replay(
-                    output_dir=single_seed_dir,
-                    embedding_path=embedding_path,
-                    row_record=row_record,
-                )
-                if not image_paths:
-                    image_paths, embedding_reused = self._copy_synthetic_artifacts_from_base(
+                # Single-seed reuse fast-paths (pool replay / prior synthetic base)
+                # only apply to the legacy one-run layout (output_dir/Camera/rgb) and
+                # are inactive for trajectory configs (no synthetic_rgb_base_dir, no
+                # direct pool replay). Keep them only when a single seed is requested.
+                image_paths: list[Path] = []
+                if len(eval_seeds) == 1:
+                    single_seed_dir = output_dir / f"seed_{eval_seeds[0]}"
+                    image_paths, embedding_reused = self._copy_synthetic_artifacts_from_pool_replay(
                         output_dir=single_seed_dir,
                         embedding_path=embedding_path,
+                        row_record=row_record,
+                    )
+                    if not image_paths:
+                        image_paths, embedding_reused = self._copy_synthetic_artifacts_from_base(
+                            output_dir=single_seed_dir,
+                            embedding_path=embedding_path,
+                            run_id=run_id,
+                            run_fingerprint=run_fingerprint,
+                            yaml_path=yaml_path,
+                        )
+                    if image_paths:
+                        reused_seed_runs += 1
+
+                if not image_paths and self.config.isaac.episode_mode:
+                    # Episode mode: ONE Isaac session renders every eval seed (the
+                    # SDG re-rolls the scene per seed in-process and does its own
+                    # seed+k*1000 layout retries; capture_mode=random makes every
+                    # frame an independent freespace pose). Per-seed dirs are named
+                    # <yaml-stem>_seed<S> by the SDG. A nonzero exit only means SOME
+                    # episodes exhausted retries — keep whatever rendered and fail
+                    # the trial only if nothing did, so one impossible layout can't
+                    # kill a multi-hour optimization.
+                    try:
+                        run_isaac_generation(
+                            isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
+                            script_path=Path(self.config.isaac.script_path),
+                            yaml_path=yaml_path,
+                            output_dir=output_dir,
+                            log_path=output_dir / "isaac.log",
+                            headless=self.config.isaac.headless,
+                            num_frames_override=self.config.isaac.num_frames_override,
+                            seeds=eval_seeds,
+                            capture_mode=self.config.isaac.capture_mode,
+                            log_callback=self.ui.append_log,
+                        )
+                    except RuntimeError as exc:
+                        self.ui.append_log(f"[isaac-episode] {run_id}: nonzero exit ({exc}); keeping completed episodes")
+                    missing_seeds: list[int] = []
+                    for seed in eval_seeds:
+                        seed_rgb_dir = output_dir / f"{yaml_path.stem}_seed{seed}" / "Camera" / "rgb"
+                        seed_images = discover_generated_images(seed_rgb_dir)
+                        if seed_images:
+                            image_paths.extend(seed_images)
+                        else:
+                            missing_seeds.append(seed)
+                    if missing_seeds:
+                        self.ui.append_log(
+                            f"[isaac-episode] {run_id}: {len(missing_seeds)}/{len(eval_seeds)} "
+                            f"episodes missing (seeds {missing_seeds})"
+                        )
+                    if not image_paths:
+                        raise ValueError(f"No generated images discovered under {output_dir} (episode mode)")
+                    generated_runs += 1
+
+                if not image_paths:
+                    # Multi-seed evaluation: generate the SAME candidate YAML once per
+                    # seed (each into its own subdir), then POOL every seed's RGB
+                    # frames before embedding. Re-rolling the seed re-rolls the scene
+                    # layout + trajectory, so the pooled embedding samples the
+                    # config's distribution instead of one realization. Only RGB
+                    # images feed the embedder — discovery is scoped to each seed's
+                    # Camera/rgb tree so depth/semantic renders never leak in.
+                    for seed in eval_seeds:
+                        seed_dir = output_dir / f"seed_{seed}"
+                        seed_rgb_dir = seed_dir / "Camera" / "rgb"
+                        seed_images = discover_generated_images(seed_rgb_dir)
+                        if not seed_images:
+                            # Seed-retry (mirrors run_base_v4_train.sh): a run can fail
+                            # because THIS layout draw leaves no navigable freespace
+                            # (UniformPoseSampler "high <= 0" / no occupancy path).
+                            # That is a property of the layout, not the config, and it
+                            # is DETERMINISTIC for (config, seed) — without resampling
+                            # the outer retry wrapper loops on it forever. Re-roll with
+                            # seed + k*1000; the seed_dir keeps the original label.
+                            last_exc: Exception | None = None
+                            for attempt in range(3):
+                                try_seed = seed + attempt * 1000
+                                if attempt:
+                                    self.ui.append_log(
+                                        f"[isaac-seed-retry] {run_id} seed {seed}: "
+                                        f"attempt {attempt + 1} with seed {try_seed}"
+                                    )
+                                try:
+                                    run_isaac_generation(
+                                        isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
+                                        script_path=Path(self.config.isaac.script_path),
+                                        yaml_path=yaml_path,
+                                        output_dir=seed_dir,
+                                        log_path=seed_dir / "isaac.log",
+                                        headless=self.config.isaac.headless,
+                                        num_frames_override=self.config.isaac.num_frames_override,
+                                        seed=try_seed,
+                                        log_callback=self.ui.append_log,
+                                    )
+                                    last_exc = None
+                                    break
+                                except RuntimeError as exc:
+                                    last_exc = exc
+                            if last_exc is not None:
+                                raise last_exc
+                            seed_images = discover_generated_images(seed_rgb_dir)
+                            if seed_images:
+                                generated_runs += 1
+                        if not seed_images:
+                            raise ValueError(
+                                f"No generated images discovered under {seed_dir} (seed={seed})"
+                            )
+                        image_paths.extend(seed_images)
+                    image_paths = sorted(image_paths)
+                if not image_paths:
+                    raise ValueError(f"No generated images discovered under {output_dir}")
+                self._write_run_manifest(output_dir, run_id, run_fingerprint, yaml_path)
+                manifest = {
+                    "model_name": self._embedder_id,
+                    "repo": self._embedder_repo,
+                    "image_paths": [str(path) for path in image_paths],
+                    "yaml_path": str(yaml_path),
+                    "run_fingerprint": run_fingerprint,
+                }
+                if embedding_reused:
+                    embedding_manifest_path = embedding_path.with_suffix(".manifest.json")
+                    if not embedding_path.exists() or not embedding_manifest_path.exists():
+                        raise ValueError(f"Reused embedding artifacts are incomplete for {run_id}")
+                else:
+                    self.embedder.embed_paths(
+                        image_paths,
+                        batch_size=self._embedder_batch_size,
+                        cache_path=embedding_path,
+                        manifest=manifest,
+                    )
+                artifacts.append(
+                    RunArtifact(
                         run_id=run_id,
                         run_fingerprint=run_fingerprint,
                         yaml_path=yaml_path,
-                    )
-                if image_paths:
-                    reused_seed_runs += 1
-
-            if not image_paths and self.config.isaac.episode_mode:
-                # Episode mode: ONE Isaac session renders every eval seed (the
-                # SDG re-rolls the scene per seed in-process and does its own
-                # seed+k*1000 layout retries; capture_mode=random makes every
-                # frame an independent freespace pose). Per-seed dirs are named
-                # <yaml-stem>_seed<S> by the SDG. A nonzero exit only means SOME
-                # episodes exhausted retries — keep whatever rendered and fail
-                # the trial only if nothing did, so one impossible layout can't
-                # kill a multi-hour optimization.
-                try:
-                    run_isaac_generation(
-                        isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
-                        script_path=Path(self.config.isaac.script_path),
-                        yaml_path=yaml_path,
                         output_dir=output_dir,
-                        log_path=output_dir / "isaac.log",
-                        headless=self.config.isaac.headless,
-                        num_frames_override=self.config.isaac.num_frames_override,
-                        seeds=eval_seeds,
-                        capture_mode=self.config.isaac.capture_mode,
-                        log_callback=self.ui.append_log,
+                        log_path=log_path,
+                        embedding_path=embedding_path,
+                        image_count=len(image_paths),
+                        flattened_params=params_row,
+                        dist_id=row_record.get("dist_id"),
+                        base_pool_entry_id=row_record.get("base_pool_entry_id"),
+                        base_pool_lineage=row_record.get("base_pool_lineage"),
                     )
-                except RuntimeError as exc:
-                    self.ui.append_log(f"[isaac-episode] {run_id}: nonzero exit ({exc}); keeping completed episodes")
-                missing_seeds: list[int] = []
-                for seed in eval_seeds:
-                    seed_rgb_dir = output_dir / f"{yaml_path.stem}_seed{seed}" / "Camera" / "rgb"
-                    seed_images = discover_generated_images(seed_rgb_dir)
-                    if seed_images:
-                        image_paths.extend(seed_images)
-                    else:
-                        missing_seeds.append(seed)
-                if missing_seeds:
+                )
+                self.ui.set_status(completed_runs=run_index + 1)
+            except (ValueError, RuntimeError) as exc:
+                # A totally infeasible layout (e.g. a roam/exploration box with zero
+                # navigable freespace) raises ValueError/RuntimeError with no images
+                # produced for this trial. Previously this crashed the whole batch —
+                # and, since Optuna's TPE resume is deterministic, re-running would
+                # re-suggest the identical infeasible candidate forever. Route it into
+                # the existing mark_failed() path instead (same mechanism already used
+                # for MMD outlier suppression): Optuna records the trial as FAILED and
+                # excludes it from TPE's posterior, so future asks steer away from this
+                # region instead of repeating it, and the study continues with the
+                # iteration's other candidates.
+                self.ui.append_log(
+                    f"[run-infeasible] {run_id}: {exc}; treating as a failed trial "
+                    "instead of aborting the study"
+                )
+                dist_id = row_record.get("dist_id")
+                if dist_id is not None and self.runner.has_pending(dist_id):
+                    self.runner.mark_failed(dist_id)
                     self.ui.append_log(
-                        f"[isaac-episode] {run_id}: {len(missing_seeds)}/{len(eval_seeds)} "
-                        f"episodes missing (seeds {missing_seeds})"
+                        f"[run-infeasible] {run_id}: marked dist_id={dist_id} FAIL in "
+                        "Optuna (dropped from TPE posterior)"
                     )
-                if not image_paths:
-                    raise ValueError(f"No generated images discovered under {output_dir} (episode mode)")
-                generated_runs += 1
-
-            if not image_paths:
-                # Multi-seed evaluation: generate the SAME candidate YAML once per
-                # seed (each into its own subdir), then POOL every seed's RGB
-                # frames before embedding. Re-rolling the seed re-rolls the scene
-                # layout + trajectory, so the pooled embedding samples the
-                # config's distribution instead of one realization. Only RGB
-                # images feed the embedder — discovery is scoped to each seed's
-                # Camera/rgb tree so depth/semantic renders never leak in.
-                for seed in eval_seeds:
-                    seed_dir = output_dir / f"seed_{seed}"
-                    seed_rgb_dir = seed_dir / "Camera" / "rgb"
-                    seed_images = discover_generated_images(seed_rgb_dir)
-                    if not seed_images:
-                        # Seed-retry (mirrors run_base_v4_train.sh): a run can fail
-                        # because THIS layout draw leaves no navigable freespace
-                        # (UniformPoseSampler "high <= 0" / no occupancy path).
-                        # That is a property of the layout, not the config, and it
-                        # is DETERMINISTIC for (config, seed) — without resampling
-                        # the outer retry wrapper loops on it forever. Re-roll with
-                        # seed + k*1000; the seed_dir keeps the original label.
-                        last_exc: Exception | None = None
-                        for attempt in range(3):
-                            try_seed = seed + attempt * 1000
-                            if attempt:
-                                self.ui.append_log(
-                                    f"[isaac-seed-retry] {run_id} seed {seed}: "
-                                    f"attempt {attempt + 1} with seed {try_seed}"
-                                )
-                            try:
-                                run_isaac_generation(
-                                    isaac_sim_path=Path(self.config.isaac.isaac_sim_path),
-                                    script_path=Path(self.config.isaac.script_path),
-                                    yaml_path=yaml_path,
-                                    output_dir=seed_dir,
-                                    log_path=seed_dir / "isaac.log",
-                                    headless=self.config.isaac.headless,
-                                    num_frames_override=self.config.isaac.num_frames_override,
-                                    seed=try_seed,
-                                    log_callback=self.ui.append_log,
-                                )
-                                last_exc = None
-                                break
-                            except RuntimeError as exc:
-                                last_exc = exc
-                        if last_exc is not None:
-                            raise last_exc
-                        seed_images = discover_generated_images(seed_rgb_dir)
-                        if seed_images:
-                            generated_runs += 1
-                    if not seed_images:
-                        raise ValueError(
-                            f"No generated images discovered under {seed_dir} (seed={seed})"
-                        )
-                    image_paths.extend(seed_images)
-                image_paths = sorted(image_paths)
-            if not image_paths:
-                raise ValueError(f"No generated images discovered under {output_dir}")
-            self._write_run_manifest(output_dir, run_id, run_fingerprint, yaml_path)
-            manifest = {
-                "model_name": self._embedder_id,
-                "repo": self._embedder_repo,
-                "image_paths": [str(path) for path in image_paths],
-                "yaml_path": str(yaml_path),
-                "run_fingerprint": run_fingerprint,
-            }
-            if embedding_reused:
-                embedding_manifest_path = embedding_path.with_suffix(".manifest.json")
-                if not embedding_path.exists() or not embedding_manifest_path.exists():
-                    raise ValueError(f"Reused embedding artifacts are incomplete for {run_id}")
-            else:
-                self.embedder.embed_paths(
-                    image_paths,
-                    batch_size=self._embedder_batch_size,
-                    cache_path=embedding_path,
-                    manifest=manifest,
-                )
-            artifacts.append(
-                RunArtifact(
-                    run_id=run_id,
-                    run_fingerprint=run_fingerprint,
-                    yaml_path=yaml_path,
-                    output_dir=output_dir,
-                    log_path=log_path,
-                    embedding_path=embedding_path,
-                    image_count=len(image_paths),
-                    flattened_params=params_row,
-                    dist_id=row_record.get("dist_id"),
-                    base_pool_entry_id=row_record.get("base_pool_entry_id"),
-                    base_pool_lineage=row_record.get("base_pool_lineage"),
-                )
-            )
-            self.ui.set_status(completed_runs=run_index + 1)
+                continue
         if iteration_index == 0:
             elapsed_seconds = time.perf_counter() - iteration_started_at
             self.ui.append_log(
